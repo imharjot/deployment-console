@@ -1,0 +1,12 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_0acme","object":"response","created_at":1791181000,"status":"in_progress","model":"gpt-5-2025-08-07","output":[],"usage":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_0acme","type":"message","status":"in_progress","role":"assistant","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":2,"item_id":"msg_0acme","output_index":0,"content_index":0,"delta":"Billing is"}
+
+event: error
+data: {"type":"error","code":"server_error","message":"An error occurred while streaming the response.","param":null,"sequence_number":4}
+

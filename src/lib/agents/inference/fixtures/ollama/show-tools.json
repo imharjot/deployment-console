@@ -1,0 +1,14 @@
+{
+ "capabilities": [
+  "completion",
+  "tools",
+  "thinking"
+ ],
+ "model_info": {
+  "general.architecture": "qwen3",
+  "qwen3.context_length": 40960
+ },
+ "details": {
+  "family": "qwen3"
+ }
+}

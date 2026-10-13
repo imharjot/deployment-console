@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in the console doesn't work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Security problems must not be reported here** — see SECURITY.md.
+        Please remove account ids, hostnames, tokens and anything else private from logs and screenshots.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Ideally against the demo (`CONSOLE_SOURCE=mock`), so anyone can reproduce it.
+      placeholder: |
+        1. Open Logs, select staging → api
+        2. …
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Data source
+      options:
+        - mock (demo)
+        - aws
+    validations:
+      required: true
+  - type: dropdown
+    id: auth
+    attributes:
+      label: AUTH_MODE
+      options:
+        - session
+        - alb
+        - dev
+  - type: dropdown
+    id: db
+    attributes:
+      label: Console database
+      options:
+        - SQLite (default)
+        - Postgres (DATABASE_URL)
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The build shown at the bottom of the sidebar, or the git commit you built from.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: How the console runs (ECS Fargate, Docker, npm run dev), Node version, browser, and anything unusual about your ECS setup (ECS on EC2, shared log groups, no load balancer…).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Server log lines, errors shown under Settings → Environments, or the failing API response.
+      render: text

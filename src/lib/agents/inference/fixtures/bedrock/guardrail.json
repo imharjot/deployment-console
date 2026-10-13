@@ -1,0 +1,34 @@
+[
+ {
+  "messageStart": {
+   "role": "assistant"
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 0,
+   "delta": {
+    "text": "Sorry, I can't help with that."
+   }
+  }
+ },
+ {
+  "contentBlockStop": {
+   "contentBlockIndex": 0
+  }
+ },
+ {
+  "messageStop": {
+   "stopReason": "guardrail_intervened"
+  }
+ },
+ {
+  "metadata": {
+   "usage": {
+    "inputTokens": 100,
+    "outputTokens": 9,
+    "totalTokens": 109
+   }
+  }
+ }
+]

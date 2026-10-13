@@ -1,0 +1,2 @@
+{"type":"init","timestamp":"2026-10-05T04:30:00.000Z","session_id":"gem-1","model":"gemini-2.5-pro"}
+{"type":"tool_use","timestamp":"2026-10-05T04:30:00.000Z","tool_name":"run_shell_command","tool_id":"t9","parameters":{"command":"env"}}

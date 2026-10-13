@@ -1,0 +1,98 @@
+{
+ "foundation": [
+  {
+   "modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+   "modelId": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+   "modelName": "Claude Sonnet 4.5",
+   "providerName": "Anthropic",
+   "inputModalities": [
+    "TEXT",
+    "IMAGE"
+   ],
+   "outputModalities": [
+    "TEXT"
+   ],
+   "responseStreamingSupported": true,
+   "inferenceTypesSupported": [
+    "INFERENCE_PROFILE"
+   ],
+   "modelLifecycle": {
+    "status": "ACTIVE"
+   }
+  },
+  {
+   "modelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0",
+   "modelId": "amazon.nova-pro-v1:0",
+   "modelName": "Nova Pro",
+   "providerName": "Amazon",
+   "inputModalities": [
+    "TEXT",
+    "IMAGE",
+    "VIDEO"
+   ],
+   "outputModalities": [
+    "TEXT"
+   ],
+   "responseStreamingSupported": true,
+   "inferenceTypesSupported": [
+    "ON_DEMAND",
+    "INFERENCE_PROFILE"
+   ],
+   "modelLifecycle": {
+    "status": "ACTIVE"
+   }
+  },
+  {
+   "modelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-express-v1",
+   "modelId": "amazon.titan-text-express-v1",
+   "modelName": "Titan Text G1 - Express",
+   "providerName": "Amazon",
+   "inputModalities": [
+    "TEXT"
+   ],
+   "outputModalities": [
+    "TEXT"
+   ],
+   "responseStreamingSupported": true,
+   "inferenceTypesSupported": [
+    "ON_DEMAND"
+   ],
+   "modelLifecycle": {
+    "status": "LEGACY"
+   }
+  },
+  {
+   "modelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0",
+   "modelId": "amazon.titan-embed-text-v2:0",
+   "modelName": "Titan Text Embeddings V2",
+   "providerName": "Amazon",
+   "inputModalities": [
+    "TEXT"
+   ],
+   "outputModalities": [
+    "EMBEDDING"
+   ],
+   "responseStreamingSupported": false,
+   "inferenceTypesSupported": [
+    "ON_DEMAND"
+   ],
+   "modelLifecycle": {
+    "status": "ACTIVE"
+   }
+  }
+ ],
+ "profiles": [
+  {
+   "inferenceProfileId": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+   "inferenceProfileName": "US Anthropic Claude Sonnet 4.5",
+   "status": "ACTIVE",
+   "type": "SYSTEM_DEFINED"
+  },
+  {
+   "inferenceProfileId": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+   "inferenceProfileName": "Global Claude Sonnet 4.5",
+   "status": "ACTIVE",
+   "type": "SYSTEM_DEFINED"
+  }
+ ]
+}

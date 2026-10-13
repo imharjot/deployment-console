@@ -1,0 +1,87 @@
+# Example: deploy one ECS service from GitHub Actions in a way the Deployment Console understands.
+# Copy to .github/workflows/deploy.yml in YOUR service's repository and replace every <PLACEHOLDER>.
+#
+# What the console relies on (see docs/github.md):
+#   - the workflow name contains "deploy" (or "release" / "publish") → its runs show up as deploy markers;
+#   - it runs on the branch the environment deploys from (cluster tag console:branch, or `branch` in
+#     console.config.json) → a re-run on a protected environment's branch is treated as a deploy;
+#   - the image tag contains the git sha (<env>-<sha>) → commits, release diffs and migration checks work,
+#     and rolling back to an older task-definition revision redeploys exactly that commit.
+#
+# AWS access uses GitHub's OIDC provider: create an IAM role trusted by token.actions.githubusercontent.com for this
+# repository, allow it ecr:GetAuthorizationToken + push to the repository, ecs:DescribeTaskDefinition,
+# ecs:RegisterTaskDefinition, ecs:UpdateService, ecs:DescribeServices and iam:PassRole on the task/execution roles,
+# then store its ARN as the repository variable AWS_ROLE_ARN. No AWS keys live in GitHub.
+name: deploy
+
+on:
+  push:
+    branches: [<STAGING_BRANCH>, <PRODUCTION_BRANCH>] # e.g. staging, main
+  workflow_dispatch:
+
+permissions:
+  id-token: write # GitHub OIDC → AWS
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false # never interrupt a rollout half-way
+
+env:
+  AWS_REGION: <AWS_REGION> # e.g. us-east-1
+  ECR_REPOSITORY: <ECR_REPOSITORY> # e.g. storefront-api
+  ECS_SERVICE: <ECS_SERVICE> # e.g. api
+  CONTAINER_NAME: <CONTAINER_NAME> # the container in the task definition that runs this image
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve target environment
+        id: target
+        run: |
+          case "${{ github.ref_name }}" in
+            <PRODUCTION_BRANCH>) env=production; cluster=<PRODUCTION_CLUSTER> ;;
+            <STAGING_BRANCH>)    env=staging;    cluster=<STAGING_CLUSTER> ;;
+            *) echo "no environment deploys from ${{ github.ref_name }}" >&2; exit 1 ;;
+          esac
+          # One task-definition family per environment, e.g. api-staging / api-production.
+          { echo "env=$env"; echo "cluster=$cluster"; echo "family=${ECS_SERVICE}-$env"; } >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image (tag carries the commit)
+        id: image
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ steps.target.outputs.env }}-${{ github.sha }}
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Register a task-definition revision with the new image
+        id: taskdef
+        env:
+          FAMILY: ${{ steps.target.outputs.family }}
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: |
+          aws ecs describe-task-definition --task-definition "$FAMILY" --query taskDefinition > td.json
+          jq --arg name "$CONTAINER_NAME" --arg img "$IMAGE" '
+            (.containerDefinitions[] | select(.name == $name) | .image) = $img
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' td.json > td-new.json
+          echo "arn=$(aws ecs register-task-definition --cli-input-json file://td-new.json --query taskDefinition.taskDefinitionArn --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Update the service and wait for a healthy rollout
+        env:
+          CLUSTER: ${{ steps.target.outputs.cluster }}
+        run: |
+          aws ecs update-service --cluster "$CLUSTER" --service "$ECS_SERVICE" --task-definition "${{ steps.taskdef.outputs.arn }}" > /dev/null
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$ECS_SERVICE"

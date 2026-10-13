@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Deployment Console configuration",
+  "description": "Optional. Discovery works without this file; it only adds what AWS can't tell the console. See docs/configuration.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "environments": {
+      "type": "object",
+      "description": "Pin environment ids to ECS clusters (or to a docker compose EC2 box) and override what discovery decided.",
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
+      "additionalProperties": {
+        "type": "object",
+        "oneOf": [{ "required": ["cluster"] }, { "required": ["host"] }],
+        "additionalProperties": false,
+        "properties": {
+          "cluster": { "type": "string", "description": "ECS cluster name" },
+          "host": { "type": "string", "pattern": "^i-[0-9a-f]{8,17}$", "description": "EC2 instance id of a box that runs this environment with docker compose; its apps are the workloads whose env is this id" },
+          "label": { "type": "string" },
+          "protected": { "type": "boolean", "description": "Production-like: typed confirmations, reasons, operator role" },
+          "branch": { "type": "string", "description": "Git branch that deploys to this environment" },
+          "order": { "type": "number", "description": "Promotion order (lower deploys first)" },
+          "databases": { "type": "array", "items": { "type": "string" }, "description": "RDS instance ids that belong here" },
+          "caches": { "type": "array", "items": { "type": "string" }, "description": "ElastiCache ids that belong here" },
+          "routes": {
+            "type": "array",
+            "description": "Ingress host → service when there is no load balancer (reverse proxy)",
+            "items": { "type": "object", "required": ["host", "service"], "properties": { "host": { "type": "string" }, "service": { "type": "string" }, "port": { "type": "integer" } } }
+          },
+          "region": { "type": "string", "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]$", "description": "The region of the cluster (multi-region: pins this id to the cluster of that name in that region)" }
+        }
+      }
+    },
+    "discoverClusters": { "type": "boolean", "default": true, "description": "false = only clusters listed under environments" },
+    "ignoreClusters": { "type": "array", "items": { "type": "string" } },
+    "services": {
+      "type": "object",
+      "description": "Keyed by ECS service name.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "repo": { "type": "string", "pattern": "^[\\w.-]+/[\\w.-]+$", "description": "GitHub owner/name" },
+          "healthcheck": {
+            "description": "http(s) URL probed live (HTTP 200 = up), or one per environment id; anything else is reported and never probed",
+            "oneOf": [
+              { "type": "string", "pattern": "^https?://", "maxLength": 2048 },
+              { "type": "object", "additionalProperties": { "type": "string", "pattern": "^https?://", "maxLength": 2048 } }
+            ]
+          },
+          "migrations": { "type": "array", "items": { "type": "string" } },
+          "infra": { "type": "boolean" },
+          "hidden": { "type": "boolean" }
+        }
+      }
+    },
+    "externals": {
+      "type": "object",
+      "description": "Systems outside AWS to show on the map.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["label"],
+        "properties": { "label": { "type": "string" }, "sub": { "type": "string" }, "note": { "type": "string" }, "side": { "enum": ["source", "destination"] } }
+      }
+    },
+    "connections": {
+      "type": "array",
+      "description": "Dependencies AWS can't show. from/to: service:<name>, database:<id>, cache:<id>, ext:<id>, or ingress | db | cache.",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "label": { "type": "string" },
+          "kind": { "enum": ["http", "sql", "cache", "stream", "api"] },
+          "envs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "github": { "type": "object", "properties": { "owner": { "type": "string" } } },
+    "pricing": {
+      "type": "object",
+      "description": "List prices for the Costs page's run-rate estimate (defaults: us-east-1 on-demand).",
+      "additionalProperties": false,
+      "properties": {
+        "fargateVcpuHour": { "type": "number", "exclusiveMinimum": 0, "description": "USD per vCPU-hour (x86; ARM is 20% less)" },
+        "fargateGbHour": { "type": "number", "exclusiveMinimum": 0, "description": "USD per GB-hour" },
+        "multiplier": { "type": "number", "exclusiveMinimum": 0, "description": "Applied to every estimate, e.g. 1.1 for a pricier region" }
+      }
+    },
+    "costs": {
+      "type": "object",
+      "description": "Actual spend from AWS Cost Explorer (Costs page).",
+      "additionalProperties": false,
+      "properties": {
+        "tagKey": { "type": "string", "default": "aws:ecs:clusterName", "description": "Cost allocation tag that splits spend by environment" },
+        "spikePercent": { "type": "number", "minimum": 1, "maximum": 1000, "default": 30, "description": "Flag services whose last-7-day average is this % above the prior 21 days" },
+        "cacheHours": { "type": "number", "minimum": 1, "maximum": 168, "default": 6, "description": "Hours between Cost Explorer snapshots (each costs about $0.04)" }
+      }
+    },
+    "provisioning": {
+      "type": "object",
+      "description": "Create & scale: copying services, scaling, one-off tasks, EC2 hosts (docs/provisioning.md).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true, "description": "false = no create, scale, run-task or add-host; deleting what the console created stays possible" },
+        "maxTasks": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 10, "description": "Most tasks a service may be created or scaled to" },
+        "maxHosts": { "type": "integer", "minimum": 0, "maximum": 100, "default": 3, "description": "Most console-created EC2 hosts per environment" },
+        "allowedInstanceTypes": { "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*\\.[a-z0-9]+$" }, "description": "When set, new EC2 hosts must use one of these instance types" },
+        "allowedImageRegistries": { "type": "array", "items": { "type": "string" }, "description": "When set, image overrides in Copy a service must come from one of these registries (a host, or host/path prefix such as ghcr.io/acme). Recommended: your own ECR registry." }
+      }
+    },
+    "workloads": {
+      "type": "object",
+      "description": "Apps AWS can't see as services (docker compose on an EC2 box, another platform), shown on the cloud map with a live health check. Keyed by id (lower-case, dashes).",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "env": { "type": "string", "description": "Environment id, e.g. staging" },
+          "host": { "type": "string", "pattern": "^i-[0-9a-f]{8,17}$", "description": "EC2 instance id it runs on" },
+          "platform": { "type": "string", "description": "Shown as-is, e.g. docker compose, Railway" },
+          "healthcheck": { "type": "string", "pattern": "^https?://", "maxLength": 2048, "description": "http(s) URL probed live; HTTP 200 = up" },
+          "url": { "type": "string", "description": "Where it answers; its hostname links DNS records and CDNs to it" },
+          "repo": { "type": "string", "description": "GitHub owner/name" },
+          "note": { "type": "string" },
+          "uses": { "type": "array", "items": { "type": "string" }, "description": "What it talks to: resource keys (rds:my-db), names, hostnames, ARNs or other workload ids" }
+        }
+      }
+    },
+    "inventory": {
+      "type": "object",
+      "description": "Cloud map (docs/cloud-map.md).",
+      "additionalProperties": false,
+      "properties": {
+        "idleDays": { "type": "integer", "minimum": 1, "maximum": 365, "default": 14, "description": "A resource with no activity for this many days is marked idle" },
+        "unassignedProtected": { "type": "boolean", "default": true, "description": "Resources placed in no environment follow the protected rules for actions (typed name + reason, the protected role). false = treat them like an unprotected environment" },
+        "regions": {
+          "description": "Regions the console reads, home (AWS_REGION) first; CONSOLE_REGIONS wins over this. A list of at most 30 region codes, or \"all-enabled\" for every region enabled in the account (ec2:DescribeRegions)",
+          "oneOf": [
+            { "const": "all-enabled" },
+            { "type": "array", "minItems": 1, "maxItems": 30, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]$" } }
+          ]
+        },
+        "providers": {
+          "type": "object",
+          "description": "Which cloud-map providers run (ids as in Settings → Permissions, e.g. \"lambda\")",
+          "additionalProperties": false,
+          "properties": {
+            "include": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }, "description": "Run only these providers" },
+            "exclude": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" }, "description": "Never run these providers" }
+          }
+        },
+        "catchAll": {
+          "type": "object",
+          "description": "Opt-in sources for resources no dedicated provider reads",
+          "additionalProperties": false,
+          "properties": {
+            "config": { "type": "boolean", "default": false, "description": "Also read AWS Config's resource inventory (needs a configuration recorder)" },
+            "cloudControlTypes": { "type": "array", "maxItems": 100, "items": { "type": "string", "pattern": "^[A-Za-z0-9]+::[A-Za-z0-9]+::[A-Za-z0-9]+$" }, "description": "CloudFormation type names to list through Cloud Control, e.g. AWS::Glue::Database" }
+          }
+        }
+      }
+    },
+    "ci": {
+      "type": "object",
+      "description": "CI and deployments (docs/github.md).",
+      "additionalProperties": false,
+      "properties": {
+        "deployments": {
+          "type": "array",
+          "description": "Workflows that deploy, bound by file path: re-running one is a deploy to its environment whatever the workflow is called",
+          "items": {
+            "type": "object",
+            "required": ["repo", "workflow", "env"],
+            "additionalProperties": false,
+            "properties": {
+              "repo": { "type": "string", "pattern": "^[\\w.-]+/[\\w.-]+$", "description": "GitHub owner/name" },
+              "workflow": { "type": "string", "pattern": "^\\.github/workflows/[\\w.-]+\\.ya?ml$", "description": "The workflow file's path, e.g. .github/workflows/deploy.yml" },
+              "env": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$", "description": "Environment id it deploys to" },
+              "inputs": { "type": "object", "propertyNames": { "pattern": "^[\\w-]{1,100}$" }, "additionalProperties": { "type": "string", "maxLength": 500 }, "description": "workflow_dispatch inputs that select this environment, when one workflow deploys several" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

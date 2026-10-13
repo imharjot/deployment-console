@@ -1,0 +1,127 @@
+[
+ {
+  "messageStart": {
+   "role": "assistant"
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 0,
+   "delta": {
+    "reasoningContent": {
+     "text": "Staging first; "
+    }
+   }
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 0,
+   "delta": {
+    "reasoningContent": {
+     "text": "then the service."
+    }
+   }
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 0,
+   "delta": {
+    "reasoningContent": {
+     "signature": "ErcBCkgIBRABGAIiQNacme"
+    }
+   }
+  }
+ },
+ {
+  "contentBlockStop": {
+   "contentBlockIndex": 0
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 1,
+   "delta": {
+    "text": "Checking "
+   }
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 1,
+   "delta": {
+    "text": "staging."
+   }
+  }
+ },
+ {
+  "contentBlockStop": {
+   "contentBlockIndex": 1
+  }
+ },
+ {
+  "contentBlockStart": {
+   "contentBlockIndex": 2,
+   "start": {
+    "toolUse": {
+     "toolUseId": "tooluse_Acme1",
+     "name": "envs_status"
+    }
+   }
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 2,
+   "delta": {
+    "toolUse": {
+     "input": "{\"env\":"
+    }
+   }
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 2,
+   "delta": {
+    "toolUse": {
+     "input": "\"stag"
+    }
+   }
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 2,
+   "delta": {
+    "toolUse": {
+     "input": "ing\"}"
+    }
+   }
+  }
+ },
+ {
+  "contentBlockStop": {
+   "contentBlockIndex": 2
+  }
+ },
+ {
+  "messageStop": {
+   "stopReason": "tool_use"
+  }
+ },
+ {
+  "metadata": {
+   "usage": {
+    "inputTokens": 812,
+    "outputTokens": 64,
+    "totalTokens": 876,
+    "cacheReadInputTokens": 512
+   },
+   "metrics": {
+    "latencyMs": 930
+   }
+  }
+ }
+]

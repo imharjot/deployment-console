@@ -1,0 +1,1082 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DiscoverAndRead",
+      "Effect": "Allow",
+      "Resource": "*",
+      "Action": [
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks",
+        "ecs:ListTaskDefinitions",
+        "ecs:DescribeTaskDefinition",
+        "ecs:ListContainerInstances",
+        "ecs:DescribeContainerInstances",
+        "ec2:DescribeInstances",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSubnets",
+        "rds:DescribeDBInstances",
+        "elasticache:DescribeReplicationGroups",
+        "elasticache:DescribeCacheClusters",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeListeners",
+        "elasticloadbalancing:DescribeRules",
+        "cloudwatch:GetMetricData",
+        "ecr:DescribeImages",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:GetQueryResults",
+        "ec2:DescribeRegions",
+        "application-autoscaling:DescribeScalableTargets",
+        "application-autoscaling:DescribeScalingPolicies",
+        "secretsmanager:DescribeSecret"
+      ]
+    },
+    {
+      "Sid": "CostsRead",
+      "Effect": "Allow",
+      "Action": [
+        "ce:GetCostAndUsage",
+        "ce:GetCostForecast",
+        "ce:GetAnomalies"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SimulateOwnPermissions",
+      "Effect": "Allow",
+      "Action": [
+        "iam:SimulatePrincipalPolicy"
+      ],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/deployment-console-task"
+    },
+    {
+      "Sid": "ServiceActions",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService"
+      ],
+      "Resource": "arn:aws:ecs:REGION:ACCOUNT_ID:service/*/*"
+    },
+    {
+      "Sid": "PowerNonProtectedHostsAndDatabases",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RebootInstances",
+        "ec2:StartInstances",
+        "ec2:StopInstances",
+        "rds:StartDBInstance",
+        "rds:StopDBInstance"
+      ],
+      "Resource": [
+        "arn:aws:ec2:REGION:ACCOUNT_ID:instance/*",
+        "arn:aws:rds:REGION:ACCOUNT_ID:db:*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/console:power": "allow"
+        }
+      }
+    },
+    {
+      "Sid": "EditVariablesNewRevision",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RegisterTaskDefinition",
+        "ecs:TagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassTaskRolesToNewRevisions",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "SecretValues",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:DescribeParameters",
+        "ssm:PutParameter",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:PutSecretValue"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SecretValuesKms",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringLike": {
+          "kms:ViaService": [
+            "ssm.REGION.amazonaws.com",
+            "secretsmanager.REGION.amazonaws.com",
+            "s3.REGION.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "MessagingKms",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringLike": {
+          "kms:ViaService": [
+            "sqs.REGION.amazonaws.com",
+            "sns.REGION.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "EnvironmentFiles",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::ENV_FILES_BUCKET/*"
+    },
+    {
+      "Sid": "CreateServicesTaggedByTheConsole",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateService"
+      ],
+      "Resource": "arn:aws:ecs:REGION:ACCOUNT_ID:service/*/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DeleteOnlyConsoleCreatedServices",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DeleteService"
+      ],
+      "Resource": "arn:aws:ecs:REGION:ACCOUNT_ID:service/*/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "RunOneOffTasks",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RunTask"
+      ],
+      "Resource": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "LaunchHostsTaggedByTheConsole",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RunInstances"
+      ],
+      "Resource": [
+        "arn:aws:ec2:REGION:ACCOUNT_ID:instance/*",
+        "arn:aws:ec2:REGION:ACCOUNT_ID:volume/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "LaunchHostsFromExistingSettings",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RunInstances"
+      ],
+      "Resource": [
+        "arn:aws:ec2:REGION::image/*",
+        "arn:aws:ec2:REGION:ACCOUNT_ID:subnet/*",
+        "arn:aws:ec2:REGION:ACCOUNT_ID:network-interface/*",
+        "arn:aws:ec2:REGION:ACCOUNT_ID:security-group/*",
+        "arn:aws:ec2:REGION:ACCOUNT_ID:key-pair/*",
+        "arn:aws:ec2:REGION:ACCOUNT_ID:launch-template/*"
+      ]
+    },
+    {
+      "Sid": "TagHostsAtLaunchOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTags"
+      ],
+      "Resource": [
+        "arn:aws:ec2:REGION:ACCOUNT_ID:instance/*",
+        "arn:aws:ec2:REGION:ACCOUNT_ID:volume/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": "RunInstances"
+        }
+      }
+    },
+    {
+      "Sid": "TerminateOnlyConsoleCreatedHosts",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:TerminateInstances"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "ReadHostUserDataToCopyIt",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstanceAttribute"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:instance/*"
+    },
+    {
+      "Sid": "PassInstanceProfileRolesToNewHosts",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ec2.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "NeverActOnTheConsoleItself",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DeleteService"
+      ],
+      "Resource": "arn:aws:ecs:REGION:ACCOUNT_ID:service/CONSOLE_CLUSTER/CONSOLE_SERVICE"
+    },
+    {
+      "Sid": "NeverRunTheConsolesTaskDefinition",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:RunTask"
+      ],
+      "Resource": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/deployment-console:*"
+    },
+    {
+      "Sid": "NeverCreateAServiceFromTheConsole",
+      "Effect": "Deny",
+      "Action": [
+        "ecs:CreateService"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnLike": {
+          "ecs:task-definition": "arn:aws:ecs:REGION:ACCOUNT_ID:task-definition/deployment-console:*"
+        }
+      }
+    },
+    {
+      "Sid": "NeverPassTheConsolesOwnRole",
+      "Effect": "Deny",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/deployment-console-task"
+    },
+    {
+      "Sid": "NeverStopOrScaleTheConsolesOwnHost",
+      "Effect": "Deny",
+      "Action": [
+        "autoscaling:SetDesiredCapacity",
+        "ec2:RebootInstances",
+        "ec2:StopInstances",
+        "ec2:TerminateInstances"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/console:self": "true"
+        }
+      }
+    },
+    {
+      "Sid": "NeverReadOrWriteTheConsolesOwnParameters",
+      "Effect": "Deny",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:PutParameter"
+      ],
+      "Resource": "arn:aws:ssm:*:ACCOUNT_ID:parameter/CONSOLE_PARAM_PREFIX/*"
+    },
+    {
+      "Sid": "NeverReadOrWriteTheConsolesOwnSecrets",
+      "Effect": "Deny",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:PutSecretValue"
+      ],
+      "Resource": "arn:aws:secretsmanager:*:ACCOUNT_ID:secret:CONSOLE_SECRET_PREFIX*"
+    },
+    {
+      "Sid": "NeverReadOrWriteTheConsolesOwnEnvFile",
+      "Effect": "Deny",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::ENV_FILES_BUCKET/CONSOLE_ENV_FILE"
+    },
+    {
+      "Sid": "InventoryAcmRead",
+      "Effect": "Allow",
+      "Action": [
+        "acm:DescribeCertificate",
+        "acm:ListCertificates",
+        "acm:ListTagsForCertificate"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryAlarmsRead",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:GET",
+        "cloudwatch:DescribeAlarmHistory",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryAmplifyRead",
+      "Effect": "Allow",
+      "Action": [
+        "amplify:ListApps",
+        "amplify:ListBranches",
+        "amplify:ListDomainAssociations",
+        "amplify:ListJobs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryApigatewayWrite",
+      "Effect": "Allow",
+      "Action": [
+        "apigateway:POST"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryApprunnerRead",
+      "Effect": "Allow",
+      "Action": [
+        "apprunner:DescribeService",
+        "apprunner:DescribeVpcConnector",
+        "apprunner:ListOperations",
+        "apprunner:ListServices",
+        "apprunner:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryApprunnerWrite",
+      "Effect": "Allow",
+      "Action": [
+        "apprunner:PauseService",
+        "apprunner:ResumeService",
+        "apprunner:StartDeployment"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryAppsyncRead",
+      "Effect": "Allow",
+      "Action": [
+        "appsync:ListDataSources",
+        "appsync:ListGraphqlApis"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryAsgRead",
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:DescribeAutoScalingGroups",
+        "autoscaling:DescribeScalingActivities",
+        "autoscaling:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryAsgWrite",
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:SetDesiredCapacity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryAthenaRead",
+      "Effect": "Allow",
+      "Action": [
+        "athena:GetWorkGroup",
+        "athena:ListWorkGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryBatchRead",
+      "Effect": "Allow",
+      "Action": [
+        "batch:DescribeComputeEnvironments",
+        "batch:DescribeJobDefinitions",
+        "batch:DescribeJobQueues",
+        "batch:ListJobs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryBeanstalkRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStackResources",
+        "elasticbeanstalk:DescribeApplicationVersions",
+        "elasticbeanstalk:DescribeApplications",
+        "elasticbeanstalk:DescribeConfigurationSettings",
+        "elasticbeanstalk:DescribeEnvironmentHealth",
+        "elasticbeanstalk:DescribeEnvironmentResources",
+        "elasticbeanstalk:DescribeEnvironments",
+        "elasticbeanstalk:DescribeEvents",
+        "elasticbeanstalk:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryBeanstalkWrite",
+      "Effect": "Allow",
+      "Action": [
+        "elasticbeanstalk:RestartAppServer",
+        "elasticbeanstalk:UpdateEnvironment"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCatchallRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:ListResources",
+        "config:DescribeConfigurationRecorderStatus",
+        "config:SelectResourceConfig",
+        "resource-explorer-2:ListIndexes",
+        "resource-explorer-2:Search",
+        "tag:GetResources"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCloudformationRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStacks",
+        "cloudformation:ListStackResources"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCloudfrontRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:GetInvalidation",
+        "cloudfront:ListDistributions",
+        "cloudfront:ListInvalidations",
+        "cloudfront:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCloudfrontWrite",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateInvalidation"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCloudmapRead",
+      "Effect": "Allow",
+      "Action": [
+        "servicediscovery:GetInstancesHealthStatus",
+        "servicediscovery:ListInstances",
+        "servicediscovery:ListNamespaces",
+        "servicediscovery:ListServices",
+        "servicediscovery:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCloudtrailRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:DescribeTrails",
+        "cloudtrail:GetTrailStatus",
+        "cloudtrail:ListTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCodebuildRead",
+      "Effect": "Allow",
+      "Action": [
+        "codebuild:BatchGetBuilds",
+        "codebuild:BatchGetProjects",
+        "codebuild:ListBuildsForProject",
+        "codebuild:ListProjects"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCodedeployRead",
+      "Effect": "Allow",
+      "Action": [
+        "codedeploy:BatchGetDeploymentGroups",
+        "codedeploy:BatchGetDeployments",
+        "codedeploy:ListApplications",
+        "codedeploy:ListDeploymentGroups",
+        "codedeploy:ListDeployments",
+        "codedeploy:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryCodepipelineRead",
+      "Effect": "Allow",
+      "Action": [
+        "codepipeline:GetPipeline",
+        "codepipeline:GetPipelineState",
+        "codepipeline:ListPipelineExecutions",
+        "codepipeline:ListPipelines",
+        "codepipeline:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryDynamodbRead",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:ListTables",
+        "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEbsRead",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeVolumes"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEc2Read",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeAddresses",
+        "ec2:DescribeInstanceStatus",
+        "ec2:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEcrRead",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:DescribeImageScanFindings",
+        "ecr:DescribeRepositories",
+        "ecr:GetLifecyclePolicy",
+        "ecr:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEcsImageRead",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEfsRead",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeNetworkInterfaceAttribute",
+        "elasticfilesystem:DescribeAccessPoints",
+        "elasticfilesystem:DescribeFileSystems",
+        "elasticfilesystem:DescribeMountTargetSecurityGroups",
+        "elasticfilesystem:DescribeMountTargets"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEksRead",
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeCluster",
+        "eks:DescribeNodegroup",
+        "eks:ListAddons",
+        "eks:ListClusters",
+        "eks:ListFargateProfiles",
+        "eks:ListNodegroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEksWrite",
+      "Effect": "Allow",
+      "Action": [
+        "eks:UpdateNodegroupConfig"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryElasticacheRead",
+      "Effect": "Allow",
+      "Action": [
+        "elasticache:DescribeCacheSubnetGroups",
+        "elasticache:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryElasticacheServerlessRead",
+      "Effect": "Allow",
+      "Action": [
+        "elasticache:DescribeServerlessCaches"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryElbRead",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancerAttributes",
+        "elasticloadbalancing:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEventbridgeRead",
+      "Effect": "Allow",
+      "Action": [
+        "events:ListApiDestinations",
+        "events:ListEventBuses",
+        "events:ListRules",
+        "events:ListTagsForResource",
+        "events:ListTargetsByRule"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryEventbridgeWrite",
+      "Effect": "Allow",
+      "Action": [
+        "events:DisableRule",
+        "events:EnableRule"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryFirehoseRead",
+      "Effect": "Allow",
+      "Action": [
+        "firehose:DescribeDeliveryStream",
+        "firehose:ListDeliveryStreams",
+        "firehose:ListTagsForDeliveryStream"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryGlueRead",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetCrawlers",
+        "glue:GetJobRuns",
+        "glue:GetJobs",
+        "glue:GetTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryIamRead",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetAccountAuthorizationDetails"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryKinesisRead",
+      "Effect": "Allow",
+      "Action": [
+        "kinesis:DescribeStreamSummary",
+        "kinesis:ListStreamConsumers",
+        "kinesis:ListStreams",
+        "kinesis:ListTagsForStream"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryKmsRead",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GetKeyRotationStatus",
+        "kms:ListAliases",
+        "kms:ListKeys",
+        "kms:ListResourceTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryLambdaRead",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetPolicy",
+        "lambda:ListAliases",
+        "lambda:ListEventSourceMappings",
+        "lambda:ListFunctionEventInvokeConfigs",
+        "lambda:ListFunctionUrlConfigs",
+        "lambda:ListFunctions",
+        "lambda:ListTags",
+        "lambda:ListVersionsByFunction"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryLambdaWrite",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:DeleteFunctionConcurrency",
+        "lambda:InvokeFunction",
+        "lambda:PublishVersion",
+        "lambda:PutFunctionConcurrency",
+        "lambda:UpdateAlias",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryLightsailRead",
+      "Effect": "Allow",
+      "Action": [
+        "lightsail:GetContainerServices",
+        "lightsail:GetInstances",
+        "lightsail:GetRelationalDatabases"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryLogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeSubscriptionFilters",
+        "logs:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryMemorydbRead",
+      "Effect": "Allow",
+      "Action": [
+        "memorydb:DescribeClusters",
+        "memorydb:ListTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryMqRead",
+      "Effect": "Allow",
+      "Action": [
+        "mq:DescribeBroker",
+        "mq:ListBrokers"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryMskRead",
+      "Effect": "Allow",
+      "Action": [
+        "kafka:GetBootstrapBrokers",
+        "kafka:ListClustersV2"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryOpensearchRead",
+      "Effect": "Allow",
+      "Action": [
+        "es:DescribeDomains",
+        "es:ListDomainNames",
+        "es:ListTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryPipesRead",
+      "Effect": "Allow",
+      "Action": [
+        "pipes:DescribePipe",
+        "pipes:ListPipes"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryRdsClusterRead",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBProxies",
+        "rds:DescribeDBProxyTargets",
+        "rds:DescribeDBSubnetGroups",
+        "rds:DescribeGlobalClusters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryRedshiftRead",
+      "Effect": "Allow",
+      "Action": [
+        "redshift-serverless:ListNamespaces",
+        "redshift-serverless:ListWorkgroups",
+        "redshift:DescribeClusters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryRoute53Read",
+      "Effect": "Allow",
+      "Action": [
+        "route53:GetHealthCheckStatus",
+        "route53:GetHostedZone",
+        "route53:ListHealthChecks",
+        "route53:ListHostedZones",
+        "route53:ListResourceRecordSets",
+        "route53:ListTagsForResources"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryS3Read",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:GetBucketLogging",
+        "s3:GetBucketNotification",
+        "s3:GetBucketPolicyStatus",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:GetBucketTagging",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketWebsite",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:ListAllMyBuckets",
+        "s3:ListBucket"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySchedulerRead",
+      "Effect": "Allow",
+      "Action": [
+        "scheduler:GetSchedule",
+        "scheduler:ListSchedules"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySecretsRead",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:ListSecrets"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySecurityGroupRead",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeSecurityGroupRules"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySesRead",
+      "Effect": "Allow",
+      "Action": [
+        "ses:GetAccount",
+        "ses:GetConfigurationSetEventDestinations",
+        "ses:GetEmailIdentity",
+        "ses:ListConfigurationSets",
+        "ses:ListEmailIdentities"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySnsRead",
+      "Effect": "Allow",
+      "Action": [
+        "sns:GetSubscriptionAttributes",
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic",
+        "sns:ListTagsForResource",
+        "sns:ListTopics"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySnsWrite",
+      "Effect": "Allow",
+      "Action": [
+        "sns:Publish"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySqsRead",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:GetQueueAttributes",
+        "sqs:ListMessageMoveTasks",
+        "sqs:ListQueueTags",
+        "sqs:ListQueues"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySqsWrite",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:DeleteMessage",
+        "sqs:PurgeQueue",
+        "sqs:ReceiveMessage",
+        "sqs:SendMessage",
+        "sqs:StartMessageMoveTask"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySsmRead",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryStepfunctionsRead",
+      "Effect": "Allow",
+      "Action": [
+        "states:DescribeStateMachine",
+        "states:ListExecutions",
+        "states:ListStateMachines",
+        "states:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryStepfunctionsWrite",
+      "Effect": "Allow",
+      "Action": [
+        "states:StartExecution"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventorySyntheticsRead",
+      "Effect": "Allow",
+      "Action": [
+        "synthetics:DescribeCanaries",
+        "synthetics:DescribeCanariesLastRun"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryTransferRead",
+      "Effect": "Allow",
+      "Action": [
+        "transfer:DescribeServer",
+        "transfer:ListServers",
+        "transfer:ListUsers"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "InventoryVpcRead",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeEgressOnlyInternetGateways",
+        "ec2:DescribeFlowLogs",
+        "ec2:DescribeInternetGateways",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeNetworkAcls",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeTransitGatewayAttachments",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:DescribeVpcPeeringConnections",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeVpnConnections"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

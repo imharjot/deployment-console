@@ -1,0 +1,107 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # next typegen (route types such as RouteContext are generated), then tsc --noEmit.
+      - run: npm run typecheck
+      - run: npm run lint
+      # Unit tests, also written as JUnit — the console shows test results from any artifact named junit-*.
+      - run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=reports/unit.xml "src/**/*.test.ts"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-unit
+          path: reports/*.xml
+          retention-days: 14
+      # The deterministic agent scenario suites (scripted model, simulated account, in-memory DB). They never run the
+      # Claude CLI; `npm run e2e:agents` (real CLI, needs a login) stays out of CI. --if-present: a no-op until the
+      # script exists.
+      - run: npm run test:agents --if-present
+      - run: npm run iam:policy -- --check
+      - run: npm run build
+
+  # The DB and coordinator suites against a real Postgres: transaction isolation, advisory-lock migrations, BIGSERIAL
+  # and ON CONFLICT … WHERE leases behave differently from SQLite. The suites create and drop their own databases.
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:pg
+        env:
+          PG_TEST_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+  # The end-to-end smoke suite (scripts/smoke.mjs + smoke.d/) against the simulated "Acme" account: every route and
+  # server-side guard. The dev server binds to 127.0.0.1 (dev auth makes every caller an admin). No AWS credentials,
+  # no GitHub token, no Claude CLI: the console runs on its mock source.
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Start the demo console
+        shell: bash
+        run: |
+          mkdir -p reports
+          CONSOLE_SOURCE=mock AUTH_MODE=dev nohup npm run dev > reports/dev-server.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3200/api/healthz > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          echo "the console didn't answer /api/healthz within 3 minutes"
+          tail -n 80 reports/dev-server.log
+          exit 1
+      - name: Smoke
+        shell: bash
+        run: BASE=http://127.0.0.1:3200 npm run smoke 2>&1 | tee reports/smoke.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-log
+          path: reports/*.log
+          retention-days: 14

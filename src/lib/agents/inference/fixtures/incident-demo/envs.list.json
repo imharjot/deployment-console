@@ -1,0 +1,45 @@
+[
+ {
+  "id": "staging",
+  "label": "Staging",
+  "protected": false,
+  "region": "us-east-1",
+  "cluster": "acme-staging",
+  "kind": "ec2",
+  "branch": "staging",
+  "worst": "UP",
+  "counts": {
+   "UP": 7
+  },
+  "sampledAt": "2026-10-05T06:30:50.436Z"
+ },
+ {
+  "id": "production",
+  "label": "Production",
+  "protected": true,
+  "region": "us-east-1",
+  "cluster": "acme-production",
+  "kind": "fargate",
+  "branch": "main",
+  "worst": "DEGRADED",
+  "counts": {
+   "UP": 8,
+   "DEGRADED": 1
+  },
+  "sampledAt": "2026-10-05T06:30:50.437Z"
+ },
+ {
+  "id": "production-eu-west-1",
+  "label": "Production (eu-west-1)",
+  "protected": true,
+  "region": "eu-west-1",
+  "cluster": "acme-production",
+  "kind": "fargate",
+  "branch": "main",
+  "worst": "UP",
+  "counts": {
+   "UP": 4
+  },
+  "sampledAt": "2026-10-05T06:30:50.436Z"
+ }
+]

@@ -1,0 +1,588 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ==========================================================================
+   Obsidian & Porcelain — the console's visual language.
+   Quiet and editorial: flat surfaces separated by hairlines, one warm metallic
+   accent (champagne) for focus, the active item, links and the selected
+   environment, state colours for health, and identity hues (--hue-*, --kind-*,
+   --cat-*, --edge-*) that tell kinds of things apart: compute blue, data violet,
+   caches teal, the edge cyan, messaging pink.
+
+   Usage
+   - Surfaces: bg-bg (page) → bg-panel (cards) → bg-panel-2 (wells, inputs) → bg-panel-3 (hover, pressed).
+   - Text: text-fg · text-fg-2 · text-fg-3 (captions). Each passes WCAG AA on every surface above.
+   - Lines: border-line (hairline) · border-line-strong (hover, inputs).
+   - Primary action: bg-primary text-primary-fg hover:bg-primary-hover (ivory on dark, ink on light).
+     Accent is not a button fill: a filled accent chip is bg-accent text-accent-fg (never text-white).
+   - Destructive: text-down border-down/40 bg-down/8 (see <Button variant="danger">).
+   - State colours: up, degraded, down, deploying, stopped, boxstopped, unknown. Use them as text, as
+     8–10% tints and as 25–30% hairlines; healthy things stay neutral.
+   - Type: font-display (Bricolage Grotesque, semibold) for page titles and hero numbers; every h1 uses it.
+     `eyebrow` for small uppercase section labels; Manrope / JetBrains Mono for everything else.
+     Body text is 14px; captions 12–13px. Nothing below 11px.
+   - Radius: rounded-lg 10px controls · rounded-xl 12px wells · rounded-2xl 14px cards · rounded-3xl 18px canvases.
+   - Elevation: shadow-card (soft layers in light; hairline + top highlight in dark) · shadow-float (menus, dialogs).
+   ========================================================================== */
+
+/* ---------- tokens ---------- */
+:root {
+  color-scheme: light;
+  --bg: #fafaf9;
+  --panel: #ffffff;
+  --panel-2: #f4f4f3;
+  --panel-3: #ececea;
+  --canvas: #f6f6f5;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-strong: rgba(0, 0, 0, 0.17);
+  --text: #0e0e0e;
+  --text-2: #3f3f3f;
+  --text-3: #5a5a5a;
+
+  --primary: #111111;
+  --primary-fg: #fafaf9;
+  --primary-hover: #2a2a2a;
+  --accent: #806337;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(128, 99, 55, 0.1);
+  --focus: rgba(128, 99, 55, 0.6);
+
+  --shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.02), 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 16px -10px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.04), 0 16px 40px -16px rgba(0, 0, 0, 0.16), 0 40px 80px -40px rgba(0, 0, 0, 0.2);
+  --scrim: rgba(24, 24, 22, 0.24);
+
+  --up: #3b7654;
+  --degraded: #8f621b;
+  --down: #b0463a;
+  --deploying: #3b6a93;
+  --stopped: #5f5f5f;
+  --boxstopped: #6a5f4f;
+  --unknown: #5a5a5a;
+
+  /* categorical series (charts); lines only, ≥3:1 on the surface */
+  --series-1: #4a7aa3;
+  --series-2: #9a7644;
+  --series-3: #4f8a64;
+  --series-4: #b8574a;
+  --series-5: #7a6aa3;
+  --series-6: #3f8a82;
+  --series-7: #93802f;
+  --series-8: #6e6e6e;
+
+  /* identity hues: what a thing IS (compute, data, network…). State colours above say how it's doing; these never do.
+     Icons, chips, lane titles and connection lines only, at ≥ 3:1 on panels. */
+  --hue-blue: #2563c9;
+  --hue-violet: #7446cf;
+  --hue-teal: #0b8a7e;
+  --hue-cyan: #0e7fa3;
+  --hue-pink: #c03a85;
+  --hue-orange: #c25a1c;
+  --hue-indigo: #4a52d0;
+  --hue-rose: #c0405a;
+  --hue-lime: #5b8a14;
+  --hue-slate: #5d6878;
+
+  --log-bg: #fcfcfb;
+  --log-row-hover: #f2f2f0;
+  --log-sel: rgba(128, 99, 55, 0.12);
+  --log-mark: rgba(214, 170, 80, 0.35);
+
+  /* motion: enters land softly, exits accelerate away (mirrors src/components/motion.tsx) */
+  --ease-out-soft: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-in-soft: cubic-bezier(0.4, 0, 1, 1);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0a0b;
+  --panel: #111113;
+  --panel-2: #161618;
+  --panel-3: #1c1c1f;
+  --canvas: #0c0c0d;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.15);
+  --text: #f2f2f2;
+  --text-2: #bdbdbd;
+  --text-3: #9e9e9e;
+
+  --primary: #edebe6;
+  --primary-fg: #0a0a0b;
+  --primary-hover: #ffffff;
+  --accent: #cdb38b;
+  --accent-fg: #17130c;
+  --accent-soft: rgba(205, 179, 139, 0.12);
+  --focus: rgba(205, 179, 139, 0.65);
+
+  /* Dark elevation is a faint top highlight, not a shadow; floating layers add depth below. */
+  --shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --shadow-lg: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 64px -16px rgba(0, 0, 0, 0.72);
+  --scrim: rgba(0, 0, 0, 0.56);
+
+  --up: #86b49a;
+  --degraded: #d6a85c;
+  --down: #e58a7d;
+  --deploying: #8fb3d6;
+  --stopped: #9a9a9a;
+  --boxstopped: #b0a899;
+  --unknown: #9e9e9e;
+
+  --series-1: #a8c0d6;
+  --series-2: #d4b58a;
+  --series-3: #93bba2;
+  --series-4: #e0968a;
+  --series-5: #b3a8cf;
+  --series-6: #8fbfb8;
+  --series-7: #d2bd7e;
+  --series-8: #a8a8a8;
+
+  --hue-blue: #6ea8fe;
+  --hue-violet: #b195f7;
+  --hue-teal: #45c9bc;
+  --hue-cyan: #5ec6e6;
+  --hue-pink: #ee7fbd;
+  --hue-orange: #f0975f;
+  --hue-indigo: #8f97fb;
+  --hue-rose: #f28b9b;
+  --hue-lime: #a6d36a;
+  --hue-slate: #a0aab8;
+
+  --log-bg: #0c0c0d;
+  --log-row-hover: #141416;
+  --log-sel: rgba(205, 179, 139, 0.14);
+  --log-mark: rgba(214, 170, 80, 0.28);
+}
+
+/* What each identity hue stands for. Overview kinds, cloud-map categories and connection kinds share one vocabulary:
+   compute is blue, data violet, caches and storage teal, the edge and load balancers cyan, messaging pink. */
+:root {
+  --kind-service: var(--hue-blue);
+  --kind-box: var(--hue-orange);
+  --kind-database: var(--hue-violet);
+  --kind-cache: var(--hue-teal);
+  --kind-loadbalancer: var(--hue-cyan);
+  --kind-external: var(--hue-slate);
+
+  --cat-edge: var(--hue-cyan);
+  --cat-compute: var(--hue-blue);
+  --cat-messaging: var(--hue-pink);
+  --cat-data: var(--hue-violet);
+  --cat-storage: var(--hue-teal);
+  --cat-external: var(--hue-slate);
+  --cat-network: var(--hue-indigo);
+  --cat-security: var(--hue-rose);
+  --cat-observability: var(--hue-lime);
+  --cat-delivery: var(--hue-orange);
+  --cat-other: var(--hue-slate);
+
+  --edge-http: var(--hue-blue);
+  --edge-sql: var(--hue-violet);
+  --edge-cache: var(--hue-teal);
+  --edge-stream: var(--hue-pink);
+  --edge-api: var(--hue-slate);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-panel-3: var(--panel-3);
+  --color-canvas: var(--canvas);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-fg-2: var(--text-2);
+  --color-fg-3: var(--text-3);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-hover: var(--primary-hover);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-up: var(--up);
+  --color-degraded: var(--degraded);
+  --color-down: var(--down);
+  --color-deploying: var(--deploying);
+  --color-stopped: var(--stopped);
+  --color-boxstopped: var(--boxstopped);
+  --color-unknown: var(--unknown);
+  --font-sans: var(--font-ui-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-ui-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: var(--font-ui-display), var(--font-ui-sans), ui-sans-serif, system-ui, sans-serif;
+  --shadow-card: var(--shadow);
+  --shadow-float: var(--shadow-lg);
+  --ease-smooth: var(--ease-out-soft);
+}
+
+/* Softer, fewer radii: 10px controls, 14px cards, 18px canvases. text-xs is 13px (not 12) for legibility. */
+@theme {
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.375rem;
+  --radius-lg: 0.625rem;
+  --radius-2xl: 0.875rem;
+  --radius-3xl: 1.125rem;
+}
+
+/* Press feedback: a quick 3% dip on press, a soft settle on release. Cards use --press-scale: 0.985. */
+@utility press {
+  transition-property: scale, translate, color, background-color, border-color, box-shadow, opacity;
+  transition-duration: 200ms;
+  transition-timing-function: var(--ease-out-soft);
+  &:active:not(:disabled) {
+    scale: var(--press-scale, 0.97);
+    transition-duration: 80ms;
+  }
+}
+/* The same dip on the content only, for pressables that host a sliding indicator: scaling the host
+   would make the indicator measure a shrunken box and snap when it lands. Needs a non-inline box. */
+@utility press-content {
+  transition: scale 200ms var(--ease-out-soft);
+  .group:active:not(:disabled) & {
+    scale: var(--press-scale, 0.96);
+    transition-duration: 80ms;
+  }
+}
+
+/* Interactive cards lift a pixel and firm up their edge on hover (pointer devices only). Same transition list as
+   `press`, so the two compose whichever wins the cascade. */
+@utility lift {
+  transition-property: scale, translate, color, background-color, border-color, box-shadow, opacity;
+  transition-duration: 220ms;
+  transition-timing-function: var(--ease-out-soft);
+  @media (hover: hover) {
+    &:hover {
+      translate: 0 -2px;
+      border-color: var(--border-strong);
+      box-shadow: var(--shadow-lg);
+    }
+  }
+}
+
+/* An icon tile in its identity hue: set --hue on the element (style={hue("database")} etc.). */
+@utility hue-chip {
+  color: var(--hue, var(--text-3));
+  background-color: color-mix(in srgb, var(--hue, var(--text-3)) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hue, var(--text-3)) 28%, transparent);
+}
+@utility hue-text {
+  color: var(--hue, var(--text-3));
+}
+
+/* Small uppercase label above a group (Runtime, Ingress, …). */
+@utility eyebrow {
+  font-size: 11.5px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* Sideways scrollers fade only on the side with more to show; JS sets data-fade-start / data-fade-end. */
+@utility edge-fade {
+  --fade-l: 0px;
+  --fade-r: 0px;
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade-l), #000 calc(100% - var(--fade-r)), transparent);
+  &[data-fade-start="true"] {
+    --fade-l: 24px;
+  }
+  &[data-fade-end="true"] {
+    --fade-r: 24px;
+  }
+}
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ---------- base ---------- */
+html,
+body {
+  height: 100%;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 450; /* Manrope's 400 is light on dark surfaces; 450 reads clearly without looking bold */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+}
+@layer base {
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+  /* Page titles and hero numbers: the display face, semibold and slightly tightened (it has an optical-size axis). */
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+  }
+  .font-display {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  /* Keyboard focus only: a champagne ring that follows each element's own radius. */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role="tab"],
+  [role="option"],
+  summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+/* iOS zooms into any field under 16px on focus; touch screens get 16px fields instead. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* ---------- state motion (transform / opacity only, so it never repaints) ---------- */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes halo {
+  from {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(2.8);
+    opacity: 0;
+  }
+}
+
+/* Components sit in their layer so utilities (absolute, rounded-2xl, size-*) can override them. */
+@layer components {
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--dot);
+    flex: none;
+    position: relative;
+    transition:
+      background-color 0.3s var(--ease-out-soft),
+      border-color 0.3s var(--ease-out-soft);
+  }
+  /* One soft ring when a resource changes state. */
+  .dot-ping {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    box-shadow: 0 0 0 1.5px var(--dot);
+    pointer-events: none;
+    animation: dot-ping 0.9s var(--ease-out-soft) both;
+  }
+  /* Healthy is still; only states that need attention move. */
+  .dot[data-anim="pulse"]::after,
+  .dot[data-anim="alarm"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--dot);
+    animation: halo 2.6s var(--ease-out-soft) infinite;
+  }
+  .dot[data-anim="alarm"]::after {
+    animation-duration: 1.4s;
+  }
+  .dot[data-anim="spin"] {
+    background: transparent;
+    border: 1.5px solid color-mix(in srgb, var(--dot) 30%, transparent);
+    border-top-color: var(--dot);
+    animation: spin 0.9s linear infinite;
+  }
+  .dot[data-anim="hatch"] {
+    background: repeating-linear-gradient(135deg, var(--dot) 0 2px, transparent 2px 4px);
+    box-shadow: inset 0 0 0 1px var(--dot);
+  }
+
+  /* Skeletons wait 120ms before fading in, so fast loads never flash a placeholder. */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--panel-2);
+    border-radius: 10px;
+    animation: fade-in 0.24s var(--ease-out-soft) 0.12s both;
+  }
+  /* A sheen that travels by transform, so loading states never repaint. */
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--panel-3) 80%, transparent), transparent);
+    animation: sheen 1.8s var(--ease-out-soft) infinite;
+  }
+}
+@keyframes dot-ping {
+  from {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(3.2);
+  }
+}
+@keyframes sheen {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Newly arrived list rows: a champagne tint that fades back to the row's own background. */
+.row-arrive {
+  animation: row-arrive 1.4s var(--ease-out-soft);
+}
+@keyframes row-arrive {
+  from,
+  25% {
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+}
+.fade-in {
+  animation: fade-in 0.28s var(--ease-out-soft) both;
+}
+/* Grids and lists arrive in a quick cascade: each child rises 6px, 35ms after the one before (the first 12; the rest
+   with the twelfth). Transform and opacity only. */
+.stagger > * {
+  animation: rise-in 0.42s var(--ease-out-soft) both;
+}
+.stagger > :nth-child(2) { animation-delay: 35ms; }
+.stagger > :nth-child(3) { animation-delay: 70ms; }
+.stagger > :nth-child(4) { animation-delay: 105ms; }
+.stagger > :nth-child(5) { animation-delay: 140ms; }
+.stagger > :nth-child(6) { animation-delay: 175ms; }
+.stagger > :nth-child(7) { animation-delay: 210ms; }
+.stagger > :nth-child(8) { animation-delay: 245ms; }
+.stagger > :nth-child(9) { animation-delay: 280ms; }
+.stagger > :nth-child(10) { animation-delay: 315ms; }
+.stagger > :nth-child(11) { animation-delay: 350ms; }
+.stagger > :nth-child(n + 12) { animation-delay: 385ms; }
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Whole-page theme change crossfades (View Transitions, see useTheme). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.32s;
+  animation-timing-function: var(--ease-out-soft);
+}
+
+/* Service map: one soft highlight glides along the paths of the hovered or focused node. */
+.edge-pulse {
+  stroke-dasharray: 0.07 1;
+  animation: edge-pulse 2.8s var(--ease-out-soft) infinite;
+}
+@keyframes edge-pulse {
+  from {
+    stroke-dashoffset: 0.07;
+  }
+  70%,
+  to {
+    stroke-dashoffset: -1;
+  }
+}
+
+/* Log rows are plain DOM for speed: no transitions, fixed height, one line. */
+.log-row {
+  height: 20px;
+  line-height: 20px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  contain: strict;
+}
+.log-row:hover {
+  background: var(--log-row-hover);
+}
+mark.hl {
+  background: var(--log-mark);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* ---------- lite effects ----------
+   <html data-perf="lite"> (src/lib/client/perf.ts): weak devices, Save-Data, reduced motion, or chosen in Settings →
+   Interface. Background blur (re-composited on every scroll frame) and endless animations go; short transitions stay. */
+[data-perf="lite"] * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+[data-perf="lite"] header.sticky {
+  background-color: var(--bg);
+}
+[data-perf="lite"] .dot::after,
+[data-perf="lite"] .dot-ping,
+[data-perf="lite"] .skeleton::after,
+[data-perf="lite"] .edge-pulse {
+  animation: none !important;
+  display: none;
+}
+[data-perf="lite"] .stagger > * {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot,
+  .dot::after,
+  .dot-ping,
+  .skeleton,
+  .skeleton::after,
+  .row-arrive,
+  .fade-in,
+  .stagger > *,
+  .edge-pulse {
+    animation: none !important;
+  }
+  .dot-ping,
+  .dot::after,
+  .edge-pulse {
+    display: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

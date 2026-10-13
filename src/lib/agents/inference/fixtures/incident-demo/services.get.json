@@ -1,0 +1,84 @@
+{
+ "env": "production",
+ "service": "billing",
+ "name": "Billing",
+ "state": "DEGRADED",
+ "reasons": [
+  "0/1 running, 1 pending",
+  "tasks stopped: OutOfMemoryError (exit code 137)"
+ ],
+ "desired": 1,
+ "running": 0,
+ "pending": 1,
+ "launchType": "FARGATE",
+ "status": "ACTIVE",
+ "circuitBreaker": true,
+ "revision": {
+  "number": 123,
+  "family": "billing-production",
+  "arn": "arn:aws:ecs:us-east-1:123456789012:task-definition/billing-production:123",
+  "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/acme/billing:production-e713ba70f9ac188246a210ac7721ac4a988e0397",
+  "tag": "production-e713ba70f9ac188246a210ac7721ac4a988e0397",
+  "sha": "e713ba70f9ac188246a210ac7721ac4a988e0397",
+  "registeredAt": "2026-10-05T03:23:28.346Z"
+ },
+ "deployments": [
+  {
+   "status": "PRIMARY",
+   "rollout": "COMPLETED",
+   "revision": 123,
+   "running": 0,
+   "desired": 1,
+   "createdAt": "2026-10-05T03:23:58.346Z"
+  },
+  {
+   "status": "INACTIVE",
+   "rollout": "FAILED",
+   "reason": "ECS deployment circuit breaker: tasks failed to start.",
+   "revision": 124,
+   "running": 0,
+   "desired": 0,
+   "failedTasks": 3,
+   "createdAt": "2026-10-05T06:14:00.000Z"
+  }
+ ],
+ "tasks": [
+  {
+   "id": "7d1c0a52e3f84b6a9c0d4e2f1a3b5c7d",
+   "lastStatus": "PENDING",
+   "desiredStatus": "RUNNING",
+   "health": "UNKNOWN",
+   "startedAt": "2026-10-05T06:30:40.000Z"
+  },
+  {
+   "id": "c454cd59a7beeb2e61d5ea707a5ddbc8",
+   "lastStatus": "STOPPED",
+   "desiredStatus": "STOPPED",
+   "health": "UNHEALTHY",
+   "startedAt": "2026-10-05T03:23:58.346Z",
+   "stoppedAt": "2026-10-05T06:29:10.000Z",
+   "stoppedReason": "OutOfMemoryError: Container killed due to memory usage",
+   "exitCode": 137
+  },
+  {
+   "id": "a39962e2d529f90349bd4691b448e60b",
+   "lastStatus": "STOPPED",
+   "desiredStatus": "STOPPED",
+   "health": "UNHEALTHY",
+   "startedAt": "2026-10-05T06:20:02.000Z",
+   "stoppedAt": "2026-10-05T06:27:31.000Z",
+   "stoppedReason": "OutOfMemoryError: Container killed due to memory usage",
+   "exitCode": 137
+  }
+ ],
+ "repo": "acme/billing",
+ "logs": true,
+ "actions": [
+  "restart",
+  "stop",
+  "switch"
+ ],
+ "blocked": {
+  "start": "already started (desired count is 1)"
+ }
+}

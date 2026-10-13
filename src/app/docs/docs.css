@@ -1,0 +1,49 @@
+/* Typography for rendered docs. Uses the app's tokens so both themes work. */
+.doc { font-size: 14.5px; line-height: 1.7; color: var(--text-2); }
+.doc h1 { font-family: var(--font-display); font-size: 40px; line-height: 1.1; font-weight: 400; letter-spacing: -0.01em; color: var(--text); margin: 0 0 0.5em; }
+.doc h2 { font-size: 20px; font-weight: 620; letter-spacing: -0.01em; color: var(--text); margin: 2.2em 0 0.6em; padding-top: 0.2em; }
+.doc h3 { font-size: 16px; font-weight: 600; color: var(--text); margin: 1.8em 0 0.5em; }
+.doc h2, .doc h3 { position: relative; scroll-margin-top: 80px; }
+.doc .anchor { position: absolute; left: -1em; opacity: 0; color: var(--text-3); text-decoration: none; transition: opacity .15s; }
+.doc h2:hover .anchor, .doc h3:hover .anchor { opacity: 1; }
+@media (pointer: coarse) { .doc .anchor { display: none; } } /* hover-only affordance */
+.doc p, .doc ul, .doc ol, .doc pre, .doc blockquote { margin: 0 0 1em; }
+.doc ul, .doc ol { padding-left: 1.3em; }
+.doc ul { list-style: disc; }
+.doc ol { list-style: decimal; }
+.doc li { margin: 0.25em 0; }
+.doc li::marker { color: var(--text-3); }
+.doc a { color: var(--accent); text-decoration: none; }
+.doc a:hover { text-decoration: underline; }
+.doc strong { color: var(--text); font-weight: 600; }
+.doc code { font-family: var(--font-mono); font-size: 0.86em; background: var(--panel-3); border: 1px solid var(--border); border-radius: 5px; padding: 0.08em 0.35em; color: var(--text); }
+.doc pre { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; overflow-x: auto; }
+.doc pre code { background: none; border: 0; padding: 0; font-size: 12.5px; line-height: 1.6; }
+.doc .table-wrap { overflow-x: auto; margin: 0 0 1em; }
+.doc table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0; }
+.doc th { text-align: left; font-weight: 600; color: var(--text); background: var(--panel-2); }
+.doc th, .doc td { border: 1px solid var(--border); padding: 7px 10px; vertical-align: top; }
+.doc blockquote { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 10px 10px 0; padding: 10px 14px; color: var(--text); }
+.doc blockquote p:last-child { margin: 0; }
+.doc hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+
+/* Phones: slightly larger body text, smaller titles. */
+@media (max-width: 639.98px) {
+  .doc { font-size: 15px; }
+  .doc h1 { font-size: 34px; }
+  .doc h2 { font-size: 19px; }
+}
+
+/* A narrow column (a phone, or a tablet beside the sidebar) turns tables of three or more columns into cards:
+   the first column is the card's title, the others are labelled with their column header. */
+.doc { container-type: inline-size; }
+@container (max-width: 40rem) {
+  .doc table.stack, .doc table.stack tbody, .doc table.stack tr, .doc table.stack td { display: block; }
+  .doc table.stack thead { display: none; }
+  .doc table.stack tr { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); padding: 10px 14px; }
+  .doc table.stack tr + tr { margin-top: 8px; }
+  .doc table.stack td { border: 0; padding: 3px 0; }
+  .doc table.stack td:first-child { color: var(--text); font-weight: 500; padding-bottom: 6px; }
+  .doc table.stack td:first-child::before { display: none; }
+  .doc table.stack td::before { content: attr(data-label); display: block; font-size: 10.5px; line-height: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+}

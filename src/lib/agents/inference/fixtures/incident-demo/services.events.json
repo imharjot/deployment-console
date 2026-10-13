@@ -1,0 +1,26 @@
+[
+ {
+  "at": "2026-10-05T06:30:40.000Z",
+  "message": "(service billing) has started 1 tasks: (task 7d1c0a52e3f8)."
+ },
+ {
+  "at": "2026-10-05T06:29:10.000Z",
+  "message": "(service billing) (task c454cd59a7be) failed container health checks."
+ },
+ {
+  "at": "2026-10-05T06:27:31.000Z",
+  "message": "(service billing) (task a39962e2d529) failed container health checks."
+ },
+ {
+  "at": "2026-10-05T06:19:00.000Z",
+  "message": "(service billing) (deployment ecs-svc/failed-rollout) deployment failed: tasks failed to start."
+ },
+ {
+  "at": "2026-10-05T06:18:58.000Z",
+  "message": "(service billing) ECS deployment circuit breaker: rolling back to deployment ecs-svc/192796136252582080."
+ },
+ {
+  "at": "2026-10-05T06:00:00.000Z",
+  "message": "(service billing) has reached a steady state."
+ }
+]

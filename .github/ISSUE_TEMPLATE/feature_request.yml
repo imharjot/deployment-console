@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest something the console should do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check docs/limitations.md first — it lists what isn't supported yet and why.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you imagine it working. Can it be discovered from AWS (or a `console:*` tag) instead of configured?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Discovery
+        - Overview / map
+        - Resource panel
+        - Actions & safety
+        - Logs
+        - Metrics & performance
+        - CI & releases
+        - Sign-in & roles
+        - Integrations
+        - Deployment / operations
+        - Docs
+        - Other
+  - type: textarea
+    id: permissions
+    attributes:
+      label: AWS permissions
+      description: Would it need IAM actions the console doesn't use today? Which ones?

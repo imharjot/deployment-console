@@ -1,0 +1,19 @@
+{
+ "models": [
+  {
+   "slug": "gpt-6.1-sol",
+   "display_name": "GPT-6.1 Sol",
+   "visibility": "list"
+  },
+  {
+   "slug": "gpt-6.1-mini",
+   "display_name": "GPT-6.1 mini",
+   "visibility": "list"
+  },
+  {
+   "slug": "internal-eval",
+   "display_name": "internal",
+   "visibility": "hide"
+  }
+ ]
+}

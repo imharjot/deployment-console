@@ -1,0 +1,175 @@
+{
+  "$schema": "../console.config.schema.json",
+  "externals": {
+    "users": {
+      "label": "Customers",
+      "sub": "web \u00b7 mobile",
+      "side": "source",
+      "note": "The Acme storefront and mobile apps. Not monitored here."
+    },
+    "events": {
+      "label": "Event stream",
+      "sub": "managed Kafka",
+      "side": "source",
+      "note": "Warehouse systems publish inventory events; Jobs consumes them."
+    },
+    "stripe": {
+      "label": "Stripe",
+      "sub": "payments API",
+      "side": "destination",
+      "note": "Billing creates charges and refunds and receives payment webhooks."
+    },
+    "email": {
+      "label": "Email API",
+      "sub": "transactional email",
+      "side": "destination",
+      "note": "Order confirmations and password resets."
+    }
+  },
+  "connections": [
+    {
+      "from": "ext:users",
+      "to": "ingress",
+      "label": "HTTPS \u00b7 web, mobile",
+      "kind": "http"
+    },
+    {
+      "from": "ingress",
+      "to": "service:api",
+      "label": "api.* \u2192 :3000",
+      "kind": "http"
+    },
+    {
+      "from": "ingress",
+      "to": "service:worker",
+      "label": "jobs.* \u2192 :8080",
+      "kind": "http"
+    },
+    {
+      "from": "ingress",
+      "to": "service:billing",
+      "label": "billing.* \u2192 :3010",
+      "kind": "http"
+    },
+    {
+      "from": "ext:events",
+      "to": "service:worker",
+      "label": "inventory events",
+      "kind": "stream"
+    },
+    {
+      "from": "service:worker",
+      "to": "ext:email",
+      "label": "order emails",
+      "kind": "api"
+    },
+    {
+      "from": "service:api",
+      "to": "ext:email",
+      "label": "password resets",
+      "kind": "api"
+    },
+    {
+      "from": "service:billing",
+      "to": "ext:stripe",
+      "label": "charges \u00b7 refunds",
+      "kind": "api"
+    },
+    {
+      "from": "ext:stripe",
+      "to": "service:billing",
+      "label": "payment webhooks",
+      "kind": "api"
+    }
+  ],
+  "environments": {
+    "staging": {
+      "cluster": "acme-staging",
+      "routes": [
+        {
+          "host": "api.staging.acme.dev",
+          "service": "api",
+          "port": 3000
+        },
+        {
+          "host": "jobs.staging.acme.dev",
+          "service": "worker",
+          "port": 8080
+        },
+        {
+          "host": "billing.staging.acme.dev",
+          "service": "billing",
+          "port": 3010
+        }
+      ]
+    }
+  },
+  "inventory": {
+    "regions": [
+      "us-east-1",
+      "eu-west-1"
+    ]
+  },
+  "workloads": {
+    "cron-runner": {
+      "name": "Cron runner",
+      "env": "staging",
+      "host": "i-0a1b2c3d4e5f67890",
+      "platform": "systemd timers",
+      "note": "Nightly exports and cleanups, outside ECS.",
+      "uses": [
+        "rds:acme-staging-pg",
+        "arn:aws:s3:::acme-staging-uploads"
+      ]
+    }
+  },
+  "ci": {
+    "deployments": [
+      {
+        "repo": "acme/storefront-api",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "staging"
+      },
+      {
+        "repo": "acme/storefront-api",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "production"
+      },
+      {
+        "repo": "acme/storefront-api",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "production-eu-west-1"
+      },
+      {
+        "repo": "acme/jobs",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "staging"
+      },
+      {
+        "repo": "acme/jobs",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "production"
+      },
+      {
+        "repo": "acme/jobs",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "production-eu-west-1"
+      },
+      {
+        "repo": "acme/billing",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "staging"
+      },
+      {
+        "repo": "acme/billing",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "production"
+      },
+      {
+        "repo": "acme/deployment-console",
+        "workflow": ".github/workflows/deploy.yml",
+        "env": "production"
+      }
+    ]
+  }
+}

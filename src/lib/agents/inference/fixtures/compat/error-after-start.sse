@@ -1,0 +1,4 @@
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"role":"assistant","content":"Staging"},"finish_reason":null}]}
+
+data: {"error": {"message": "the model runner crashed", "type": "server_error"}}
+

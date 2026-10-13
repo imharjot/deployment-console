@@ -1,0 +1,22 @@
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"content":"Checking both."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_c1","type":"function","function":{"name":"envs_status","arguments":""}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"env\":"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":" \"stag"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ing\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_c2","type":"function","function":{"name":"services_get","arguments":"{\"env\":\"staging\","}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"\"service\":\"api\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[],"usage":{"prompt_tokens":900,"completion_tokens":40,"total_tokens":940}}
+
+data: [DONE]
+

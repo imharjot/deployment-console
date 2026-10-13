@@ -1,0 +1,12 @@
+{
+ "capabilities": [
+  "completion"
+ ],
+ "model_info": {
+  "general.architecture": "gemma2",
+  "gemma2.context_length": 8192
+ },
+ "details": {
+  "family": "gemma2"
+ }
+}

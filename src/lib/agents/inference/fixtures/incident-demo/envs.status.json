@@ -1,0 +1,145 @@
+{
+ "env": "production",
+ "label": "Production",
+ "protected": true,
+ "checkedAt": "2026-10-05T06:31:17.260Z",
+ "summary": {
+  "UP": 8,
+  "DEGRADED": 1
+ },
+ "resources": [
+  {
+   "key": "service:billing",
+   "kind": "service",
+   "id": "billing",
+   "name": "Billing",
+   "state": "DEGRADED",
+   "reasons": [
+    "0/1 running, 1 pending",
+    "tasks stopped: OutOfMemoryError (exit code 137)"
+   ],
+   "running": 0,
+   "desired": 1,
+   "revision": 123,
+   "version": "production-e713ba70f9ac188246a210ac7721ac4a988e0397",
+   "sha": "e713ba7",
+   "actions": [
+    "restart",
+    "stop",
+    "switch"
+   ],
+   "pending": 1
+  },
+  {
+   "key": "service:deployment-console",
+   "kind": "service",
+   "id": "deployment-console",
+   "name": "Deployment Console",
+   "state": "UP",
+   "reasons": [
+    "1/1 running, healthy"
+   ],
+   "running": 1,
+   "desired": 1,
+   "revision": 123,
+   "version": "production-feda2413d347ceb473ac433d3a1182d71aa3b356",
+   "sha": "feda241",
+   "readOnly": true
+  },
+  {
+   "key": "service:worker",
+   "kind": "service",
+   "id": "worker",
+   "name": "Jobs",
+   "state": "UP",
+   "reasons": [
+    "1/1 running, healthy"
+   ],
+   "running": 1,
+   "desired": 1,
+   "revision": 123,
+   "version": "production-0ac8478aeff2a4236f3a58a138232cc142cb16ed",
+   "sha": "0ac8478",
+   "actions": [
+    "restart",
+    "stop",
+    "switch"
+   ]
+  },
+  {
+   "key": "service:api",
+   "kind": "service",
+   "id": "api",
+   "name": "Storefront API",
+   "state": "UP",
+   "reasons": [
+    "2/2 running, healthy"
+   ],
+   "running": 2,
+   "desired": 2,
+   "revision": 123,
+   "version": "production-13cf63ecf5a440b082fec279229c46f8df180d11",
+   "sha": "13cf63e",
+   "actions": [
+    "restart",
+    "stop",
+    "switch"
+   ]
+  },
+  {
+   "key": "loadbalancer:alb",
+   "kind": "loadbalancer",
+   "id": "alb",
+   "name": "Load balancer",
+   "state": "UP",
+   "reasons": [
+    "4/4 active target groups healthy"
+   ],
+   "readOnly": true
+  },
+  {
+   "key": "database:acme-production-pg",
+   "kind": "database",
+   "id": "acme-production-pg",
+   "name": "PostgreSQL",
+   "state": "UP",
+   "reasons": [
+    "status available"
+   ],
+   "actions": []
+  },
+  {
+   "key": "database:acme-analytics-1",
+   "kind": "database",
+   "id": "acme-analytics-1",
+   "name": "Aurora PostgreSQL",
+   "state": "UP",
+   "reasons": [
+    "status available"
+   ],
+   "actions": []
+  },
+  {
+   "key": "database:acme-analytics-2",
+   "kind": "database",
+   "id": "acme-analytics-2",
+   "name": "Aurora PostgreSQL",
+   "state": "UP",
+   "reasons": [
+    "status available"
+   ],
+   "actions": []
+  },
+  {
+   "key": "cache:acme-production-valkey",
+   "kind": "cache",
+   "id": "acme-production-valkey",
+   "name": "Valkey",
+   "state": "UP",
+   "reasons": [
+    "status available"
+   ],
+   "readOnly": true
+  }
+ ]
+}

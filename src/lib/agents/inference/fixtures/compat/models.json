@@ -1,0 +1,15 @@
+{
+ "object": "list",
+ "data": [
+  {
+   "id": "Qwen/Qwen2.5-72B-Instruct",
+   "object": "model",
+   "owned_by": "vllm"
+  },
+  {
+   "id": "meta-llama/Llama-3.3-70B-Instruct",
+   "object": "model",
+   "owned_by": "vllm"
+  }
+ ]
+}

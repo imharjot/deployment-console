@@ -1,0 +1,8 @@
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"content":"Staging is "},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-acme","object":"chat.completion.chunk","created":1791181000,"model":"Qwen/Qwen2.5-72B-Instruct","choices":[{"index":0,"delta":{"content":"healthy."},"finish_reason":null}]}
+
+data: [DONE]
+

@@ -1,0 +1,54 @@
+# One-command run of the console.
+#
+#   docker compose up --build            → http://localhost:3000
+#
+# Defaults to the simulated "Acme" account (CONSOLE_SOURCE=mock), so nothing in AWS is touched. On first start the
+# log prints a one-time setup token: open /setup and paste it to create the first admin (or set CONSOLE_ADMIN_EMAIL/PASSWORD below).
+#
+# Your own AWS account: set CONSOLE_SOURCE=aws and AWS_REGION, and uncomment the ~/.aws mount + AWS_PROFILE
+# (or pass AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN from your shell). See docs/quickstart.md.
+#
+# Postgres instead of SQLite: `docker compose --profile postgres up --build` and set DATABASE_URL (below) — plus a
+# CONSOLE_SECRET_KEY, which is required with Postgres.
+services:
+  console:
+    build: .
+    image: deployment-console:local
+    ports:
+      # Loopback only: the demo and first-run setup are for this machine. To serve a team, put a TLS-terminating
+      # proxy in front and publish through it (and set CONSOLE_PUBLIC_URL, CONSOLE_TRUSTED_PROXIES).
+      - "127.0.0.1:3000:3000"
+    environment:
+      CONSOLE_SOURCE: ${CONSOLE_SOURCE:-mock}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AUTH_MODE: session
+      CONSOLE_PUBLIC_URL: ${CONSOLE_PUBLIC_URL:-http://localhost:3000}
+      # Nothing sits in front of this container, so X-Forwarded-For comes from the client: don't trust it.
+      CONSOLE_TRUSTED_PROXIES: ${CONSOLE_TRUSTED_PROXIES:-0}
+      CONSOLE_ADMIN_EMAIL: ${CONSOLE_ADMIN_EMAIL:-}
+      CONSOLE_ADMIN_PASSWORD: ${CONSOLE_ADMIN_PASSWORD:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_OWNER: ${GITHUB_OWNER:-}
+      # DATABASE_URL: postgres://console:console@postgres:5432/console
+      # CONSOLE_SECRET_KEY: ${CONSOLE_SECRET_KEY}
+      # AWS_PROFILE: ${AWS_PROFILE:-default}
+    volumes:
+      - console-data:/app/data
+      # - ~/.aws:/home/node/.aws:ro
+    restart: unless-stopped
+    # Changes in flight finish (up to 25 s) before the console exits; see NEXT_MANUAL_SIG_HANDLE in the Dockerfile.
+    stop_grace_period: 30s
+
+  postgres:
+    profiles: ["postgres"]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: console
+      POSTGRES_PASSWORD: console # local only — use a managed database with a real secret in production
+      POSTGRES_DB: console
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  console-data:
+  postgres-data:

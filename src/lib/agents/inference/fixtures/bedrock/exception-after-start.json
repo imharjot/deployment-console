@@ -1,0 +1,22 @@
+[
+ {
+  "messageStart": {
+   "role": "assistant"
+  }
+ },
+ {
+  "contentBlockDelta": {
+   "contentBlockIndex": 0,
+   "delta": {
+    "text": "Checking"
+   }
+  }
+ },
+ {
+  "modelStreamErrorException": {
+   "message": "The model stream failed.",
+   "originalStatusCode": 500,
+   "originalMessage": "internal"
+  }
+ }
+]
