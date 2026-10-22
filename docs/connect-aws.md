@@ -189,7 +189,7 @@ statements are generated from what each service declares and listed in
 | `ecs:ListServices`, `ecs:DescribeServices` | Services, deployments, events, tags |
 | `ecs:ListTasks`, `ecs:DescribeTasks` | Running tasks and the last stopped ones (stop reasons, exit codes) |
 | `ecs:DescribeTaskDefinition`, `ecs:ListTaskDefinitions` | Images, ports, health checks, log configuration, variable names, revisions to switch to |
-| `ecs:ListContainerInstances`, `ecs:DescribeContainerInstances`, `ec2:DescribeInstances` | EC2 hosts behind ECS-on-EC2 clusters |
+| `ecs:ListContainerInstances`, `ecs:DescribeContainerInstances`, `ec2:DescribeInstances` | EC2 hosts behind ECS-on-EC2 clusters, and which host each task runs on |
 | `ec2:DescribeSecurityGroups`, `ec2:DescribeSubnets` | Inferring connections and each environment's VPCs |
 | `rds:DescribeDBInstances` | Databases (their tags come with the response) and attributing them to environments |
 | `elasticache:DescribeReplicationGroups`, `elasticache:DescribeCacheClusters` | Caches and attributing them to environments |

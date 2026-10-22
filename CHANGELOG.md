@@ -166,6 +166,18 @@ simulated account.
   server) and load-balancer target groups, plus declared external systems and dependencies.
 - The console recognises its own service and never acts on it. Settings → Environments shows what was found, why,
   and what needs attention.
+- Task placement: each live ECS-on-EC2 task's host (task → container instance → EC2 instance). A host shows the
+  tasks running and starting on it and their services (stat, Capacity, Containers tab); tasks whose placement wasn't
+  read, or that the task listing didn't reach, count as unknown, not absent. The cloud map draws a service "runs on"
+  only the instances its tasks are on (candidates while placement is unread, nothing for a service with no live
+  task); `localhost:<port>` connects two host-network services unless complete placement shows they never share an
+  instance, and says so when that isn't confirmed.
+- Main container: tag `console:main`, else the container the load balancer or service registry targets, else an ECR
+  image before a public one and both before known sidecars. A task's health check counts any essential container's.
+- Fixed: two home-region clusters tagged with one `console:env`, a discovered cluster with a config-pinned id, or a
+  generated `<id>-<region>` that another cluster already uses no longer share an environment id (one replaced the
+  other's catalog); on the cloud map, a resource whose connections disagree once every hop is placed stays shared
+  instead of keeping the environment it was given first.
 
 ### Status and overview
 - One precedence table turns deployments, task health, target health, optional HTTP probes and EC2 host state into

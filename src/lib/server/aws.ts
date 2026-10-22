@@ -35,7 +35,7 @@ import { GetCallerIdentityCommand, STSClient } from "@aws-sdk/client-sts";
 import { IAMClient, SimulatePrincipalPolicyCommand } from "@aws-sdk/client-iam";
 import {
   allPages, appendMetrics, cachesOf, chunk, clientToken, clusterTasks, dbOf, decisionsOf, ECS_DIMENSION, ecrTarget, ecsResourceId, ENV_FILE_CHANGED,
-  eventOf, isPreconditionFailed, lastPart, lbConfigOf, mapLimit, ms, primaryTaskDef, revisionOf, SCALABLE_BATCH, scalableTargetsOf, SECRET_CHANGED,
+  eventOf, isPreconditionFailed, lastPart, lbConfigOf, mainHint, mapLimit, ms, primaryTaskDef, revisionOf, SCALABLE_BATCH, scalableTargetsOf, SECRET_CHANGED,
   securityGroupOf, serviceOf, taggedHostFilters, taggedHostOf, tagMap, targetHealthOf, taskDefOf, versionWithStage,
   type LbConfig, type SdkRule, type SdkScalableTarget, type SdkScalingPolicy, type TargetHealthDetail,
 } from "../aws-mapping.ts";
@@ -107,8 +107,9 @@ function toBox(i: Instance, agentConnected?: boolean): RawBox {
 }
 
 // Task definitions are immutable per ARN → cache forever. Environment values and secrets never leave taskDefOf.
-const taskDef = (k: Clients, arn: string) =>
-  memo(`td:${arn}`, async () => taskDefOf((await k.ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: arn }), t())).taskDefinition!));
+// `main`: the container a service names as itself (mainHint) — mapped (and cached) separately, only when it differs.
+const taskDef = (k: Clients, arn: string, main?: string) =>
+  memo(`td:${arn}${main ? `#${main}` : ""}`, async () => taskDefOf((await k.ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: arn }), t())).taskDefinition!, main));
 
 // The full task definition, including environment values — used only to re-register it with edited variables.
 const fullTaskDef = (k: Clients, arn: string) =>
@@ -310,6 +311,10 @@ export function awsCloud(region: string = REGION): Cloud {
           list: (desiredStatus, nextToken) => k.ecs.send(new ListTasksCommand({ cluster, desiredStatus, maxResults: 100, nextToken }), t()),
           describe: async (batch) => (await k.ecs.send(new DescribeTasksCommand({ cluster, tasks: batch }), t())).tasks ?? [],
           taskDef: (arn) => taskDef(k, arn),
+          instances: async (batch) => {
+            const r = await k.ecs.send(new DescribeContainerInstancesCommand({ cluster, containerInstances: batch }), t());
+            return new Map((r.containerInstances ?? []).filter((ci) => ci.containerInstanceArn && ci.ec2InstanceId).map((ci) => [ci.containerInstanceArn!, ci.ec2InstanceId!]));
+          },
         }, { concurrency: CONCURRENCY }),
       ]);
       const described = (
@@ -317,9 +322,12 @@ export function awsCloud(region: string = REGION): Cloud {
       ).flat();
       const primaries = [...new Set(described.map(primaryTaskDef).filter((a): a is string => !!a))];
       const defs = new Map(await mapLimit(primaries, CONCURRENCY, async (a) => [a, await taskDef(k, a)] as const));
-      return described.map((s): RawService => {
+      return mapLimit(described, CONCURRENCY, async (s): Promise<RawService> => {
         const p = primaryTaskDef(s);
-        return serviceOf(cluster, s, tasks, (p && defs.get(p)) || null);
+        const td = (p && defs.get(p)) || null;
+        const want = td ? mainHint(s, (n) => td.containers.some((c) => c.name === n)) : undefined;
+        const named = td && want && want !== td.main ? await taskDef(k, p!, want) : td;
+        return serviceOf(cluster, s, tasks, named);
       });
     },
 

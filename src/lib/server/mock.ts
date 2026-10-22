@@ -589,9 +589,10 @@ function rawService(E: Estate, s: MSvc, now: number): RawService {
   const hasHc = !!s.healthcheck;
   if (!hasHc) health = "UNKNOWN";
   const tasks: RawTask[] = [];
-  // A running task's ENI address and the digest its container runs (F18, F68).
+  // A running task's ENI address and the digest its container runs (F18, F68); EC2 tasks run on the staging box.
   const live = (id: string, status: string) => ({
     ...(status === "RUNNING" && taskIp(s, id) ? { privateIp: taskIp(s, id) } : {}), imageDigests: { [s.name]: digestOf(td.image) },
+    ...(s.launch === "EC2" ? { host: BOX_ID } : {}),
   });
   if (onBox && (running > 0 || lastStatus === "PENDING")) {
     tasks.push({

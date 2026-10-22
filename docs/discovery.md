@@ -15,7 +15,10 @@ Every `ACTIVE` cluster in the region becomes an environment.
 | A stage word in the cluster name | `acme-prod-cluster` → **production**, `web-staging` → **staging**, `api-dev` → **dev** (full list below) |
 | The cluster name itself | `data-pipeline` → `data-pipeline` |
 
-If two clusters would claim the same stage (`eu-prod`, `us-prod`), both keep their full names instead.
+If two clusters would claim the same stage (`eu-prod`, `us-prod`), both keep their full names instead. The same goes
+for two clusters tagged with the same `console:env`; a tag still beats another cluster's stage word. A name that is
+already some environment's id gets `-2`, `-3`… An id pinned in `console.config.json` wins over a discovered one, which
+becomes `<id>-<region>`.
 
 | Stage | Words in the cluster name (split on anything that isn't a letter or digit) |
 |---|---|
@@ -69,7 +72,7 @@ Every ECS service in the cluster, with its deployments, tasks, events and task d
 | What | Source |
 |---|---|
 | Display name | tag `console:name`, else the service name |
-| Main container | the essential container with port mappings (sidecars are listed separately) |
+| Main container | tag `console:main=<container>`, else the container the service's load balancer (or service registry) targets. Otherwise a container whose image is in ECR, then any other app container, then a known sidecar (FireLens log routers; Datadog, X-Ray, OpenTelemetry, CloudWatch, Grafana and New Relic agents; the App Mesh Envoy) — in each, the essential one with port mappings first. Sidecars are listed separately |
 | Logs | the main container's `awslogs` group and stream prefix — shared log groups are fine |
 | Commit | a git sha anywhere in the image tag (`staging-1a2b3c4`, `v2-<sha>`, a bare sha). Moving tags like `latest` show "unknown". |
 | Repository | tag `console:repo=owner/name`, config, or a name match under `GITHUB_OWNER` (see [GitHub & CI](github.md)) |
@@ -87,7 +90,14 @@ endpoint answers. Setting `CONSOLE_SELF` avoids that.
 ## EC2 hosts
 
 For clusters with container instances (ECS on EC2), each instance is shown with power state, ECS agent connection
-and CPU. Services on a stopped host show **Box stopped**, not DOWN. Instances in an Auto Scaling group can't be
+and CPU, the tasks running (and starting) on it, and (in its **Containers** tab) the services they belong to — from
+where ECS placed each task (task → container instance → EC2 instance). Tasks whose placement couldn't be read — or
+that ECS counts but the task listing didn't reach — are counted as unknown, never as absent: the host says so ("4+"
+tasks) and lists their services under "may run here", and on the cloud map the cluster's other instances become "may
+run on" candidates. A service with no live task runs nowhere and gets no host link. `localhost:<port>` in a
+host-network service's variables links it to another host-network service unless every task of both is placed and
+none share an instance; otherwise the link says the shared host isn't confirmed. Services on a stopped host show
+**Box stopped**, not DOWN. Instances in an Auto Scaling group can't be
 stopped from the console (the group would replace them).
 
 ## Databases and caches
@@ -138,6 +148,7 @@ arrow shows requests per minute.
 | `console:branch` | cluster | git branch that deploys here |
 | `console:ignore` | cluster | `true` hides it |
 | `console:name` | service | display name |
+| `console:main` | service | the container that is "the service" (image, ports, logs, commit) |
 | `console:repo` | service | `owner/name` on GitHub |
 | `console:healthcheck` | service | URL to probe |
 | `console:migrations` | service | comma-separated repo paths |

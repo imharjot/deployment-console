@@ -270,7 +270,7 @@ Every resource gets at most one environment, and the panel says why (`reported b
 | 3. Tag `Environment`, `environment`, `Env`, `env`, `Stage` or `stage` | `Environment=prd` → **production**; `Environment=shared` → shared on purpose |
 | 4. A stage word in the name, when exactly one environment matches | `acme-staging-orders` → **staging**; `prod-to-staging-sync` → nothing |
 | 5. The VPC, when everything placed by rules 1–4 in that VPC agrees | a Lambda in the production VPC → **production** |
-| 6. Its connections, when every connected resource with an environment agrees (up to three hops) | a queue only production services write to → **production** |
+| 6. Its connections, when every connected resource with an environment agrees (up to three hops) — and still agrees once every hop is placed | a queue only production services write to → **production**; a resource between a staging and a production one stays shared |
 
 What the provider knows comes first because it's authoritative: the ECS cluster a service runs in, or the entry a
 workload is declared in, decides — whoever can tag a resource can't move it to another environment. Kubernetes

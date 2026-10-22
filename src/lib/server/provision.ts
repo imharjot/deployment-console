@@ -68,7 +68,7 @@ const num = (v?: string) => (v && Number.isFinite(Number(v)) ? Number(v) : undef
 const GONE = ["shutting-down", "terminated"];
 // Tags a copy keeps from its source: how the console links it to code. Never console:self, names or health checks
 // (the copy isn't reachable at the source's URL).
-const COPIED_TAGS = ["console:repo", "console:role", "console:migrations"];
+const COPIED_TAGS = ["console:repo", "console:role", "console:migrations", "console:main"];
 
 function need(who: Who, perm: Perm, env: EnvInfo) {
   // A compose env has no ECS cluster: anything sent with its cluster "" would land in ECS's "default" cluster.

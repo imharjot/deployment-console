@@ -14,7 +14,7 @@ import { elasticacheSpecs, rdsSpecs } from "../metric-specs.ts";
 import type { RawCache, RawDb, RawService } from "../types.ts";
 import {
   cacheResource, elbAction, elbLoadBalancer, elbRule, elbTargetGroup, envFileMentions, envFilesToRead, groupsOf, inboundLine, kmsRef, lbHealth, lbLinks, lbResource, lbSections,
-  metricQueries, metricSeries, rdsResource, ruleHosts, scalingText, serviceWires, targetType, tgInput, type EcsJoin, type ElbLoadBalancer, type ElbTargetGroup,
+  hostLinks, metricQueries, metricSeries, rdsResource, ruleHosts, scalingText, serviceWires, targetType, tgInput, type EcsJoin, type ElbLoadBalancer, type ElbTargetGroup,
 } from "./ecs-map.ts";
 import type { Resource } from "./types.ts";
 
@@ -259,6 +259,27 @@ test("A.3 wiring: roles, Cloud Map, EFS, Service Connect aliases, task IPs, Code
   // A plain service adds nothing; assignPublicIp DISABLED is an explicit "not public".
   const plain = serviceWires(svc({ taskDef: null, serviceRegistries: undefined, deploymentController: "ECS", assignPublicIp: false, serviceConnect: undefined, tasks: [] }), { key, region: R });
   assert.deepEqual([plain.links, plain.aliases, plain.endpoints, plain.props, plain.facts], [[], [], [], [], { desired: 2, public: false }]);
+});
+
+test("hostLinks: the instances a service's live tasks are on; candidates only while placement is unread; nothing when nothing runs", () => {
+  const key = "ecs:service/acme-staging/api";
+  const o = { key, region: R, home: R, cluster: "acme-staging", hosts: ["i-a", "i-b"] };
+  const task = (id: string, lastStatus: string, host?: string) => ({ id, taskDefinition: "td", lastStatus, desiredStatus: "RUNNING", health: "HEALTHY" as const, hasHealthcheck: false, ...(host ? { host } : {}) });
+  const ec2 = (x: Partial<RawService>) => svc({ launchType: "EC2", ...x });
+  const of = (l: ReturnType<typeof hostLinks>) => l.map((x) => `${x.to} ${x.label}`).sort();
+  // Placed: exactly where ECS put them, starting tasks told apart.
+  assert.deepEqual(of(hostLinks(ec2({ tasks: [task("t1", "RUNNING", "i-a"), task("t2", "PENDING", "i-b")] }), o)), ["ec2:i-a runs on", "ec2:i-b starting on"]);
+  // Scaled to zero, or every task stopped: it runs nowhere, even on a one-host cluster.
+  assert.deepEqual(hostLinks(ec2({ desired: 0, running: 0, pending: 0, tasks: [] }), { ...o, hosts: ["i-a"] }), []);
+  // One task placed, one whose host wasn't read: the other instance is a candidate.
+  assert.deepEqual(of(hostLinks(ec2({ tasks: [task("t1", "RUNNING", "i-a"), task("t2", "RUNNING")] }), o)), ["ec2:i-a runs on", "ec2:i-b may run on"]);
+  // The listing stopped short (no records at all): candidates, "runs on" when the cluster has one host.
+  const cut = ec2({ running: 1, tasks: [], tasksComplete: false });
+  assert.deepEqual(of(hostLinks(cut, o)), ["ec2:i-a may run on", "ec2:i-b may run on"]);
+  assert.deepEqual(of(hostLinks(cut, { ...o, hosts: ["i-a"] })), ["ec2:i-a runs on"]);
+  assert.match(hostLinks(cut, o)[0].evidence, /1 task not placed in what was read/);
+  assert.deepEqual(hostLinks(cut, { ...o, hosts: Array.from({ length: 11 }, (_, i) => `i-${i}`) }), [], "past 10 hosts, candidates aren't drawn");
+  assert.deepEqual(hostLinks(svc({ running: 1, tasks: [], tasksComplete: false }), o), [], "Fargate tasks have no host to guess");
 });
 
 // ---------- F16: RDS and ElastiCache posture ----------

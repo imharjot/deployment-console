@@ -6,9 +6,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  allPages, appendMetrics, cachesOf, clientToken, clusterTasks, dbOf, decisionsOf, ecrTarget, healthOf, isPreconditionFailed, lbConfigOf, mapLimit,
+  allPages, appendMetrics, cachesOf, clientToken, clusterTasks, dbOf, decisionsOf, ecrTarget, healthOf, isPreconditionFailed, lbConfigOf, mainContainer, mainHint, mapLimit,
   policyLabel, revisionOf, scalableTargetsOf, securityGroupOf, serviceOf, taggedHostFilters, taggedHostOf, targetHealthOf, taskDefOf, taskOf, versionWithStage,
-  type ClusterTasks, type SdkService, type SdkTask, type TaskReader,
+  type ClusterTasks, type SdkContainerDef, type SdkService, type SdkTask, type TaskReader,
 } from "./aws-mapping.ts";
 import { periodFor } from "./metric-specs.ts";
 import { HttpError } from "./server/errors.ts";
@@ -126,6 +126,78 @@ test("running and stopped describes share one concurrency budget", async () => {
   assert.equal(calls.maxInFlight, 4, `at most 4 describes at once (saw ${calls.maxInFlight})`);
   assert.equal(out.byService.get("big")!.filter((t) => t.desiredStatus === "RUNNING").length, 300);
   assert.equal(out.byService.get("small")!.filter((t) => t.desiredStatus === "STOPPED").length, 3);
+});
+
+test("clusterTasks places each running task on its EC2 instance, reading each container instance once; a failed read only loses placement", async () => {
+  const run = (id: string, svc: string, ci?: string): SdkTask => ({
+    taskArn: taskArn(id), group: `service:${svc}`, taskDefinitionArn: tdArn(svc, 1), lastStatus: "RUNNING", desiredStatus: "RUNNING", ...(ci ? { containerInstanceArn: ci } : {}),
+  });
+  const tasks = [run("a1", "api", "ci/one"), run("a2", "api", "ci/two"), run("r1", "redis", "ci/one"), run("w1", "web")]; // web: Fargate
+  const reader = (instances: TaskReader["instances"]): TaskReader => ({
+    list: async (status) => ({ taskArns: status === "RUNNING" ? tasks.map((t) => t.taskArn!) : [] }),
+    describe: async (arns) => tasks.filter((t) => arns.includes(t.taskArn!)),
+    taskDef: async (arn) => td(arn.split("/").pop()!.replace(/:\d+$/, ""), { arn }),
+    instances,
+  });
+  const asked: string[][] = [];
+  const out = await clusterTasks(reader(async (arns) => (asked.push(arns), new Map([["ci/one", "i-1"], ["ci/two", "i-2"]]))));
+  const hosts = (c: ClusterTasks, svc: string) => c.byService.get(svc)!.map((t) => t.host);
+  assert.deepEqual(hosts(out, "api"), ["i-1", "i-2"]);
+  assert.deepEqual(hosts(out, "redis"), ["i-1"]);
+  assert.deepEqual(hosts(out, "web"), [undefined]);
+  assert.deepEqual(asked, [["ci/one", "ci/two"]]);
+  const denied = await clusterTasks(reader(async () => { throw new Error("AccessDeniedException"); }));
+  assert.equal(denied.byService.get("api")!.length, 2, "placement is evidence, never a reason to fail the cluster");
+  assert.ok([...denied.byService.values()].flat().every((t) => !t.host));
+});
+
+test("mainContainer: an app container before known sidecars, whatever the order or their ports", () => {
+  const c = (name: string, image: string, o: Partial<SdkContainerDef> = {}): SdkContainerDef => ({ name, image, essential: true, ...o });
+  const port = (p: number) => ({ portMappings: [{ containerPort: p }] });
+  const main = (...defs: SdkContainerDef[]) => mainContainer(defs)?.name;
+  assert.equal(main(c("datadog-agent", "public.ecr.aws/datadog/agent:7", port(8126)), c("api", "acme/api:v1", port(3000))), "api");
+  assert.equal(main(c("envoy", "840364872350.dkr.ecr.us-west-2.amazonaws.com/aws-appmesh-envoy:v1.27", port(9901)), c("web", "acme/web:v1", port(8080))), "web");
+  assert.equal(main(c("log_router", "acme/custom-router:v1", { firelensConfiguration: { type: "fluentbit" }, ...port(24224) }), c("worker", "acme/jobs:v1")), "worker", "an app without ports still beats a sidecar");
+  assert.equal(main(c("xray", "amazon/aws-xray-daemon", port(2000))), "xray", "a sidecar alone is still the main container");
+  assert.equal(main(c("proxy", "envoyproxy/envoy:v1.30", port(443)), c("dd", "gcr.io/datadoghq/agent:7")), "proxy", "plain envoy may be the service itself");
+  assert.equal(main(c("migrate", "acme/api:v1", { essential: false }), c("api", "acme/api:v1", port(3000))), "api");
+  assert.equal(main(c("otel", "otel/opentelemetry-collector-contrib:0.98.0", port(4317)), c("api", "acme/api:v1", port(3000))), "api");
+  // An image in ECR (yours) before an unknown public one, whatever their order and ports.
+  const ecr = `${ACCT}.dkr.ecr.${R}.amazonaws.com/acme/api:v1`;
+  assert.equal(main(c("vendor-agent", "vendor/some-agent:3", port(9000)), c("api", ecr, port(3000))), "api");
+  assert.equal(main(c("vendor-agent", "vendor/some-agent:3", port(9000)), c("worker", ecr)), "worker");
+  // The container the service names wins over every rank — even one a rule would call a sidecar.
+  const defs = [c("api", ecr, port(3000)), c("proxy", "envoyproxy/envoy:v1.30", port(8080))];
+  assert.equal(mainContainer(defs, "proxy")?.name, "proxy");
+  assert.equal(mainContainer(defs, "missing")?.name, "api", "a name the definition doesn't have is ignored");
+});
+
+test("mainHint: tag console:main, else the load balancer's container, else the service registry's", () => {
+  const lb = [{ targetGroupArn: "arn:tg", containerName: "web" }];
+  const sr = [{ registryArn: "arn:sr", containerName: "grpc" }];
+  assert.equal(mainHint({ tags: [{ key: "console:main", value: " api " }], loadBalancers: lb, serviceRegistries: sr }), "api");
+  assert.equal(mainHint({ loadBalancers: lb, serviceRegistries: sr }), "web");
+  assert.equal(mainHint({ loadBalancers: [{ targetGroupArn: "arn:tg" }], serviceRegistries: sr }), "grpc");
+  assert.equal(mainHint({}), undefined);
+  // Only containers the task definition has: a stale tag falls through to the load balancer's.
+  const has = (n: string) => n === "web" || n === "grpc";
+  assert.equal(mainHint({ tags: [{ key: "console:main", value: "gone" }], loadBalancers: lb, serviceRegistries: sr }, has), "web");
+  assert.equal(mainHint({ tags: [{ key: "console:main", value: "gone" }] }, has), undefined);
+});
+
+test("taskDefOf takes the service's named container; a task's health check counts any essential container's", () => {
+  const sdk = {
+    taskDefinitionArn: tdArn("api", 3), family: "api", revision: 3,
+    containerDefinitions: [
+      { name: "api", image: `${ACCT}.dkr.ecr.${R}.amazonaws.com/acme/api:v3`, essential: true, portMappings: [{ containerPort: 3000 }] },
+      { name: "edge", image: "envoyproxy/envoy:v1.30", essential: true, portMappings: [{ containerPort: 8080 }], healthCheck: { command: ["CMD", "true"] } },
+    ],
+  };
+  assert.equal(taskDefOf(sdk).main, "api");
+  const named = taskDefOf(sdk, "edge");
+  assert.deepEqual([named.main, named.image, named.ports, named.healthcheck], ["edge", "envoyproxy/envoy:v1.30", [8080], "CMD true"]);
+  const t: SdkTask = { taskArn: taskArn("h1"), group: "service:api", lastStatus: "RUNNING", desiredStatus: "RUNNING", healthStatus: "UNHEALTHY" };
+  assert.equal(taskOf(t, taskDefOf(sdk)).hasHealthcheck, true, "the api has no check of its own, but ECS judges the task by edge's");
 });
 
 test("taskOf: the address of running tasks only, digests per container, health and the main container's exit", () => {

@@ -3,7 +3,7 @@
 // response these rules read, written structurally, so an SDK v3 output is assignable to it and node:test can feed
 // plain fixtures (Acme ones, or read-only CLI JSON with its timestamps parsed into Dates). The simulated account
 // (src/lib/server/mock.ts) uses the same helpers where it builds the same shapes.
-import { hostsFromEnv } from "./discover.ts";
+import { hostsFromEnv, parseImageRef } from "./discover.ts";
 import type {
   RawCache, RawContainer, RawDb, RawDeployment, RawEvent, RawLb, RawLbRule, RawLbTarget, RawLbTargetGroup, RawRevision, RawSecurityGroup,
   RawService, RawTaggedHost, RawTargetHealth, RawTask, RawTaskDef,
@@ -93,6 +93,7 @@ export interface SdkContainerDef {
   logConfiguration?: { logDriver?: string; options?: Record<string, string> };
   healthCheck?: { command?: string[] };
   environment?: { name?: string; value?: string }[];
+  firelensConfiguration?: { type?: string };
 }
 export interface SdkTaskDef {
   taskDefinitionArn?: string;
@@ -110,10 +111,33 @@ export interface SdkTaskDef {
   volumes?: { name?: string; efsVolumeConfiguration?: { fileSystemId?: string; authorizationConfig?: { accessPointId?: string } } }[];
 }
 
-// "The service" is the essential container with ports (sidecars like log routers or agents usually have none).
-export function mainContainer<C extends SdkContainerDef>(defs: C[]): C | undefined {
-  return defs.find((d) => d.essential !== false && d.portMappings?.length) ?? defs.find((d) => d.essential !== false) ?? defs[0];
+// Agents that ride along with the app: log routers, tracing and metrics agents, the App Mesh proxy. Many publish ports
+// (Datadog's 8126, X-Ray's 2000, a collector's 4317), so ports alone can't tell them from the app.
+const SIDECAR_IMAGE = new RegExp(`(^|/)(${[
+  "datadog/agent", "datadoghq/agent", "aws-xray-daemon", "aws-otel-collector", "opentelemetry-collector", "opentelemetry-collector-contrib",
+  "splunk-otel-collector", "grafana/agent", "grafana/alloy", "jaeger-agent", "aws-for-fluent-bit", "fluent-bit", "fluentd", "cloudwatch-agent",
+  "aws-appmesh-envoy", "nri-ecs", "newrelic/infrastructure", "newrelic/infrastructure-bundle",
+].join("|")})(:|@|$)`);
+const isSidecar = (d: SdkContainerDef) => !!d.firelensConfiguration || SIDECAR_IMAGE.test(d.image ?? "");
+
+// "The service": the container the service names (`want`: tag console:main, else the one its load balancer or service
+// registry targets — mainHint), else by rank — an app image in ECR (built by you) before one from a public registry,
+// either before a known sidecar — and within a rank the essential container with ports, then the essential one. The
+// order of the definition only breaks ties; no list of sidecars is complete, so the named choice always wins.
+export function mainContainer<C extends SdkContainerDef>(defs: C[], want?: string): C | undefined {
+  const named = want ? defs.find((d) => d.name === want) : undefined;
+  if (named) return named;
+  const pick = (l: C[]) => l.find((d) => d.essential !== false && d.portMappings?.length) ?? l.find((d) => d.essential !== false);
+  const apps = defs.filter((d) => !isSidecar(d));
+  return pick(apps.filter((d) => parseImageRef(d.image ?? "").ecr)) ?? pick(apps) ?? pick(defs) ?? apps[0] ?? defs[0];
 }
+
+// The container a service names as itself, for mainContainer: tag console:main, else its load balancer's target
+// container, else its service registry's — the first that `has` (the task definition's containers): a tag naming a
+// container that isn't there doesn't hide the load balancer's.
+export const mainHint = (s: Pick<SdkService, "tags" | "loadBalancers" | "serviceRegistries">, has: (name: string) => boolean = () => true): string | undefined =>
+  [tagMap(s.tags)["console:main"]?.trim(), ...(s.loadBalancers ?? []).map((l) => l.containerName), ...(s.serviceRegistries ?? []).map((r) => r.containerName)]
+    .find((n): n is string => !!n && has(n));
 
 export function containerOf(d: SdkContainerDef): RawContainer {
   const lo = d.logConfiguration?.logDriver === "awslogs" ? d.logConfiguration.options : undefined;
@@ -125,14 +149,16 @@ export function containerOf(d: SdkContainerDef): RawContainer {
     logGroup: lo?.["awslogs-group"],
     ...(lo?.["awslogs-region"] ? { logRegion: lo["awslogs-region"] } : {}),
     logStreamPrefix: lo?.["awslogs-stream-prefix"],
+    ...(d.healthCheck?.command?.length ? { healthcheck: d.healthCheck.command.join(" ") } : {}),
     // Values stay here: only the hostnames they mention leave (secrets via valueFrom are never visible to us at all).
     envHosts: hostsFromEnv((d.environment ?? []).map((e) => ({ name: e.name ?? "", value: e.value ?? "" }))),
   };
 }
 
-export function taskDefOf(td: SdkTaskDef): RawTaskDef {
+// `main`: the container the service names as itself (mainHint), when it has one.
+export function taskDefOf(td: SdkTaskDef, main?: string): RawTaskDef {
   const defs = td.containerDefinitions ?? [];
-  const c = mainContainer(defs);
+  const c = mainContainer(defs, main);
   const volumes = (td.volumes ?? []).filter((v) => v.name).map((v) => {
     const efs = v.efsVolumeConfiguration;
     return efs?.fileSystemId ? { name: v.name!, efs: defined({ fileSystemId: efs.fileSystemId, accessPointId: efs.authorizationConfig?.accessPointId }) } : { name: v.name! };
@@ -172,6 +198,7 @@ export function revisionOf(d: RawTaskDef, status: RawRevision["status"] = "ACTIV
 export interface SdkTask {
   taskArn?: string;
   taskDefinitionArn?: string;
+  containerInstanceArn?: string; // EC2 launch type: the container instance it was placed on
   group?: string;
   lastStatus?: string;
   desiredStatus?: string;
@@ -192,7 +219,7 @@ export function taskIpOf(t: SdkTask): string | undefined {
   return fromEni || t.containers?.flatMap((c) => c.networkInterfaces ?? []).find((n) => n.privateIpv4Address)?.privateIpv4Address || undefined;
 }
 
-export function taskOf(t: SdkTask, td: RawTaskDef | undefined): RawTask {
+export function taskOf(t: SdkTask, td: RawTaskDef | undefined, host?: string): RawTask {
   const c = t.containers?.find((x) => td?.main && x.name === td.main) ?? t.containers?.[0];
   const digests = Object.fromEntries((t.containers ?? []).filter((x) => x.name && x.imageDigest).map((x) => [x.name!, x.imageDigest!]));
   const health = t.healthStatus === "HEALTHY" || t.healthStatus === "UNHEALTHY" ? t.healthStatus : "UNKNOWN";
@@ -202,7 +229,8 @@ export function taskOf(t: SdkTask, td: RawTaskDef | undefined): RawTask {
     lastStatus: t.lastStatus ?? "UNKNOWN",
     desiredStatus: t.desiredStatus ?? "UNKNOWN",
     health,
-    hasHealthcheck: !!td?.healthcheck,
+    // ECS rolls every essential container's health check into the task's health, whichever container is "the service".
+    hasHealthcheck: !!td && (!!td.healthcheck || td.containers.some((x) => x.essential && x.healthcheck)),
     startedAt: ms(t.startedAt),
     stoppedAt: ms(t.stoppedAt),
     stoppedReason: t.stoppedReason ?? c?.reason,
@@ -212,6 +240,7 @@ export function taskOf(t: SdkTask, td: RawTaskDef | undefined): RawTask {
     // Only a running task's address names a live endpoint; a stopped task's ENI is gone (or about to be reused).
     ...(t.lastStatus === "RUNNING" && taskIpOf(t) ? { privateIp: taskIpOf(t) } : {}),
     ...(Object.keys(digests).length ? { imageDigests: digests } : {}),
+    ...(host ? { host } : {}),
   };
 }
 
@@ -226,6 +255,7 @@ export interface TaskReader {
   list(desiredStatus: "RUNNING" | "STOPPED", nextToken?: string): Promise<{ taskArns?: string[]; nextToken?: string }>;
   describe(taskArns: string[]): Promise<SdkTask[]>; // DescribeTasks, at most 100
   taskDef(arn: string): Promise<RawTaskDef>; // memoised by the caller
+  instances?(containerInstanceArns: string[]): Promise<Map<string, string>>; // DescribeContainerInstances, at most 100: ARN → EC2 id
 }
 export interface ClusterTasks {
   byService: Map<string, RawTask[]>; // running first (as listed), then the newest STOPPED_KEPT stopped ones
@@ -260,11 +290,16 @@ export async function clusterTasks(r: TaskReader, o: { concurrency?: number; max
   const tds = new Map<string, RawTaskDef | undefined>(
     await mapLimit(tdArns, concurrency, async (a) => [a, needed.has(a) ? await r.taskDef(a) : await r.taskDef(a).catch(() => undefined)] as const),
   );
+  // Which EC2 instance each running task is on: placement evidence, never worth failing the cluster for.
+  const ciArns = uniq(runTasks.map((t) => t.containerInstanceArn).filter((a): a is string => !!a));
+  const hostOf = new Map<string, string>();
+  if (r.instances && ciArns.length)
+    for (const m of await mapLimit(chunk(ciArns, 100), concurrency, (b) => r.instances!(b).catch(() => new Map<string, string>()))) for (const [k, v] of m) hostOf.set(k, v);
   const byService = new Map<string, RawTask[]>();
   for (const t of all) {
     const svc = serviceOfGroup(t.group);
     const list = byService.get(svc) ?? [];
-    list.push(taskOf(t, t.taskDefinitionArn ? tds.get(t.taskDefinitionArn) : undefined));
+    list.push(taskOf(t, t.taskDefinitionArn ? tds.get(t.taskDefinitionArn) : undefined, t.containerInstanceArn ? hostOf.get(t.containerInstanceArn) : undefined));
     byService.set(svc, list);
   }
   for (const [svc, v] of byService) {
@@ -303,7 +338,7 @@ export interface SdkService {
   launchType?: string;
   capacityProviderStrategy?: { capacityProvider?: string; weight?: number; base?: number }[];
   deployments?: SdkDeployment[];
-  loadBalancers?: { targetGroupArn?: string }[];
+  loadBalancers?: { targetGroupArn?: string; containerName?: string }[];
   deploymentConfiguration?: { deploymentCircuitBreaker?: { enable?: boolean } };
   deploymentController?: { type?: string };
   createdAt?: Date;

@@ -94,6 +94,21 @@ test("connectivity needs agreement, a mixed VPC decides nothing, and it spreads 
   assert.equal(env("hop2"), "production");
 });
 
+test("connectivity: neighbours that disagree once every hop is placed leave a resource shared, and what only it placed", () => {
+  // s (staging) — a — b — p (production): one pass gave a staging and b production; settled, each has a neighbour in
+  // the other environment. leaf hangs off a only, tail off p only.
+  const { resources } = assignEnvs(
+    [R("s", { envHint: "staging" }), R("a"), R("b"), R("p", { envHint: "production" }), R("leaf"), R("tail")],
+    [E("a", "s"), E("a", "b"), E("b", "p"), E("leaf", "a"), E("tail", "p")],
+    KNOWN,
+  );
+  const by = Object.fromEntries(resources.map((r) => [r.key, [r.env, r.envWhy]]));
+  assert.deepEqual(by.a, [undefined, undefined]);
+  assert.deepEqual(by.b, [undefined, undefined]);
+  assert.deepEqual(by.leaf, [undefined, undefined], "placed only through a");
+  assert.deepEqual(by.tail, ["production", "connected to p"]);
+});
+
 test("environments: ECS ones always listed; new ids from tags and names, protected when production-like or tagged", () => {
   const { envs } = assignEnvs(
     [

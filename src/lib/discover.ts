@@ -1,6 +1,6 @@
 // Discovery rules, pure (no AWS calls) so they can be unit-tested and read in one place.
 // Inputs are raw describes; outputs are environments, attributions and inferred connections.
-import type { EdgeKind } from "./types.ts";
+import type { EdgeKind, RawTask } from "./types.ts";
 
 // ---------- environments from ECS clusters ----------
 
@@ -46,17 +46,25 @@ export interface EnvDraft {
 }
 
 // Tags win (console:env, console:label, console:protected, console:order, console:branch), then stage words, then the name.
+// Ids are unique (environments, catalogs and URLs are keyed by them): a console:env tag yields only to another cluster
+// tagged the same, a stage word to any other claim; the losers keep their own names ("-2", "-3"… if even that is taken).
 export function envsFromClusters(clusters: ClusterLike[]): EnvDraft[] {
   const drafts = clusters.map((c) => {
     const st = stageOf(c.name);
-    const id = c.tags["console:env"] ? slug(c.tags["console:env"]) : st?.id;
-    return { c, st, id };
+    const tagged = !!c.tags["console:env"];
+    return { c, st, tagged, id: tagged ? slug(c.tags["console:env"]) : st?.id };
   });
-  const count = new Map<string, number>();
-  for (const d of drafts) if (d.id) count.set(d.id, (count.get(d.id) ?? 0) + 1);
+  const kept = drafts.map((d) => (d.id && drafts.filter((x) => x.id === d.id && (x.tagged || !d.tagged)).length === 1 ? d.id : undefined));
+  const taken = new Set(kept.filter(Boolean));
   return drafts
-    .map(({ c, st, id }) => {
-      const unique = id && (count.get(id) === 1 || c.tags["console:env"]) ? id : slug(c.name);
+    .map(({ c, st }, i) => {
+      let unique = kept[i];
+      if (!unique) {
+        const base = slug(c.name);
+        unique = base;
+        for (let n = 2; taken.has(unique); n++) unique = `${base}-${n}`;
+        taken.add(unique);
+      }
       const order = Number(c.tags["console:order"]);
       return {
         id: unique,
@@ -136,6 +144,37 @@ export function workloadGraph(
   return { nodes: Object.keys(workloads).map((id) => `service:${id}`), edges, ...(proxy ? { ingress: `service:${proxy}` } : {}) };
 }
 
+// ---------- task placement (ECS on EC2) ----------
+
+// Where a service's live tasks are: instance → running / starting counts. A task ECS wants running whose last status
+// isn't RUNNING yet (PROVISIONING, PENDING, ACTIVATING) is starting. `unplaced` counts the live tasks whose host isn't
+// known — a record without one (Fargate, or the container-instance read failed) and, when the listing stopped short
+// (tasksComplete false), the tasks ECS counts that have no record at all. 0 means `on` is the whole picture.
+export function placement(s: {
+  tasks: Pick<RawTask, "desiredStatus" | "lastStatus" | "host">[];
+  running?: number;
+  pending?: number;
+  tasksComplete?: boolean;
+}) {
+  const on = new Map<string, { running: number; starting: number }>();
+  let live = 0;
+  let unplaced = 0;
+  for (const t of s.tasks) {
+    if (t.desiredStatus !== "RUNNING") continue;
+    live++;
+    if (!t.host) {
+      unplaced++;
+      continue;
+    }
+    const c = on.get(t.host) ?? { running: 0, starting: 0 };
+    if (t.lastStatus === "RUNNING") c.running++;
+    else c.starting++;
+    on.set(t.host, c);
+  }
+  if (s.tasksComplete === false) unplaced += Math.max(0, (s.running ?? 0) + (s.pending ?? 0) - live);
+  return { on, unplaced };
+}
+
 // ---------- hosts referenced from container environment ----------
 
 export interface HostRef {
@@ -175,6 +214,8 @@ export interface NodeRef {
   ports: number[];
   hosts?: string[]; // endpoints / names this node answers to (DB endpoint, cache endpoint, service + container names)
   hostNetwork?: boolean; // shares the host's network (ECS "host" mode): reachable as localhost:<port>
+  instances?: string[]; // EC2 instances its live tasks are known to be on (placement())
+  placedAll?: boolean; // `instances` covers every live task: only then can it rule a shared host out
   engine?: string;
 }
 export interface SgRule {
@@ -211,6 +252,10 @@ const kindTo = (n: NodeRef, port?: number): EdgeKind =>
   n.kind === "database" ? "sql" : n.kind === "cache" ? "cache" : (PORT_KIND[port ?? -1] ?? n.ports.map((p) => PORT_KIND[p]).find(Boolean) ?? "http");
 const LOCAL = new Set(["localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal"]);
 const fromSg = (e: InferredEdge) => e.source.startsWith("security group");
+// Do two host-network nodes share an instance? "no" only when both placements are complete and disjoint; a task whose
+// host wasn't read (or a service with no live task) leaves it unknown.
+const shareHost = (a: NodeRef, b: NodeRef) =>
+  a.instances?.some((i) => b.instances?.includes(i)) ? "yes" : a.placedAll && b.placedAll && a.instances?.length && b.instances?.length ? "no" : "unknown";
 // Does a rule admit any port a database or cache listens on? A rule without ports (all traffic) admits every one, and
 // a target whose ports aren't known is admitted by any rule. Services are never checked: with bridge networking their
 // rules name host ports, not the container ports they declare.
@@ -274,8 +319,13 @@ export function inferConnections(
       for (const to of nodes) {
         if (to.id === from.id) continue;
         const named = to.hosts?.some((x) => x === h.host || h.host.endsWith(`.${x}`) || x.startsWith(`${h.host}.`));
-        const local = LOCAL.has(h.host) && from.hostNetwork && to.hostNetwork && h.port !== undefined && to.ports.includes(h.port);
-        if (named || local) add({ from: from.id, to: to.id, kind: kindTo(to, h.port), label: `${to.engine ?? to.kind}${h.port ? `:${h.port}` : ""}`, source: `task definition env ${h.via}` });
+        // localhost:<port> on a shared host network: a candidate unless placement shows they never share an instance.
+        const local = LOCAL.has(h.host) && from.hostNetwork && to.hostNetwork && h.port !== undefined && to.ports.includes(h.port) ? shareHost(from, to) : "no";
+        if (named || local !== "no")
+          add({
+            from: from.id, to: to.id, kind: kindTo(to, h.port), label: `${to.engine ?? to.kind}${h.port ? `:${h.port}` : ""}`,
+            source: `task definition env ${h.via}${!named && local === "unknown" ? " (localhost; same host not confirmed)" : ""}`,
+          });
       }
     }
   }

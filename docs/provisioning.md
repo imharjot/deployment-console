@@ -31,7 +31,7 @@ create it stopped.
 | the live task definition: containers, image (unless replaced), variables, secret references, env files, task and execution roles, health checks, volumes, runtime platform | load balancers / target groups — the copy gets no load-balancer traffic |
 | launch type or capacity provider strategy, platform version, placement constraints and strategy | Service Connect and service discovery |
 | ECS Exec setting | auto scaling policies |
-| the source's own task-definition tags, and its `console:repo`, `console:role`, `console:migrations` service tags | `console:name`, `console:healthcheck`, `console:self` (the copy isn't at the source's URL) |
+| the source's own task-definition tags, and its `console:repo`, `console:role`, `console:migrations`, `console:main` service tags | `console:name`, `console:healthcheck`, `console:self` (the copy isn't at the source's URL) |
 
 - **Logs** go to the same log group as the source, with the stream prefix set to the new name, so the two never mix.
 - **Networking** (awsvpc): in the same environment, the source's subnets, security groups and public-IP setting. Into

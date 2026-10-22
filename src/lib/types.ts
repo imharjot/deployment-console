@@ -54,6 +54,7 @@ export interface RawTask {
   memory?: string;
   privateIp?: string; // awsvpc ENI address (for "who talks to this IP")
   imageDigests?: Record<string, string>; // container name → image digest the task actually runs (F68)
+  host?: string; // EC2 launch type: the instance id it runs on (its container instance's), when read
 }
 
 export interface RawCluster {
@@ -75,6 +76,7 @@ export interface RawContainer {
   logGroup?: string; // awslogs driver only
   logRegion?: string; // awslogs-region, when the group lives in another region than the service
   logStreamPrefix?: string; // streams are "<prefix>/<container>/<task-id>"
+  healthcheck?: string; // its health check command, when it has one
   envHosts: { host: string; port?: number; via: string }[]; // hostnames named in environment values (never the values)
 }
 
@@ -343,6 +345,8 @@ export interface ResourceView {
   capacity?: { desired: number; running: number; pending: number; shortfallSince?: number }; // services only (R11)
   autoscaling?: { min: number; max: number; policies: string[] }; // services only (CC-20)
   operations?: OperationNote[]; // recent console changes to this resource, newest first, with their verification
+  placed?: string[]; // boxes: keys of the services with tasks on this host (its Containers tab)
+  maybePlaced?: string[]; // boxes: services whose tasks' hosts weren't read — they may run here
 }
 
 // A console change and how far its outcome is known: accepted = AWS accepted it and the sampler is verifying.

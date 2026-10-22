@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseConfig } from "./console-config.ts";
-import { MAX_ALLOWED_PER_TARGET, attribute, envsFromClusters, hostsFromEnv, inferConnections, inferEdges, parseImageRef, ruleReaches, shaFromTag, stageWordsOf, workloadGraph, type NodeRef } from "./discover.ts";
+import { MAX_ALLOWED_PER_TARGET, attribute, envsFromClusters, hostsFromEnv, inferConnections, inferEdges, parseImageRef, placement, ruleReaches, shaFromTag, stageWordsOf, workloadGraph, type NodeRef } from "./discover.ts";
 
 test("clusters become environments: stage words, uniqueness, tags win", () => {
   const e = envsFromClusters([
@@ -21,6 +21,47 @@ test("clusters become environments: stage words, uniqueness, tags win", () => {
   const two = envsFromClusters([{ name: "eu-prod", tags: {} }, { name: "us-prod", tags: {} }]);
   assert.deepEqual(two.map((x) => x.id), ["eu-prod", "us-prod"]);
   assert.ok(two.every((x) => x.protected));
+});
+
+test("environment ids never repeat: one would replace the other's catalog", () => {
+  const ids = (cs: [string, Record<string, string>?][]) => envsFromClusters(cs.map(([name, tags = {}]) => ({ name, tags }))).map((x) => [x.cluster, x.id]);
+  // Two clusters tagged alike: neither takes the id.
+  assert.deepEqual(ids([["blue", { "console:env": "production" }], ["green", { "console:env": "production" }]]), [["blue", "blue"], ["green", "green"]]);
+  // A tag beats another cluster's stage word; a name a kept id already has gets a suffix.
+  assert.deepEqual(ids([["main", { "console:env": "staging" }], ["acme-stg"], ["eu", { "console:env": "payments" }], ["payments"]]).sort(), [
+    ["acme-stg", "acme-stg"], ["eu", "payments"], ["main", "staging"], ["payments", "payments-2"],
+  ]);
+  assert.deepEqual(ids([["x", { "console:env": "production" }], ["production"]]).sort(), [["production", "production-2"], ["x", "production"]]);
+});
+
+test("localhost reaches a host-network service unless placement rules a shared instance out", () => {
+  // `all`: the instances cover every live task (placement().unplaced === 0).
+  type P = { on?: string[]; all?: boolean };
+  const node = (id: string, port: number, p: P): NodeRef => ({ id: `service:${id}`, kind: "service", securityGroups: [], ports: [port], hostNetwork: true, instances: p.on, placedAll: p.all });
+  const env = { "service:api": [{ host: "localhost", port: 6379, via: "REDIS_URL" }] };
+  const sources = (api: P, redis: P) => inferEdges([node("api", 3000, api), node("redis", 6379, redis)], {}, env).map((e) => e.source);
+  const sure = "task definition env REDIS_URL";
+  const unsure = "task definition env REDIS_URL (localhost; same host not confirmed)";
+  assert.deepEqual(sources({ on: ["i-a"], all: true }, { on: ["i-b"], all: true }), [], "both complete and disjoint: localhost can't be it");
+  assert.deepEqual(sources({ on: ["i-a", "i-b"], all: true }, { on: ["i-b"], all: true }), [sure]);
+  assert.deepEqual(sources({ on: ["i-a"], all: false }, { on: ["i-b"], all: true }), [unsure], "an api task whose host wasn't read may be on i-b");
+  assert.deepEqual(sources({ on: ["i-a"], all: true }, { on: ["i-b"], all: false }), [unsure]);
+  assert.deepEqual(sources({ on: ["i-b"], all: false }, { on: ["i-b"], all: false }), [sure], "a shared instance is confirmed, whatever else is unread");
+  assert.deepEqual(sources({ on: ["i-a"], all: true }, { on: [], all: true }), [unsure], "redis has no live task: nothing to compare");
+  assert.deepEqual(sources({}, { on: ["i-b"], all: true }), [unsure]);
+});
+
+test("placement: running and starting per instance; live tasks without a host, or without a record, are unplaced", () => {
+  const t = (lastStatus: string, host?: string, desiredStatus = "RUNNING") => ({ lastStatus, desiredStatus, ...(host ? { host } : {}) });
+  const p = placement({ tasks: [t("RUNNING", "i-a"), t("PENDING", "i-a"), t("RUNNING", "i-b"), t("PROVISIONING"), t("STOPPED", "i-a", "STOPPED"), t("RUNNING", "i-b", "STOPPED")] });
+  assert.deepEqual(Object.fromEntries(p.on), { "i-a": { running: 1, starting: 1 }, "i-b": { running: 1, starting: 0 } });
+  assert.equal(p.unplaced, 1);
+  // The listing stopped short (R13): ECS counts 3 running + 1 pending, 1 record was read — 3 are unplaced.
+  assert.equal(placement({ tasks: [t("RUNNING", "i-a")], running: 3, pending: 1, tasksComplete: false }).unplaced, 3);
+  assert.equal(placement({ tasks: [], running: 1, tasksComplete: false }).unplaced, 1);
+  // A complete listing is the whole picture, whatever the (eventually consistent) counts say; scaled to zero is nothing.
+  assert.equal(placement({ tasks: [t("RUNNING", "i-a")], running: 2, tasksComplete: true }).unplaced, 0);
+  assert.deepEqual([placement({ tasks: [], running: 0, pending: 0 }).on.size, placement({ tasks: [], running: 0, pending: 0 }).unplaced], [0, 0]);
 });
 
 test("image refs: ECR, Docker Hub, digests; shas inside tags", () => {

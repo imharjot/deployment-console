@@ -9,7 +9,8 @@
 //      matches — never its display name (a Name tag, a declared label: F69)
 //   then: a child (subnet, NAT, Aurora member…) takes its parent's environment
 //   5. the VPC, when every resource placed by rules 1–4 in that VPC agrees on one environment
-//   6. connectivity: all its neighbours that already have an environment agree (repeated up to three hops)
+//   6. connectivity: all its neighbours that already have an environment agree (repeated up to three hops), and still
+//      agree once every hop is placed — else it stays shared
 // Hubs — the support layers (network, security, observability, delivery) and generic catch-all rows — may receive an
 // environment but never count as inputs to rules 5 and 6 (CC-15): a VPC's security groups or one shared KMS key must
 // not decide, or un-decide, where the workloads around them belong. Generic rows are placed by tags and ids only, and
@@ -171,20 +172,38 @@ export function assignEnvs(input: Resource[], edges: Edge[], known: KnownEnv[]):
     link(e.from, e.to);
     link(e.to, e.from);
   }
-  for (let pass = 0; pass < 3; pass++) {
-    const snapshot = new Map(resources.map((r) => [r.key, r.env]));
-    let changed = false;
-    for (const r of resources) {
-      if (decided.has(r.key) || r.env || r.kind === "external" || r.kind === "aws-resource") continue;
-      const withEnv = [...(near.get(r.key) ?? [])].filter((k) => snapshot.get(k) && !hubs.has(k));
-      const envs = new Set(withEnv.map((k) => snapshot.get(k)!));
-      if (envs.size !== 1) continue;
-      const via = byKey.get(withEnv[0])!;
-      r.env = [...envs][0];
-      r.envWhy = `connected to ${via.name}${withEnv.length > 1 ? ` and ${withEnv.length - 1} more` : ""}`;
-      changed = true;
+  // A pass places a resource on the neighbours placed so far, so a neighbour placed a pass later can still disagree:
+  // once settled, a resource whose neighbours disagree is contested — shared — and the spread runs again without it,
+  // so nothing keeps an environment that only a contested resource gave it.
+  const linked = new Set<string>(); // placed by connectivity
+  const contested = new Set<string>();
+  const neighbourEnvs = (k: string, env: (k: string) => string | undefined) =>
+    [...(near.get(k) ?? [])].filter((n) => env(n) && !hubs.has(n));
+  const spread = () => {
+    for (const k of linked) Object.assign(byKey.get(k)!, { env: undefined, envWhy: undefined });
+    linked.clear();
+    for (let pass = 0; pass < 3; pass++) {
+      const snapshot = new Map(resources.map((r) => [r.key, r.env]));
+      let changed = false;
+      for (const r of resources) {
+        if (decided.has(r.key) || r.env || contested.has(r.key) || r.kind === "external" || r.kind === "aws-resource") continue;
+        const withEnv = neighbourEnvs(r.key, (k) => snapshot.get(k));
+        const envs = new Set(withEnv.map((k) => snapshot.get(k)!));
+        if (envs.size !== 1) continue;
+        const via = byKey.get(withEnv[0])!;
+        r.env = [...envs][0];
+        r.envWhy = `connected to ${via.name}${withEnv.length > 1 ? ` and ${withEnv.length - 1} more` : ""}`;
+        linked.add(r.key);
+        changed = true;
+      }
+      if (!changed) break;
     }
-    if (!changed) break;
+  };
+  const envNow = (k: string) => byKey.get(k)!.env;
+  for (spread(); ; spread()) {
+    const fresh = [...linked].filter((k) => new Set(neighbourEnvs(k, envNow).map(envNow)).size > 1);
+    if (!fresh.length) break;
+    for (const k of fresh) contested.add(k);
   }
   inherit(false); // parents placed by their VPC or their connections pass it on too
 

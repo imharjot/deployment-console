@@ -54,6 +54,13 @@ test("env ids stay unique across regions: the non-home copy gets -<region>", () 
   // (two envs with one id would make one of them unreachable).
   const away = regionalIds([env("production", "us-east-1"), env("production", "eu-west-1", "config")], "us-east-1");
   assert.deepEqual(away.map((e) => [e.id, e.label]), [["production-us-east-1", "Production (us-east-1)"], ["production", "Production"]]);
+  // The same in the home region: a config entry ("production" pinned to cluster "main", or a compose box) keeps its id,
+  // the cluster discovered as "production" steps aside.
+  const home = regionalIds([env("production", "us-east-1", "config"), env("production", "us-east-1")], "us-east-1");
+  assert.deepEqual(home.map((e) => [e.id, e.source]), [["production", "config"], ["production-us-east-1", "discovered"]]);
+  // A generated id never takes one a later home env keeps (a cluster tagged console:env=production-us-east-1).
+  const later = regionalIds([env("production", "us-east-1", "config"), env("production", "us-east-1"), env("production-us-east-1", "us-east-1")], "us-east-1");
+  assert.deepEqual(later.map((e) => e.id), ["production", "production-us-east-1-2", "production-us-east-1"]);
   // Even a generated id can't collide.
   const twice = regionalIds([env("production", "us-east-1"), env("production-eu-west-1", "us-east-1"), env("production", "eu-west-1")], "us-east-1");
   assert.deepEqual(twice.map((e) => e.id), ["production", "production-eu-west-1", "production-eu-west-1-2"]);

@@ -53,16 +53,15 @@ export function resolveAllEnabled(home: string, enabled: string[]): { regions: s
 // Environment ids stay unique across regions. Ids pinned in console.config.json stand, then the home region's; an env
 // discovered in another region whose id is already taken becomes "<id>-<region>", labelled "<label> (<region>)"
 // (eu-west-1's "acme-production" next to the home one → "production-eu-west-1", "Production (eu-west-1)"). So does a
-// home env whose id a config entry pinned to a cluster in another region (environments.<id>.region).
+// home env whose id a config entry already uses — a cluster or compose box pinned in any region (environments.<id>).
 // `envs`: home region first, then the other regions in the console's order.
 export function regionalIds<T extends { id: string; label: string; region: string; source: "discovered" | "config" }>(envs: T[], home: string): T[] {
-  const config = new Map(envs.filter((e) => e.source === "config").map((e) => [e.id, e.region]));
-  const taken = new Set(config.keys());
+  const config = new Set(envs.filter((e) => e.source === "config").map((e) => e.id));
+  const keeps = (e: T) => e.source === "config" || (e.region === home && !config.has(e.id));
+  // Every id that stands is reserved first, so a generated one can't take an id a later env keeps.
+  const taken = new Set(envs.filter(keeps).map((e) => e.id));
   return envs.map((e) => {
-    if (e.source === "config" || (e.region === home && (config.get(e.id) ?? home) === home)) {
-      taken.add(e.id);
-      return e;
-    }
+    if (keeps(e)) return e;
     let id = e.id;
     let label = e.label;
     if (taken.has(id)) {

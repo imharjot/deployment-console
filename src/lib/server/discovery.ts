@@ -5,7 +5,7 @@
 // and everything about it (services, hosts, databases, caches, security groups) is read in that region only.
 import "server-only";
 import type { ConsoleConfig } from "../console-config.ts";
-import { PROXY_IMAGE, attribute, envsFromClusters, inferEdges, parseImageRef, stageWordsOf, workloadGraph, type HostRef, type NodeRef, type SgRule } from "../discover.ts";
+import { PROXY_IMAGE, attribute, envsFromClusters, inferEdges, parseImageRef, placement, stageWordsOf, workloadGraph, type HostRef, type NodeRef, type SgRule } from "../discover.ts";
 import { clusterSkip, configWarnings, healthcheckProblem, unassignedOf, type DiscoveryWarning } from "../discovery-rules.ts";
 import { regionalIds } from "../regions.ts";
 import type { EdgeKind, EnvInfo, RawBox, RawCache, RawCluster, RawDb, RawService, TopoEdge, TopoNode } from "../types.ts";
@@ -312,9 +312,11 @@ async function buildInventory(region: string, home: string): Promise<Inventory> 
         const td = s.taskDef;
         const m = meta.get(s.name)!;
         const host = td?.networkMode === "host" || td?.networkMode === "bridge";
+        const p = placement(s);
         return {
           id: `service:${s.name}`, kind: "service", securityGroups: s.securityGroups.length ? s.securityGroups : host ? hostSgs : [], ports: m.ports,
           hosts: [s.name, ...(td?.containers.map((c) => c.name) ?? [])], hostNetwork: td?.networkMode === "host",
+          instances: [...p.on.keys()], placedAll: !p.unplaced,
         };
       });
       const envHosts: Record<string, HostRef[]> = Object.fromEntries(services.map((s) => [`service:${s.name}`, s.taskDef?.containers.flatMap((c) => c.envHosts) ?? []]));

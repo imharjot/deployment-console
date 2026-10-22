@@ -7,7 +7,7 @@ import { actionSpecs, checkAction, checkPower, parseActionBody, powerSpecs, type
 import { CONSOLE_WRITES } from "../capability-rules.ts";
 import { LIMITS } from "../config.ts";
 import { periodFor } from "../metric-specs.ts";
-import { parseImageRef } from "../discover.ts";
+import { parseImageRef, placement } from "../discover.ts";
 import type { Freshness } from "../freshness.ts";
 import { WINDOW_MS, extendSpans, latestState, rebuild, record, restore, uptime, type Span, type Transition } from "../history.ts";
 import { mutationState } from "../mutation-core.ts";
@@ -308,7 +308,12 @@ function serviceView(env: EnvInfo, svc: Fetched<RawService>, m: ServiceMeta, d: 
   };
 }
 
-function hostView(env: EnvInfo, h: RawBox, checkedAt: number, placed: number, spark?: number[]): View {
+// What runs on a host. Compose: every declared workload. ECS: placement() of the env's tasks — tasks whose host wasn't
+// read are `unknown` (any host may have them) and their services `maybe` here: never shown as absent.
+interface OnHost { services: string[]; maybe: string[]; running: number; starting: number; unknown: number }
+
+function hostView(env: EnvInfo, h: RawBox, checkedAt: number, on: OnHost, spark?: number[]): View {
+  const placed = on.services.length;
   const compose = env.kind === "compose"; // the box runs docker compose: no ECS agent, no container instance
   // shutting-down is deliberate (a terminate), not an outage: no "down" alert while a console-created host goes away.
   const map: Record<string, State> = { running: "UP", stopped: "STOPPED", pending: "DEPLOYING", stopping: "DEPLOYING", "shutting-down": "STOPPED" };
@@ -319,7 +324,15 @@ function hostView(env: EnvInfo, h: RawBox, checkedAt: number, placed: number, sp
     subtitle: `${h.id} · ${h.type}`,
     state,
     reasons: [state === "DEPLOYING" ? `${h.state}…` : state === "DEGRADED" ? "ECS agent disconnected — tasks can't be placed" : `instance ${h.state}`],
-    stats: [{ label: "", value: h.type }, { label: placed === 1 ? "container" : "containers", value: String(placed) }, { label: "up", value: h.state === "running" ? ago(h.launchedAt).replace(" ago", "") : "—" }],
+    stats: [
+      { label: "", value: h.type },
+      compose
+        ? { label: placed === 1 ? "container" : "containers", value: String(placed) }
+        : { label: on.running === 1 && !on.unknown ? "task" : "tasks", value: on.unknown ? (on.running ? `${on.running}+` : "?") : String(on.running) },
+      { label: "up", value: h.state === "running" ? ago(h.launchedAt).replace(" ago", "") : "—" },
+    ],
+    placed: on.services,
+    ...(on.maybe.length ? { maybePlaced: on.maybe } : {}),
     spark,
     properties: [
       {
@@ -338,7 +351,7 @@ function hostView(env: EnvInfo, h: RawBox, checkedAt: number, placed: number, sp
       },
       compose
         ? { title: "Docker compose", items: [{ label: "Workloads declared", value: String(placed) }] }
-        : { title: "Capacity", items: [{ label: "ECS cluster", value: env.cluster, mono: true }, { label: "Services placed", value: String(placed) }, { label: "ECS agent", value: h.agentConnected === false ? "disconnected" : "connected", tone: h.agentConnected === false ? "bad" : "ok" }] },
+        : { title: "Capacity", items: [{ label: "ECS cluster", value: env.cluster, mono: true }, { label: "Services placed", value: `${placed}${on.maybe.length ? ` (+${on.maybe.length} unknown)` : ""}` }, { label: "Tasks running", value: `${on.running}${on.unknown ? " known" : ""}${on.starting ? ` · ${on.starting} starting` : ""}` }, ...(on.unknown ? [{ label: "Placement", value: `${on.unknown} task${on.unknown === 1 ? "" : "s"} not read — may run here`, tone: "warn" as const }] : []), { label: "ECS agent", value: h.agentConnected === false ? "disconnected" : "connected", tone: h.agentConnected === false ? "bad" : "ok" }] },
     ],
     actions: powerSpecs({ kind: "host", state: h.state, protected: env.protected, asg: h.asg }).map(capable("host.power")),
   };
@@ -750,8 +763,20 @@ export async function overview(envId: string, opts: OverviewOptions = {}): Promi
 
   const infra: View[] = [];
   const hostsAt = hostsR?.ok ? hostsR.value.at : now;
-  const placed = compose ? services.length : svcList.filter((s) => s.launchType === "EC2").length;
-  hosts.forEach((h, i) => infra.push(hostView(env, h, hostsAt, placed, sparkOf(`h${i}`))));
+  // ECS placement (task → container instance → EC2 instance); hidden services' tasks count, their tiles aren't listed.
+  const where = svcAll.map((s) => ({ s, p: placement(s), tile: svcList.includes(s) ? `service:${s.name}` : undefined }));
+  const unread = where.filter((x) => x.s.launchType === "EC2" && x.p.unplaced);
+  const tiles = (l: typeof where) => l.flatMap((x) => (x.tile ? [x.tile] : []));
+  const onHost = (id: string): OnHost => {
+    const here = where.filter((x) => x.p.on.has(id));
+    const sum = (k: "running" | "starting") => here.reduce((a, x) => a + x.p.on.get(id)![k], 0);
+    return {
+      services: tiles(here), maybe: tiles(unread.filter((x) => !x.p.on.has(id))), running: sum("running"), starting: sum("starting"),
+      unknown: unread.reduce((a, x) => a + x.p.unplaced, 0),
+    };
+  };
+  const composeOn: OnHost = { services: services.map((s) => s.key), maybe: [], running: 0, starting: 0, unknown: 0 };
+  hosts.forEach((h, i) => infra.push(hostView(env, h, hostsAt, compose ? composeOn : onHost(h.id), sparkOf(`h${i}`))));
   if (hostsR && !hostsR.ok) infra.push({ key: "box:?", kind: "box", env: env.id, id: "?", name: "EC2 hosts", subtitle: env.cluster || env.host || "", state: "UNKNOWN", reasons: [hostsR.error], checkedAt: now, stats: [], properties: [], actions: [], tabs: ["overview"], readOnly: true });
   const dbAt = dbsR?.ok ? dbsR.value.at : now;
   for (const d of dbs) {
@@ -1096,11 +1121,13 @@ async function revisionFacts(env: EnvInfo, live: RawService): Promise<RevisionVi
   const m = await metaOf(env, live);
   const family = m.family ?? live.taskDef?.family;
   if (!family) return [];
-  const revs = (await cached(`revs:${inRegion(family, env.region)}`, 15_000, () => cloud.revisions(family))).value;
+  // A revision's image is its main container's: the one this service runs as (it may name its own — mainHint).
+  const main = live.taskDef?.main;
+  const revs = (await cached(`revs:${inRegion(family, env.region)}`, 15_000, () => cloud.revisions(family))).value
+    .map((r) => ({ ...r, image: r.containers?.find((c) => c.name === main)?.image ?? r.image }));
   const liveArn = live.taskDef?.arn;
   const liveRev = revs.find((r) => r.arn === liveArn);
   const liveSha = liveRev ? parseImage(liveRev.image).sha : undefined;
-  const main = live.taskDef?.main;
   const liveMain = liveRev ? (essentials(liveRev, main).find((c) => c.name === main) ?? essentials(liveRev, main)[0]) : undefined;
   const digests = liveDigests(live);
   return Promise.all(

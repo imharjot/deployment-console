@@ -25,7 +25,7 @@ import { GetCallerIdentityCommand, STSClient } from "@aws-sdk/client-sts";
 import { LIMITS } from "../../config.ts";
 import { parseArn } from "../../inventory/arn.ts";
 import {
-  cacheArn, cacheResource, elbAction, elbLoadBalancer, elbRule, elbTargetGroup, envFileMentions, envFilesToRead, groupsOf, lbLinks, lbResource, lbSections, metricQueries,
+  cacheArn, cacheResource, elbAction, elbLoadBalancer, elbRule, elbTargetGroup, envFileMentions, envFilesToRead, groupsOf, hostLinks, lbLinks, lbResource, lbSections, metricQueries,
   metricSeries, rdsResource, ruleHosts, serviceWires, sgSection, targetType, type EcsJoin, type ElbListener, type ElbLoadBalancer,
   type ElbTargetGroup, type Scaling,
 } from "../../inventory/ecs-map.ts";
@@ -396,10 +396,9 @@ const ecsProvider: Provider = {
           ...(wires.facts ? { facts: wires.facts } : {}),
         });
         links.push(...wires.links);
-        // EC2 launch type: the cluster's container instances (the compute provider lists the instances themselves,
-        // keyed ec2:<id>@<region> outside home).
-        if (s.launchType === "EC2" && hosts.length && hosts.length <= 10)
-          for (const h of hosts) links.push({ from: key, to: keys.ec2(h.id, region, home), kind: "uses", label: hosts.length === 1 ? "runs on" : "may run on", evidence: `EC2 launch type in cluster ${env.cluster}` });
+        // The instances its tasks run on (the compute provider lists the instances themselves, keyed ec2:<id>@<region>
+        // outside home).
+        links.push(...hostLinks(s, { key, region, home, cluster: env.cluster, hosts: hosts.map((h) => h.id) }));
         // Environment values → mentions (server-side only; matched, then dropped).
         if (!td) envReads.push(Promise.resolve({ key, self, cloud }));
         else

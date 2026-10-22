@@ -54,6 +54,9 @@ export function ResourcePanel({ r, overview, onClose, onOpen }: { r: ResourceVie
   const noted = ecsNoteTarget(r, envInfo?.cluster, envInfo?.region, regions.data?.home);
   const noteCount = useNoteCount(noted?.key);
   const short = r.state === "UNKNOWN" ? undefined : capacityText(r.capacity);
+  // A host's Containers tab: services with tasks on it, then those whose tasks' hosts weren't read.
+  const placedHere = overview.services.filter((s) => r.placed?.includes(s.key) ?? true);
+  const maybeHere = overview.services.filter((s) => r.maybePlaced?.includes(s.key));
   const op = opsOf(r)[0];
   const scaling = r.autoscaling && !r.properties.some((g) => g.items.some((i) => /autoscal/i.test(i.label))) ? r.autoscaling : undefined;
   // The assistant: "Explain this" for any resource, "Why is this unhealthy?" when it isn't ok — scoped to its inventory key.
@@ -166,10 +169,26 @@ export function ResourcePanel({ r, overview, onClose, onOpen }: { r: ResourceVie
               {tab === "logs" && <LogViewer env={r.env} services={[r.id]} compact />}
               {tab === "notes" && noted && <Notes resourceKey={noted.key} resourceName={noted.name} env={r.env} />}
               {tab === "containers" && (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {overview.services.map((s) => (
-                    <ResourceCard key={s.key} r={s} onOpen={onOpen} compact />
-                  ))}
+                <div className="grid gap-5">
+                  {placedHere.length ? (
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {placedHere.map((s) => (
+                        <ResourceCard key={s.key} r={s} onOpen={onOpen} compact />
+                      ))}
+                    </div>
+                  ) : (
+                    <Empty title={maybeHere.length ? "No tasks known to run on this host" : "No tasks on this host"} />
+                  )}
+                  {maybeHere.length > 0 && (
+                    <section className="grid gap-3">
+                      <h3 className="eyebrow">Placement not read — may run here</h3>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {maybeHere.map((s) => (
+                          <ResourceCard key={s.key} r={s} onOpen={onOpen} compact />
+                        ))}
+                      </div>
+                    </section>
+                  )}
                 </div>
               )}
             </motion.div>

@@ -6,6 +6,7 @@
 //
 // Trust boundary: env-file and environment values only ever become Mention.refs (matched on the server, then dropped).
 // Nothing here puts a value into a Resource, a Link's label or evidence, or a Mention's `via`.
+import { placement } from "../discover.ts";
 import { envFileVars, parseEnvFile } from "../envvars.ts";
 import type { ChartMetricSpec } from "../metric-specs.ts";
 import { targetGroupsHealth, tgHealthToResource, type TgInput } from "../status.ts";
@@ -384,6 +385,24 @@ export function serviceWires(
     ...prop("Service Connect", aliases.join(", ")),
   ];
   return { links, aliases, endpoints, props, facts: { desired: s.desired, ...(s.assignPublicIp !== undefined ? { public: s.assignPublicIp } : {}) } };
+}
+
+// Where an ECS-on-EC2 service runs: "runs on" (or "starting on") each instance its live tasks are placed on. While some
+// live tasks' hosts weren't read (placement().unplaced), the cluster's other instances are candidates — "may run on",
+// up to 10, "runs on" when there is only one. A service with no live task runs nowhere: no link, however many hosts.
+export function hostLinks(s: RawService, o: { key: string; region: string; home: string; cluster: string; hosts: string[] }): Link[] {
+  const { on, unplaced } = placement(s);
+  const links: Link[] = [...on].map(([id, c]) => ({
+    from: o.key, to: keys.ec2(id, o.region, o.home), kind: "uses", label: c.running ? "runs on" : "starting on",
+    evidence: `ECS task placement: ${[c.running && `${c.running} running`, c.starting && `${c.starting} starting`].filter(Boolean).join(", ")} on this instance`,
+  }));
+  if (unplaced && s.launchType === "EC2" && o.hosts.length <= 10)
+    for (const h of o.hosts.filter((x) => !on.has(x)))
+      links.push({
+        from: o.key, to: keys.ec2(h, o.region, o.home), kind: "uses", label: o.hosts.length === 1 ? "runs on" : "may run on",
+        evidence: `EC2 launch type in cluster ${o.cluster}: ${unplaced} task${unplaced === 1 ? "" : "s"} not placed in what was read`,
+      });
+  return links;
 }
 
 // ---------- RDS and ElastiCache (F16, CC-22) ----------
