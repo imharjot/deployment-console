@@ -203,6 +203,9 @@ out.childChange = await invokeAs(child, "services.restart", { env: "staging", se
 const big = await agentRun({ ...P("incident-investigator"), tools: { ...P("incident-investigator").tools, propose: ["cloud.action"] } }, admin);
 const key = "ecs:service/acme-staging/api";
 const deploy = { key, provider: "ecs-image", action: "deploy-image", input: { image: "123456789012.dkr.ecr.us-east-1.amazonaws.com/acme/storefront-api:1.2.3" }, confirm: "api", reason: "test" };
+// The other regions merge into a new graph (fresh objects) after the home one is served: mark the resource only once
+// that has landed, or a slow machine's merge replaces it between the mark and the call.
+for (let i = 0; (await inv.inventoryCoverage()).pendingRegions.length && i < 600; i++) await new Promise((r) => setTimeout(r, 100));
 const f = await inv.findResource(key);
 f.resource.tagsUnread = true;
 out.unreadTags = await invokeAs(big, "cloud.action", deploy);
