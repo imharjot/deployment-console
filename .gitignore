@@ -1,20 +1,21 @@
 node_modules/
 .next/
 .next-*/
-out/
+# Leading slash: the root only — an unanchored coverage/ hid src/app/api/inventory/coverage/.
+/out/
 *.tsbuildinfo
 next-env.d.ts
 .env
 .env.local
 .env.*.local
-coverage/
+/coverage/
 .DS_Store
 
 # console DB + generated secret key (CONSOLE_DATA_DIR default)
-data/
+/data/
 
 *.db-wal
 *.db-shm
 
 # JUnit output from CI-style test runs
-reports/
+/reports/

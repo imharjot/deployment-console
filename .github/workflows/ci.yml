@@ -28,7 +28,8 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       # Unit tests, also written as JUnit — the console shows test results from any artifact named junit-*.
-      - run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=reports/unit.xml "src/**/*.test.ts"
+      # node --test doesn't create the reporter's directory.
+      - run: mkdir -p reports && node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=reports/unit.xml "src/**/*.test.ts"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

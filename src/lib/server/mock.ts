@@ -936,7 +936,8 @@ interface MRun {
 }
 const reruns = new Map<number, { attempt: number; at: number; failedOnly: boolean }>();
 
-function buildRuns(repo: string, now: number): MRun[] {
+// `back`: build the live push from that many 9-minute windows ago (findRun), still judged at `now`.
+function buildRuns(repo: string, now: number, back = 0): MRun[] {
   const out: MRun[] = [];
   const wfs = WORKFLOWS[repo] ?? [];
   const tested = wfs.some((w) => w.name !== "deploy");
@@ -944,7 +945,7 @@ function buildRuns(repo: string, now: number): MRun[] {
     const list = pushes(repo, branch);
     // A live push on staging that restarts every 9 minutes (repos with a test workflow), so there is always
     // something in progress to watch.
-    const liveAt = Math.floor(now / (9 * MIN)) * 9 * MIN;
+    const liveAt = (Math.floor(now / (9 * MIN)) - back) * 9 * MIN;
     const live: Push | null = branch === STAGING_BRANCH && tested
       ? { sha: hex40(`${repo}:live:${liveAt}`), at: liveAt, title: pick(TITLES, rnd(`${liveAt}${repo}`)), author: AUTHORS[0], failed: false }
       : null;
@@ -1014,8 +1015,10 @@ function jobsOf(m: MRun, now: number): CiJob[] {
   });
 }
 
+// A run listed just before the live push rolled over still answers, as a real run would.
 function findRun(repo: string, id: number) {
-  const m = buildRuns(repo, Date.now()).find((x) => x.run.id === id);
+  const now = Date.now();
+  const m = buildRuns(repo, now).find((x) => x.run.id === id) ?? buildRuns(repo, now, 1).find((x) => x.run.id === id);
   if (!m) throw Object.assign(new Error("run not found"), { status: 404 });
   return m;
 }
