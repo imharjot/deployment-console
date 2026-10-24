@@ -5,7 +5,7 @@
 // and everything about it (services, hosts, databases, caches, security groups) is read in that region only.
 import "server-only";
 import type { ConsoleConfig } from "../console-config.ts";
-import { PROXY_IMAGE, attribute, envsFromClusters, inferEdges, parseImageRef, placement, stageWordsOf, workloadGraph, type HostRef, type NodeRef, type SgRule } from "../discover.ts";
+import { PROXY_IMAGE, attribute, envTagDecides, envTagOf, envsFromClusters, inferEdges, parseImageRef, placement, stageWordsOf, workloadGraph, type HostRef, type NodeRef, type SgRule } from "../discover.ts";
 import { clusterSkip, configWarnings, healthcheckProblem, unassignedOf, type DiscoveryWarning } from "../discovery-rules.ts";
 import { regionalIds } from "../regions.ts";
 import type { EdgeKind, EnvInfo, RawBox, RawCache, RawCluster, RawDb, RawService, TopoEdge, TopoNode } from "../types.ts";
@@ -387,7 +387,9 @@ async function buildInventory(region: string, home: string): Promise<Inventory> 
   return {
     at: Date.now(),
     catalogs,
-    unassigned: { databases: unassignedOf(dbs, dbOwner, ids), caches: unassignedOf(caches, cacheOwner, ids) },
+    // A database whose tag names an environment with no ECS cluster (or "shared") isn't waiting for a tag: the cloud map
+    // places it, so it isn't listed as unattributed.
+    unassigned: { databases: unassignedOf(dbs, dbOwner, ids).filter((d) => !envTagDecides(envTagOf(d.tags) ?? "")), caches: unassignedOf(caches, cacheOwner, ids) },
     errors,
     seen: {
       [region]: {

@@ -20,6 +20,18 @@ First public version (0.1.0). What the console can do today:
 - **Lite effects** for weak hardware: detected before first paint (≤ 4 CPU threads, ≤ 4 GB memory, Save-Data or
   reduced motion) or chosen in Settings → Interface — no background blur or looping animations, fades instead of
   movement, and polling at half the rate.
+- **Fixed after a first run against a real account** (read-only role, no config file):
+  - The generated policies grant `cloudformation:ListStacks`: AWS authorizes the stack listing (`DescribeStacks`
+    without a name) as that action, so the read-only policy left CloudFormation empty and flagged as denied.
+  - Cloud map: a VPC takes the environment of the workloads in it (shared when they disagree), and children placed by
+    their VPC keep it. One security-group rule from production's database to the default VPC's CIDR no longer made the
+    default VPC — with its subnets and the security groups named `*-staging-*` — production.
+  - A database tagged with a stage that has no ECS cluster here (`env=staging`, only production discovered) is no longer
+    placed in another environment by its VPC or name, and isn't listed as unattributed with advice to tag it.
+  - Costs: when AWS's forecast assumes a daily spend over twice (or under half) the last 7 days' average, the forecast
+    tile also shows the 7-day run-rate month end.
+  - `npm run parity` confirms "more on the map than AWS reports" with the service's own list call: Resource Explorer
+    doesn't index AWS-managed KMS keys and aliases, Cloud Map namespaces or private hosted zones.
 
 ### Cloud map — the whole account
 - **Cloud map** (`/map`): every resource the console can find, with the connections between them, grouped by

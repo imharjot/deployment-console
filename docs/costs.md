@@ -34,7 +34,9 @@ account. The estimate works without either. See [Setting it up](#setting-it-up).
 - AWS updates cost data a few times a day, and marks the open month as *estimated* until the invoice closes. Today's
   numbers are partial.
 - **Forecast**: AWS forecasts the rest of the month (`GetCostForecast`). New accounts don't have enough history for
-  that; then the console projects the last 7 full days' average and says so.
+  that; then the console projects the last 7 full days' average and says so. AWS's model learns from months of
+  history, so it lags a recent change: when the daily spend it assumes is over twice (or under half) the last 7 days'
+  average — services scaled to zero mid-month, say — the tile also shows where the 7-day run rate ends the month.
 - **By environment** groups spend by the cost allocation tag `aws:ecs:clusterName` and maps each cluster to its
   environment through discovery. Clusters that aren't a discovered environment show under their own name.
   Everything without the tag — RDS, NAT gateways, load balancers, S3, … — is one **shared & untagged** row. To split

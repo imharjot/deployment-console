@@ -146,7 +146,12 @@ function Actual({ v }: { v: SpendView }) {
           i={1}
           label="Forecast · month end"
           value={v.forecast ? usd(v.forecast.monthEnd) : "—"}
-          sub={v.forecast ? <span title={v.forecast.note}>{v.forecast.method === "aws" ? "AWS forecast" : "from the 7-day average"}</span> : "not enough data yet"}
+          sub={v.forecast ? (
+            <span title={v.forecast.note}>
+              {v.forecast.method === "aws" ? "AWS forecast" : "from the 7-day average"}
+              {v.forecast.runRate !== undefined && <> · last 7 days point to {usd(v.forecast.runRate)}</>}
+            </span>
+          ) : "not enough data yet"}
         />
         <Stat i={2} label="Last month" value={usd(v.lastMonth)} sub={`${lastMonthName}, full month`} />
         <Stat

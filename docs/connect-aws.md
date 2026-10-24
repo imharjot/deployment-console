@@ -62,6 +62,9 @@ for f in ./policy/deployment-console-readonly-*.json; do
 done
 ```
 
+The trust policy above lets any identity in the account that is allowed `sts:AssumeRole` use the role. Naming yourself
+instead (`"Principal":{"AWS":"arn:aws:iam::123456789012:user/<you>"}`, or your SSO role's ARN) keeps it to you.
+
 Then add a profile to `~/.aws/config` that assumes it with your usual credentials:
 
 ```ini

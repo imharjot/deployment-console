@@ -58,6 +58,8 @@ export const cloudformationProvider: Provider = {
   ttlMs: 10 * 60_000,
   multiRegionMock: true,
   read: ["cloudformation:DescribeStacks", "cloudformation:ListStackResources", "cloudformation:DescribeStackEvents"],
+  // DescribeStacks without a StackName (the listing) is authorized as cloudformation:ListStacks.
+  implicit: ["cloudformation:ListStacks"],
   async discover(ctx) {
     const o = { region: ctx.region, accountId: ctx.accountId, home: ctx.home, now: Date.now() };
     return cfnResults(ctx.mock ? simRaw(ctx.region, o.now) : await realStacks(ctx), o);

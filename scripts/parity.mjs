@@ -14,6 +14,8 @@
 //    resources are indexed (the aggregator's region, else us-east-1), grouped by ResourceType. Over 1,000 results it
 //    counts per type. A region with no index (or no default view, or a refusal) falls back to the service's own list
 //    call for the types in FALLBACK, and says so; other types in that region are not compared.
+//    Where the map shows more of a type than Resource Explorer, the service's own list call settles it (Resource
+//    Explorer doesn't index AWS-managed KMS keys, Cloud Map namespaces or private hosted zones): a match is an info line.
 // 3. Compares per type and region. Types the console folds by design (sub-objects such as rules, snapshots and
 //    versions: aws-services.ts visibility "drop") and the expectation file's `ignoreTypes` are listed, not compared.
 // 4. Checks the expectations (format below), then prints every mismatch. Exit 0 = parity, 1 = mismatches, 2 = a usage,
@@ -127,6 +129,8 @@ const FALLBACK = {
   "acm:certificate": ["acm", "list-certificates", "length(CertificateSummaryList)", ["--includes", "keyTypes=RSA_1024,RSA_2048,RSA_3072,RSA_4096,EC_prime256v1,EC_secp384r1,EC_secp521r1"]],
   "logs:log-group": ["logs", "describe-log-groups", "length(logGroups)"],
   "kms:key": ["kms", "list-keys", "length(Keys)"],
+  "kms:alias": ["kms", "list-aliases", "length(Aliases[?TargetKeyId])"],
+  "servicediscovery:namespace": ["servicediscovery", "list-namespaces", "length(Namespaces)"],
   "rds:db": ["rds", "describe-db-instances", "length(DBInstances)"],
   "rds:cluster": ["rds", "describe-db-clusters", "length(DBClusters)"],
   "elasticloadbalancing:loadbalancer/app": ["elbv2", "describe-load-balancers", "length(LoadBalancers[?Type=='application'])"],
@@ -143,6 +147,21 @@ const FALLBACK = {
   "servicediscovery:service": ["servicediscovery", "list-services", "length(Services)"],
   "states:stateMachine": ["stepfunctions", "list-state-machines", "length(stateMachines)"],
 };
+
+// When the map shows more of a type than Resource Explorer, the service's own list call settles it: Resource Explorer
+// doesn't index everything (AWS-managed KMS keys and their aliases, Cloud Map namespaces, private hosted zones…).
+// Global types are asked once, in the first region.
+const DIRECT = { ...FALLBACK, "route53:hostedzone": ["route53", "list-hosted-zones", "length(HostedZones)"] };
+async function directCount(type, region) {
+  const d = DIRECT[type];
+  if (!d) return undefined;
+  const [svc, op, query, extra = []] = d;
+  try {
+    return { n: Number(await aws(region, svc, op, [...extra, "--query", query])), how: `${svc} ${op}` };
+  } catch {
+    return undefined;
+  }
+}
 
 // Resource Explorer: type@region → count, plus how each region was read.
 async function awsCounts(regions) {
@@ -276,6 +295,7 @@ if (!flag("--no-aws")) {
   const ignore = exp.ignoreTypes ?? {};
   const keys = new Set([...theirs.counts.keys(), ...[...mine.keys()].filter((k) => [...regions, "global"].includes(k.slice(k.lastIndexOf("@") + 1)))]);
   const rows = [];
+  let unindexedGlobal = 0;
   for (const at of [...keys].sort()) {
     const type = at.slice(0, at.lastIndexOf("@"));
     const region = at.slice(at.lastIndexOf("@") + 1);
@@ -293,6 +313,15 @@ if (!flag("--no-aws")) {
       if (a !== c) info.push(`${at}: AWS ${a}, console ${c} — folded by design (a sub-object; hiddenTypes counts it: ${v.hiddenTypes?.[type] ?? 0})`);
       continue;
     }
+    if (c > a && !how.startsWith("fallback")) {
+      const d = await directCount(type, region === "global" ? regions[0] : region);
+      if (d?.n === c) {
+        info.push(`${at}: Resource Explorer ${a}, console ${c} — Resource Explorer doesn't index ${c - a} of them; ${d.how} agrees with the console`);
+        if (region === "global") unindexedGlobal += c - a;
+        rows.push({ at, a: c, c });
+        continue;
+      }
+    }
     rows.push({ at, a, c });
     if (a !== c) problems.push(`${at}: AWS ${a}, console ${c}${a > c ? " (missing on the map)" : " (more on the map than AWS reports)"}`);
   }
@@ -302,7 +331,8 @@ if (!flag("--no-aws")) {
     const folded = [...theirs.counts].filter(([k]) => k.endsWith("@global") && infoOf(k.slice(0, -7)).visibility === "drop").reduce((n, [, x]) => n + x, 0);
     console.log(`global: Resource Explorer ${theirs.global} (${folded} folded sub-objects), console ${consoleGlobal} + ${folded} folded`);
     if (exp.global !== undefined && theirs.global !== exp.global) problems.push(`global: Resource Explorer reports ${theirs.global}, expected ${exp.global} (the account changed?)`);
-    if (consoleGlobal + folded !== theirs.global) problems.push(`global: console ${consoleGlobal} + ${folded} folded, Resource Explorer ${theirs.global}`);
+    if (consoleGlobal + folded - unindexedGlobal !== theirs.global)
+      problems.push(`global: console ${consoleGlobal} + ${folded} folded${unindexedGlobal ? ` − ${unindexedGlobal} Resource Explorer doesn't index` : ""}, Resource Explorer ${theirs.global}`);
   }
 } else if (exp.global !== undefined) {
   info.push("global: not compared (--no-aws)");

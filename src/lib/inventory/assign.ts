@@ -8,7 +8,8 @@
 //   4. stage words in the resource's id or key ("acme-staging-orders" → staging), only when exactly one environment
 //      matches — never its display name (a Name tag, a declared label: F69)
 //   then: a child (subnet, NAT, Aurora member…) takes its parent's environment
-//   5. the VPC, when every resource placed by rules 1–4 in that VPC agrees on one environment
+//   5. the VPC, when every resource placed by rules 1–4 in that VPC agrees on one environment — the VPC itself too; a
+//      VPC whose workloads disagree is shared
 //   6. connectivity: all its neighbours that already have an environment agree (repeated up to three hops), and still
 //      agree once every hop is placed — else it stays shared
 // Hubs — the support layers (network, security, observability, delivery) and generic catch-all rows — may receive an
@@ -18,7 +19,7 @@
 // Kubernetes workloads then take their EKS cluster's environment. Protection (protectedBy) is decided separately and
 // fails safe: any hint that names a protected environment counts, whichever rule placed the resource.
 // Environments = the ECS environments (always listed, with their own protected flag) plus ids found in tags and names.
-import { isProtectedStage, stageIdOf, stageOrder } from "../discover.ts";
+import { isProtectedStage, SHARED_ENV, stageIdOf, stageOrder } from "../discover.ts";
 import { parseArn } from "./arn.ts";
 import { categoryOf, isSupport, type Edge, type InventoryView, type Resource } from "./types.ts";
 
@@ -33,7 +34,6 @@ export type EnvEntry = InventoryView["envs"][number];
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
 const title = (s: string) => s.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 const ENV_TAGS = ["Environment", "environment", "Env", "env", "Stage", "stage"];
-const SHARED = new Set(["shared", "common", "global", "all", "any", "none", "na", "n-a", "multi", "multiple"]);
 const truthy = (v?: string) => !!v && /^(1|true|yes|on)$/i.test(v.trim());
 
 // A tag value or hint → environment id: an existing environment when it names one (by id or stage word), else the
@@ -41,7 +41,7 @@ const truthy = (v?: string) => !!v && /^(1|true|yes|on)$/i.test(v.trim());
 export function normalizeEnv(value: string, known: Pick<KnownEnv, "id">[]): string | null {
   const v = value.trim().toLowerCase();
   const s = slug(v);
-  if (!s || SHARED.has(s)) return null;
+  if (!s || SHARED_ENV.has(s)) return null;
   if (known.some((k) => k.id === s)) return s;
   const canon = stageIdOf(v);
   if (canon) return (known.find((k) => k.id === canon) ?? known.find((k) => stageIdOf(k.id) === canon))?.id ?? canon;
@@ -132,13 +132,14 @@ export function assignEnvs(input: Resource[], edges: Edge[], known: KnownEnv[]):
   }
 
   // Children belong where their parent does (a subnet in its VPC, a NAT in its subnet, an Aurora member in its
-  // cluster), unless they say otherwise themselves. Repeated so a chain (NAT → subnet → VPC) settles.
+  // cluster), unless they say otherwise themselves — or rules 1–5 already placed them: a parent placed later, by its
+  // connections, never overrides that. Repeated so a chain (NAT → subnet → VPC) settles.
   const inherit = (mark: boolean) => {
     for (let depth = 0; depth < 4; depth++) {
       let changed = false;
       for (const r of resources) {
         const parent = r.parent ? byKey.get(r.parent) : undefined;
-        if (!parent?.env || own.has(r.key) || r.env === parent.env || r.kind === "external") continue;
+        if (!parent?.env || decided.has(r.key) || r.env === parent.env || r.kind === "external") continue;
         r.env = parent.env;
         r.envWhy = `part of ${parent.name}`;
         if (mark) decided.add(r.key);
@@ -149,15 +150,21 @@ export function assignEnvs(input: Resource[], edges: Edge[], known: KnownEnv[]):
   };
   inherit(true);
 
-  // 5. VPCs that belong to exactly one environment — judged by the workloads in them, never by hubs (CC-15).
+  // 5. VPCs that belong to exactly one environment — judged by the workloads in them, never by hubs (CC-15). The VPC
+  // itself goes with them too, and one whose workloads span environments is shared: a single connection to it (a
+  // peering, a security-group rule) must not hand the VPC, and through it everything in it, to one of them.
   const vpcEnvs = new Map<string, Set<string>>();
   for (const r of resources) if (r.env && r.vpcId && !hubs.has(r.key)) vpcEnvs.set(r.vpcId, new Set([...(vpcEnvs.get(r.vpcId) ?? []), r.env]));
   for (const r of resources) {
-    if (decided.has(r.key) || r.kind === "external" || r.kind === "aws-resource" || !r.vpcId) continue;
-    const envs = vpcEnvs.get(r.vpcId);
+    const vpc = r.vpcId ?? (r.kind === "vpc" ? idName(r) : undefined);
+    if (decided.has(r.key) || r.kind === "external" || r.kind === "aws-resource" || !vpc) continue;
+    const envs = vpcEnvs.get(vpc);
     if (envs?.size === 1) {
       r.env = [...envs][0];
-      r.envWhy = `VPC ${r.vpcId}`;
+      r.envWhy = r.kind === "vpc" ? "the workloads in it" : `VPC ${vpc}`;
+      decided.add(r.key);
+    } else if (envs && r.kind === "vpc") {
+      r.envWhy = `workloads in ${[...envs].sort().join(" and ")}`;
       decided.add(r.key);
     }
   }
@@ -205,7 +212,7 @@ export function assignEnvs(input: Resource[], edges: Edge[], known: KnownEnv[]):
     if (!fresh.length) break;
     for (const k of fresh) contested.add(k);
   }
-  inherit(false); // parents placed by their VPC or their connections pass it on too
+  inherit(false); // parents placed by their connections pass it on to children nothing else placed
 
   // Kubernetes workloads belong to their cluster: they run in its environment.
   const clusterOf = new Map<string, string>();

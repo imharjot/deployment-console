@@ -227,7 +227,7 @@ listed here, but never generated again: the hand-written limit stays the limit. 
 | Bedrock (`bedrock`) | — | — | — |
 | Other AWS resources (`catchall`) | `cloudformation:ListResources`, `config:DescribeConfigurationRecorderStatus`, `config:SelectResourceConfig`, `resource-explorer-2:ListIndexes`, `resource-explorer-2:Search`, `tag:GetResources` | — | — |
 | Cloudflare (`cloudflare`) | Cloudflare token: `DNS:Read`, `Zone:Read` | — | Cloudflare token: `Cache Purge` |
-| CloudFormation (`cloudformation`) | `cloudformation:DescribeStackEvents`, `cloudformation:DescribeStacks`, `cloudformation:ListStackResources` | — | — |
+| CloudFormation (`cloudformation`) | `cloudformation:DescribeStackEvents`, `cloudformation:DescribeStacks`, `cloudformation:ListStackResources`, `cloudformation:ListStacks` | — | — |
 | CloudFront (`cloudfront`) | `cloudfront:GetDistributionConfig`, `cloudfront:GetInvalidation`, `cloudfront:ListDistributions`, `cloudfront:ListInvalidations`, `cloudfront:ListTagsForResource` | — | `cloudfront:CreateInvalidation` |
 | Cloud Map (`cloudmap`) | `servicediscovery:GetInstancesHealthStatus`, `servicediscovery:ListInstances`, `servicediscovery:ListNamespaces`, `servicediscovery:ListServices`, `servicediscovery:ListTagsForResource` | — | — |
 | CloudTrail (`cloudtrail`) | `cloudtrail:DescribeTrails`, `cloudtrail:GetTrailStatus`, `cloudtrail:ListTags` | — | — |

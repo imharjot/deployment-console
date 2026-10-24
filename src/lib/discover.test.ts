@@ -180,6 +180,13 @@ test("attribution: config, tags, connections, names, vpc", () => {
   assert.equal(attribute({ id: "acme-prod-pg", tags: {} }, envs, none, {}), "production");
   assert.equal(attribute({ id: "shared", tags: {}, vpcId: "vpc-1" }, envs, none, {}), "staging");
   assert.equal(attribute({ id: "shared", tags: {} }, envs, none, {}), undefined);
+  // A tag naming a stage no ECS environment has (staging's database, only production has a cluster) or "shared"
+  // settles it: no weaker guess — the VPC, a connection, a name — may place it in production instead.
+  const prodOnly = [envs[1]];
+  assert.equal(attribute({ id: "acme-staging-pg", tags: { env: "staging" }, vpcId: "vpc-2" }, prodOnly, new Set(["production"]), {}), undefined);
+  assert.equal(attribute({ id: "acme-prod-cache", tags: { Environment: "Shared" }, vpcId: "vpc-2" }, envs, none, {}), undefined);
+  // A value that names no stage is no verdict: the other rules still apply.
+  assert.equal(attribute({ id: "x", tags: { Environment: "team-data" }, vpcId: "vpc-2" }, envs, none, {}), "production");
 });
 
 test("config parser keeps valid parts and names every problem", () => {

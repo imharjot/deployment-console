@@ -110,7 +110,10 @@ RDS instances and ElastiCache clusters are account-wide, so each one is **attrib
 4. its identifier contains the env's name or stage word (`acme-prod-pg` → production);
 5. it's in a VPC used by exactly one environment (RDS only).
 
-Anything that can't be placed is listed under **Settings → Environments → Not attributed**.
+A tag that names a stage (`staging`, `prod`…) or says `shared` settles it even when no environment here matches: a
+database tagged `env=staging` in an account whose only cluster is production stays out of production, whatever its VPC
+or connections say, and shows on the cloud map under **Staging** instead. Anything else that can't be placed is listed
+under **Settings → Environments → Not attributed**.
 
 ## Connections (the arrows)
 

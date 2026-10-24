@@ -53,6 +53,15 @@ test("month-end projection: AWS forecast for the rest of the month, else the 7-d
   assert.match(rr.note!, /enough history/);
   assert.match(projectMonthEnd(daily, "2026-09-26", { status: "unavailable", code: "denied", reason: "AccessDenied" })!.note!, /AccessDenied/);
   assert.equal(projectMonthEnd({}, "2026-09-26", { status: "ok", amount: null }), null);
+  // Services scaled to zero mid-month: AWS's forecast still assumes the old rate; the 7-day run rate comes along.
+  const dropped = fill("2026-08-01", "2026-09-27", { EC2: (d: string) => (d >= "2026-09-19" ? 1 : 10) });
+  const f = projectMonthEnd(dropped, "2026-09-26", { status: "ok", amount: 50 })!;
+  assert.equal(f.method, "aws");
+  assert.equal(f.monthEnd, 18 * 10 + 7 * 1 + 50);
+  assert.equal(f.runRate, 18 * 10 + 7 * 1 + 5 * 1);
+  assert.match(f.note!, /assumes \$10\.00\/day .* averaged \$1\.00\/day/);
+  // Pennies a day never warn, however far apart.
+  assert.equal(projectMonthEnd(fill("2026-09-01", "2026-09-27", { EC2: () => 0.05 }), "2026-09-26", { status: "ok", amount: 1 })!.runRate, undefined);
 });
 
 test("spikes: last 7 days vs the 21 before, with a threshold and a floor", () => {

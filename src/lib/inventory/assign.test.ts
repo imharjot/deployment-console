@@ -94,6 +94,43 @@ test("connectivity needs agreement, a mixed VPC decides nothing, and it spreads 
   assert.equal(env("hop2"), "production");
 });
 
+test("a VPC goes with the workloads in it, not with one connection; its children keep what rule 5 gave them", () => {
+  // A real account: production's VPC peers with the default VPC, where the staging box and staging database live, and
+  // production's database allows the default VPC's CIDR. That one edge used to make the default VPC — and through it its
+  // subnets and the security groups named acme-staging-* — production.
+  const vpc = (id: string, extra: Partial<Resource> = {}) => R(`arn:aws:ec2:us-east-1:123456789012:vpc/${id}`, { kind: "vpc", name: id, ...extra });
+  const inVpc = (key: string, kind: Resource["kind"], v: string, extra: Partial<Resource> = {}) =>
+    R(key, { kind, vpcId: v, parent: `arn:aws:ec2:us-east-1:123456789012:vpc/${v}`, ...extra });
+  const DEF = "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-def";
+  const { resources } = assignEnvs(
+    [
+      vpc("vpc-prod", { tags: { env: "production" } }),
+      vpc("vpc-def"),
+      R("box", { kind: "ec2-instance", vpcId: "vpc-def", tags: { env: "staging" } }),
+      R("stg-pg", { kind: "rds", vpcId: "vpc-def", tags: { env: "staging" } }),
+      R("prod-pg", { kind: "rds", vpcId: "vpc-prod", envHint: "production" }),
+      inVpc("sg-app", "security-group", "vpc-def", { name: "acme-staging-app" }),
+      inVpc("subnet-a", "subnet", "vpc-def"),
+      inVpc("igw", "internet-gateway", "vpc-def"),
+      // A VPC with workloads of both environments, reached from production only.
+      vpc("vpc-mixed"),
+      R("m-stg", { kind: "ec2-instance", vpcId: "vpc-mixed", tags: { env: "staging" } }),
+      R("m-prod", { kind: "ec2-instance", vpcId: "vpc-mixed", tags: { env: "production" } }),
+      inVpc("m-subnet", "subnet", "vpc-mixed"),
+    ],
+    [E(DEF, "prod-pg"), E("arn:aws:ec2:us-east-1:123456789012:vpc/vpc-mixed", "prod-pg")],
+    KNOWN,
+  );
+  const by = Object.fromEntries(resources.map((r) => [r.key, [r.env, r.envWhy]]));
+  assert.deepEqual(by[DEF], ["staging", "the workloads in it"]);
+  assert.deepEqual(by["sg-app"], ["staging", "VPC vpc-def"]);
+  assert.deepEqual(by["subnet-a"], ["staging", "VPC vpc-def"]);
+  assert.equal(by.igw[0], "staging");
+  assert.deepEqual(by["arn:aws:ec2:us-east-1:123456789012:vpc/vpc-mixed"], [undefined, "workloads in production and staging"]);
+  assert.equal(by["m-subnet"][0], undefined, "nothing hands a shared VPC's subnet to one side");
+  assert.equal(by["prod-pg"][0], "production");
+});
+
 test("connectivity: neighbours that disagree once every hop is placed leave a resource shared, and what only it placed", () => {
   // s (staging) — a — b — p (production): one pass gave a staging and b production; settled, each has a neighbour in
   // the other environment. leaf hangs off a only, tail off p only.

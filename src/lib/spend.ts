@@ -3,7 +3,7 @@
 // cost-allocation tags to environments, and assembling the view. server/billing.ts fetches a snapshot through the
 // Billing source (a fixed, small set of billed Cost Explorer requests) and calls buildSpend() on it per request, so
 // config changes (spike threshold, env names) apply without paying for another snapshot.
-import type { Rates, RunItem } from "./costs.ts";
+import { usd, type Rates, type RunItem } from "./costs.ts";
 
 export type Day = string; // "YYYY-MM-DD" in UTC — Cost Explorer's calendar
 
@@ -155,16 +155,27 @@ export interface Forecast {
   monthEnd: number;
   method: "aws" | "run-rate";
   note?: string;
+  runRate?: number; // month end at the last 7 days' average, when AWS's forecast assumes a very different daily spend
 }
 
 // Month end = full days so far + the rest of the month. AWS's forecast covers [today, month end) when it has one;
-// otherwise the last 7 full days' average runs the rest of the month (explained in `note`).
+// otherwise the last 7 full days' average runs the rest of the month (explained in `note`). AWS's model learns from
+// months of history and lags a recent change (services scaled to zero, a new fleet): when the daily spend it assumes is
+// over twice, or under half, the 7-day average, the run-rate figure comes along and `note` says why.
 export function projectMonthEnd(daily: Daily, today: Day, forecast: SpendSnapshot["forecast"]): Forecast | null {
   const done = sumDays(daily, monthStart(today), today);
-  if (forecast.status === "ok" && forecast.amount !== null) return { monthEnd: done + forecast.amount, method: "aws" };
   const avg = sumDays(daily, addDays(today, -7), today) / 7;
-  if (!avg && !done) return null;
   const left = daysInMonth(today) - dayOfMonth(today) + 1;
+  if (forecast.status === "ok" && forecast.amount !== null) {
+    const assumed = forecast.amount / left;
+    const off = Math.max(assumed, avg) >= 1 && (assumed > 2 * avg || assumed < avg / 2);
+    const runRate = done + avg * left;
+    return {
+      monthEnd: done + forecast.amount, method: "aws",
+      ...(off ? { runRate, note: `AWS's forecast assumes ${usd(assumed)}/day for the rest of the month; the last 7 days averaged ${usd(avg)}/day — ${usd(runRate)} at that rate.` } : {}),
+    };
+  }
+  if (!avg && !done) return null;
   const why = forecast.status === "ok" ? "AWS doesn't have enough history to forecast yet" : `AWS forecast unavailable (${forecast.reason})`;
   return { monthEnd: done + avg * left, method: "run-rate", note: `${why} — projected from the last 7 days' average.` };
 }

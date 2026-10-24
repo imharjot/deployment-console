@@ -177,7 +177,8 @@
       "Action": [
         "cloudformation:DescribeStackEvents",
         "cloudformation:DescribeStacks",
-        "cloudformation:ListStackResources"
+        "cloudformation:ListStackResources",
+        "cloudformation:ListStacks"
       ],
       "Resource": "*"
     },

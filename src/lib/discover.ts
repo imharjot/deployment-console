@@ -361,14 +361,23 @@ export interface Attributable {
   vpcId?: string;
 }
 
+// Values an environment tag uses to say "no environment" (the cloud map reads them the same way: inventory/assign.ts).
+export const SHARED_ENV = new Set(["shared", "common", "global", "all", "any", "none", "na", "n-a", "multi", "multiple"]);
+export const envTagOf = (tags: Record<string, string>): string | undefined =>
+  tags["console:env"] ?? tags.Environment ?? tags.environment ?? tags.env ?? tags.Env ?? tags.stage ?? tags.Stage;
+// A tag naming a stage or "shared" settles where a resource belongs, even when no ECS environment here matches it: a
+// database tagged staging next to production's cluster is staging's (on the cloud map), never production's by a guess.
+export const envTagDecides = (tag: string) => !!stageIdOf(tag) || SHARED_ENV.has(slug(tag));
+
 // Order: explicit config → console:env tag → Environment/env/stage tag → connected from the env's services → name token.
 export function attribute(r: Attributable, envs: { id: string; stageWords: string[]; vpcIds: string[] }[], connectedFrom: Set<string>, configured: Record<string, string>): string | undefined {
   if (configured[r.id]) return configured[r.id];
-  const tag = r.tags["console:env"] ?? r.tags.Environment ?? r.tags.environment ?? r.tags.env ?? r.tags.Env ?? r.tags.stage ?? r.tags.Stage;
+  const tag = envTagOf(r.tags);
   if (tag) {
-    const t = tag.toLowerCase();
+    const t = tag.trim().toLowerCase();
     const hit = envs.find((e) => e.id === slug(t) || e.stageWords.includes(t));
     if (hit) return hit.id;
+    if (envTagDecides(t)) return undefined;
   }
   const linked = envs.filter((e) => connectedFrom.has(e.id));
   if (linked.length === 1) return linked[0].id;
