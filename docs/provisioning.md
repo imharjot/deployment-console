@@ -137,8 +137,8 @@ available when `provisioning.enabled` is `false`, so a team can always clean up.
 
 ## Cost estimates
 
-Plans show a monthly list-price estimate from the same tables as [Costs](costs.md) (us-east-1 on-demand, adjustable
-with `pricing` in `console.config.json`): Fargate tasks by vCPU and memory (ARM 20 % less), EC2 hosts by instance type
+Plans show a monthly list-price estimate from the same tables as [Costs](costs.md) (the environment's region,
+on-demand, adjustable with `pricing` in `console.config.json`): Fargate tasks by vCPU and memory (ARM 20 % less), EC2 hosts by instance type
 (EBS not included). Services on EC2 capacity cost nothing extra until the cluster needs another host. One-off Fargate
 tasks show an hourly figure. Estimates ignore Savings Plans, Spot and credits.
 

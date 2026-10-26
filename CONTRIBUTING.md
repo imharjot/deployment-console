@@ -65,7 +65,8 @@ CI runs `npm ci` on Ubuntu, so it catches this in the pull request.
 `scripts/smoke.mjs` calls every API route and every server-side guard of a running console in the demo
 (`BASE=http://localhost:3200` by default; `BASE=http://localhost:3300 npm run smoke` for another port). Mutating calls only touch staging, and only restart a service that is running
 (it comes back by itself); every production mutation must be refused. It runs every check and exits non-zero if any
-failed. When you change the simulated account (`src/lib/server/mock.ts`), update the script's expectations in the
+failed. It refuses to start (exit 2) unless the console reports the simulated account `123456789012`, so it can never
+act on a console connected to real AWS. When you change the simulated account (`src/lib/server/mock.ts`), update the script's expectations in the
 same change — and restart `npm run dev` first: the background sampler keeps the module it started with.
 
 ## A tour of the code

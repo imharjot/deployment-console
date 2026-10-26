@@ -17,7 +17,7 @@ What the console doesn't do today, so you can decide before you invest time in i
 | Load balancing for copies | [Create & scale](provisioning.md) copies services without load balancers, Service Connect, service discovery or auto scaling, and doesn't create IAM roles, secrets or log groups; scaling is manual (1 to `provisioning.maxTasks`). |
 | Email delivery | Invites and password resets produce links to copy; no email is sent. |
 | A bundled AI model | The Assistant and agent runs call a model through a connection you add (Anthropic, OpenAI, Bedrock, an OpenAI-compatible or local Ollama server); none is bundled and nothing is sent anywhere until you add one. [Agents & API](automation.md) covers connections, tokens, approvals and MCP; `examples/agent/` shows a terminal agent. |
-| Cost data per account | In an AWS Organizations management account, Cost Explorer covers every member account and the console doesn't filter by account. Estimates use us-east-1 list prices unless you set `pricing` in the config file. |
+| Cost data per account | In an AWS Organizations management account, Cost Explorer covers every member account and the console doesn't filter by account. Estimates use the list prices of each resource's region, as of the date in `src/lib/list-prices.ts`. |
 | Uptime history across restarts | Uptime bars cover the last two hours and live in memory; they start empty after a restart. |
 
 ## Verified vs. assumed

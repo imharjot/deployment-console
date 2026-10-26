@@ -329,7 +329,7 @@ function Estimate({ data }: { data: CostsView }) {
         <div className="min-w-0">
           <SectionTitle className="inline-flex items-center gap-1.5"><CircleDollarSign className="size-3.5" /> Estimated monthly run rate</SectionTitle>
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-fg-3">
-            What runs right now × {e.customRates ? "your rates from console.config.json" : "us-east-1 on-demand list prices"}, for 730 hours. An estimate at list price: excludes data transfer, storage, load balancers, NAT, Spot and Savings Plans, so it won&apos;t match the bill
+            What runs right now × the on-demand list prices of its region{e.customRates ? ", adjusted by pricing in console.config.json" : ""}, for 730 hours. An estimate at list price: excludes data transfer, storage, load balancers, NAT, Spot and Savings Plans, so it won&apos;t match the bill
             {actual?.forecast ? <> (AWS forecasts {usd(actual.forecast.monthEnd)} for this month).</> : "."}
           </p>
         </div>
@@ -345,7 +345,7 @@ function Estimate({ data }: { data: CostsView }) {
         {e.envs.map((env, i) => <EnvEstimate key={env.env || "__none"} env={env} i={i} />)}
       </div>
       <p className="text-[12px] text-fg-3">
-        Services on EC2 hosts show <i>on host</i>: their cost is the instance&apos;s. Rates and a regional multiplier can be set in console.config.json → <span className="font-mono">pricing</span>. <Link href="/docs/costs" className="text-accent hover:underline">How this is calculated</Link>
+        Services on EC2 hosts show <i>on host</i>: their cost is the instance&apos;s. Fargate rates and a multiplier can be set in console.config.json → <span className="font-mono">pricing</span>. <Link href="/docs/costs" className="text-accent hover:underline">How this is calculated</Link>
       </p>
     </section>
   );
@@ -358,6 +358,7 @@ function EnvEstimate({ env, i }: { env: RunRateEnv; i: number }) {
         <div className="inline-flex min-w-0 items-center gap-2">
           {env.protected && <ShieldAlert className="size-3.5 flex-none text-down" aria-label="protected" />}
           <span className="truncate text-[16px] font-semibold">{env.label}</span>
+          <span className="flex-none text-[12px] text-fg-3">{env.regions.join(" + ")} prices</span>
         </div>
         <span className="flex-none font-display text-[24px] leading-none tabular-nums">{usd(env.monthly)}<span className="ml-1 font-sans text-[12px] text-fg-3">/mo</span></span>
       </div>

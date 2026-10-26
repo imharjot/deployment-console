@@ -63,7 +63,7 @@ interface Prepared<R> {
 // ---------- helpers ----------
 
 const limits = (): ProvisionLimits => limitsOf(consoleConfig().config.provisioning);
-const rates = () => ratesFrom(consoleConfig().config.pricing);
+const rates = (region: string) => ratesFrom(consoleConfig().config.pricing, region);
 const num = (v?: string) => (v && Number.isFinite(Number(v)) ? Number(v) : undefined);
 const GONE = ["shutting-down", "terminated"];
 // Tags a copy keeps from its source: how the console links it to code. Never console:self, names or health checks
@@ -261,7 +261,7 @@ async function prepareClone(body: unknown, who: Who): Promise<Prepared<CloneResu
       registries: spec.serviceRegistries, serviceConnect: spec.serviceConnect,
     },
     name: i.name, desired: i.desired, image: i.image, cpu: i.cpu, memory: i.memory, network, familyExists: !!family,
-    runningHosts: hosts ? runningHosts(hosts) : undefined, rates: rates(),
+    runningHosts: hosts ? runningHosts(hosts) : undefined, rates: rates(env.region),
   });
   const tags = createdTags(`${srcEnv.id}/${src.name}`, Object.fromEntries(Object.entries(src.tags).filter(([k]) => COPIED_TAGS.includes(k))));
 
@@ -316,7 +316,7 @@ async function prepareScale(body: unknown, who: Who): Promise<Prepared<ScaleResu
   const [hosts, autoscaling] = await Promise.all([live.launchType === "EC2" ? hostsOf(env) : undefined, autoscalingOf(env, live)]);
   const plan = scalePlan({
     env, service: live.name, from: live.desired, to: i.desired, launchType: live.launchType, networkMode: td?.networkMode,
-    cpu: num(td?.cpu), memory: num(td?.memory), arm: td?.arch === "arm64", runningHosts: hosts ? runningHosts(hosts) : undefined, autoscaling, rates: rates(),
+    cpu: num(td?.cpu), memory: num(td?.memory), arm: td?.arch === "arm64", runningHosts: hosts ? runningHosts(hosts) : undefined, autoscaling, rates: rates(env.region),
   });
   return {
     env, plan, input: i, action: "provision.scale", target: live.name,
@@ -367,7 +367,7 @@ async function prepareRunTask(body: unknown, who: Who): Promise<Prepared<RunTask
     : `${td.networkMode ?? "bridge"} networking on the cluster's EC2 hosts`;
   const plan = runTaskPlan({
     env, service: live.name, taskDefinition: `${td.family}:${td.revision}`, launchType: live.launchType, networkMode: td.networkMode, container, command: i.command,
-    logs: c.logGroup ? { group: c.logGroup, prefix: c.logStreamPrefix } : undefined, network, cpu: num(td.cpu), memory: num(td.memory), arm: td.arch === "arm64", rates: rates(),
+    logs: c.logGroup ? { group: c.logGroup, prefix: c.logStreamPrefix } : undefined, network, cpu: num(td.cpu), memory: num(td.memory), arm: td.arch === "arm64", rates: rates(env.region),
   });
   return {
     env, plan, input: i, action: "provision.run-task", target: live.name,
@@ -522,7 +522,7 @@ async function prepareAddHost(body: unknown, who: Who): Promise<Prepared<AddHost
   problem(instanceTypeProblem(type, lim.allowedInstanceTypes));
   const name = hostName(h, hosts);
   const plan = addHostPlan({
-    env, cluster: env.cluster, count: i.count, instanceType: type, name, rates: rates(),
+    env, cluster: env.cluster, count: i.count, instanceType: type, name, rates: rates(env.region),
     source: {
       id: h.id, name: h.tags.Name ?? h.id, instanceType: spec.instanceType, imageId: spec.imageId, subnetId: spec.subnetId, securityGroups: spec.securityGroups,
       instanceProfile: spec.instanceProfileArn?.split("/").pop(), keyName: spec.keyName, hasUserData: spec.hasUserData, launchTemplate: spec.launchTemplate, hasPublicIp: spec.hasPublicIp,

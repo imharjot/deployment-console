@@ -1,6 +1,6 @@
-// End-to-end API smoke test against a running console (mock source, AUTH_MODE=dev).
-//   npm run dev            # in another terminal
-//   npm run smoke          # BASE=http://localhost:3200 by default
+// End-to-end API smoke test against a running console (mock source, AUTH_MODE=dev). It refuses any other account.
+//   CONSOLE_SOURCE=mock npm run dev   # in another terminal
+//   npm run smoke                     # BASE=http://localhost:3200 by default
 // Exercises every route and every server-side guard. Mutating calls only touch staging, and only restart
 // a service that is running (it comes back by itself); production calls must all be refused.
 const BASE = process.env.BASE ?? "http://localhost:3200";
@@ -9,7 +9,10 @@ let failed = 0;
 
 async function call(method, path, body, headers = H) {
   const t = performance.now();
-  const r = await fetch(BASE + path, { method, headers: method === "GET" ? {} : headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const send = () => fetch(BASE + path, { method, headers: method === "GET" ? {} : headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  // A dev server recompiling can drop a kept-alive socket ("fetch failed: other side closed"). A GET is safe to send
+  // again; anything else could act twice, so it fails as it is.
+  const r = await send().catch((e) => (method === "GET" ? send() : Promise.reject(e)));
   const text = await r.text();
   let json;
   try {
@@ -27,6 +30,15 @@ function check(name, cond, detail = "") {
 
 const get = (p) => call("GET", p);
 const post = (p, b, h) => call("POST", p, b, h);
+
+// The suite restarts services, scales them and writes variables. Run it only against the simulated account
+// (CONSOLE_SOURCE=mock): a console on the same port with CONSOLE_SOURCE=aws would get those actions for real.
+const DEMO_ACCOUNT = "123456789012";
+const account = (await get("/api/inventory").catch(() => ({ json: {} }))).json?.accountId;
+if (account !== DEMO_ACCOUNT) {
+  console.error(`Refusing to run: ${BASE} is account ${account ?? "unknown"}, not the simulated ${DEMO_ACCOUNT}. Start the console with CONSOLE_SOURCE=mock.`);
+  process.exit(2);
+}
 
 // --- health, identity, auth guards
 check("healthz", (await get("/api/healthz")).status === 200);

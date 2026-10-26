@@ -5,6 +5,7 @@
 // widget's freshness banner reports when its API sends no freshness of its own (R21).
 import useSWR, { useSWRConfig } from "swr";
 import { ApiError, getJson } from "@/lib/client/api";
+import { failedAt as shellFailedAt, loadedAt, SHELL_POLLED } from "@/lib/client/env";
 import { useRegionFilter, type RegionFilter } from "@/lib/client/region";
 import type { Prefs } from "@/lib/dashboards";
 
@@ -29,12 +30,21 @@ async function stamped<T>([, url]: readonly [string, string]): Promise<Stamped<T
 
 export const dashKey = (url: string) => ["dash", url] as const;
 
+// The shell's entry for a URL it polls anyway (SHELL_POLLED): no first fetch or polling from here. Focus and reconnect
+// stay on: SWR hands those to a key's first hook only, and a widget's hooks subscribe before the shell's.
+const PASSIVE = { refreshInterval: 0, revalidateOnMount: false, revalidateIfStale: false };
+
 // One API read for a widget or page. `data` stays the last good value when a refresh fails (`error` is then set too).
+// /api/envs and /api/issues come from the shell's own polls (loadedAt is when they last loaded): read under
+// ["dash", url] too, each went out twice in the same second.
 export function useApi<T>(url: string | null, refreshMs = 30_000) {
-  const r = useSWR<Stamped<T>, Error, readonly [string, string] | null>(url ? dashKey(url) : null, stamped, {
+  const shell = url !== null && Object.hasOwn(SHELL_POLLED, url) ? url : null;
+  const s = useSWR<T, Error>(shell, shell ? (SHELL_POLLED[shell] as (url: string) => Promise<T>) : null, PASSIVE);
+  const r = useSWR<Stamped<T>, Error, readonly [string, string] | null>(url && !shell ? dashKey(url) : null, stamped, {
     refreshInterval: refreshMs,
     revalidateOnFocus: false,
   });
+  if (shell) return { data: s.data, at: loadedAt(shell), error: s.error, failedAt: s.error ? shellFailedAt(shell) : undefined, isLoading: s.isLoading, reload: () => s.mutate() };
   return {
     data: r.data?.value,
     at: r.data?.at,

@@ -32,6 +32,31 @@ First public version (0.1.0). What the console can do today:
     tile also shows the 7-day run-rate month end.
   - `npm run parity` confirms "more on the map than AWS reports" with the service's own list call: Resource Explorer
     doesn't index AWS-managed KMS keys and aliases, Cloud Map namespaces or private hosted zones.
+- **Fixed after a second run against a real account** (set up as a newcomer would: read-only role, no config file):
+  - Resource Explorer rows that the type's own provider no longer lists (released Elastic IPs it still indexes) are left
+    out with a note when the provider matched the rest of that type, instead of being flagged as a key-format bug. A
+    Systems Manager managed-instance record folds into its EC2 instance instead of showing as a second resource.
+  - A certificate that failed validation is a warning even when unused ("safe to delete"), not unknown.
+  - ECS service actions are simulated against a real service in each cluster, and `ecs:RunTask` against its task
+    definition: against `*`, a policy scoped to `service/*/*` looked as denied as a read-only one. Denied in every
+    cluster now disables the buttons with the reason; allowed in some clusters only stays a warning.
+  - The deploys and rollbacks widget counts ECS rollouts that completed, not only deploy runs and console actions.
+  - The logs status facet lists HTTP status codes only; `status:` queries still match any field.
+  - Cost estimates use the list prices of each resource's region (the AWS Price List for 34 regions in
+    `src/lib/list-prices.ts`, refreshed by `scripts/list-prices.mjs`). The run rate also counts environments known only
+    from tags, EC2 instances outside a cluster, and databases or caches in no environment.
+  - CI says when no repository is mapped yet, instead of "No runs on this branch".
+  - `npm run smoke` refuses to run unless the console reports the simulated account, and retries a GET once after a
+    dropped connection.
+  - Every write that names a resource is simulated against real ones, not only ECS's: EC2 power, RDS start and stop,
+    Auto Scaling, Elastic Beanstalk, App Runner, CloudFront, Step Functions, EventBridge, Lambda, SQS and SNS against a
+    resource of their type in each environment and region of the cloud map, `ecs:RegisterTaskDefinition` against a
+    task definition. A read-only role now sees EC2, RDS and Auto Scaling buttons disabled with the reason; Lambda, SQS,
+    SNS and EventBridge stay a warning, as their resources can carry policies of their own.
+  - Cloud map labels keep the real name at every zoom: inside environment lanes the overview level dropped the
+    environment's word, so `acme-production-pg` and `acme-staging-pg` both read `acme-pg`.
+  - Dashboards and the Incident view read `/api/envs` and `/api/issues` from the shell's polls instead of fetching
+    each a second time in the same second.
 
 ### Cloud map — the whole account
 - **Cloud map** (`/map`): every resource the console can find, with the connections between them, grouped by

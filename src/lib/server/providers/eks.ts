@@ -312,7 +312,7 @@ const scaleNodegroup: ProviderAction<ScaleNg> = {
     return {
       summary: `Scale nodegroup ${r.name}/${n.name}: min ${n.min}→${i.min}, desired ${n.desired}→${i.desired}, max ${n.max}→${i.max}`,
       changes: [`UpdateNodegroupConfig ${r.name}/${n.name} scalingConfig { minSize: ${i.min}, desiredSize: ${i.desired}, maxSize: ${i.max} }`], warnings,
-      estimate: capacityDelta(type, n.desired, i.desired, ratesFrom(consoleConfig().config.pricing)),
+      estimate: capacityDelta(type, n.desired, i.desired, ratesFrom(consoleConfig().config.pricing, r.region)),
     };
   },
   async run(r, i, ctx) {

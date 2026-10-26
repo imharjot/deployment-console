@@ -14,14 +14,22 @@ const KEY = "console.env";
 // When each URL last loaded successfully in this browser (R21): a view that keeps earlier data after a failed refresh
 // says how old that data is. Module-level, so every hook sharing a key reads the same time.
 const LOADED = new Map<string, number>();
+const FAILED = new Map<string, number>(); // the last failed load, until one succeeds
 export const loadedAt = (key: string | null | undefined) => (key ? LOADED.get(key) : undefined);
+export const failedAt = (key: string | null | undefined) => (key ? FAILED.get(key) : undefined);
 
-// getJson that remembers the time of each successful load. Use it as the SWR fetcher of any view that shows a
-// freshness banner from kept data.
+// getJson that remembers the time of each successful (and failed) load. Use it as the SWR fetcher of any view that
+// shows a freshness banner from kept data.
 export async function trackedJson<T>(url: string): Promise<T> {
-  const v = await getJson<T>(url);
-  LOADED.set(url, Date.now());
-  return v;
+  try {
+    const v = await getJson<T>(url);
+    LOADED.set(url, Date.now());
+    FAILED.delete(url);
+    return v;
+  } catch (e) {
+    FAILED.set(url, Date.now());
+    throw e;
+  }
 }
 
 // The shell and every page read these two on each render: a body of the wrong shape (a proxy's JSON, an older
@@ -38,6 +46,10 @@ const overview = shaped<EnvOverview>((v) => {
   const o = v as Partial<EnvOverview> | null;
   return !!o && typeof o === "object" && Array.isArray(o.services) && Array.isArray(o.infra);
 });
+
+// The shell polls these on every page, with these fetchers. Anything else that reads one (a dashboard widget) shares
+// that entry — same key, same fetcher, no polling of its own — instead of fetching the URL again beside it.
+export const SHELL_POLLED: Readonly<Record<string, (url: string) => Promise<unknown>>> = { "/api/envs": envList, "/api/issues": trackedJson };
 
 // Discovered environments (sorted by promotion order), refreshed with the sampler's state.
 export function useEnvList() {

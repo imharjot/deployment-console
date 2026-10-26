@@ -87,6 +87,8 @@ export default function CiPage() {
   const { fresh, gen } = useFresh(data?.map((r) => String(r.id)));
   const kept = keptFreshness({ data, error, loadedAt: loadedAt(url), source: "GitHub", staleAfterMs: 60_000 });
   const disconnected = notConnected(error) || notConnected(repos.error);
+  // Discovery mapped no service to a repository: there is nothing to ask GitHub about yet (not "no runs").
+  const noRepos = !disconnected && repos.data !== undefined && repos.data.length === 0;
 
   return (
     <Page width="wide">
@@ -112,10 +114,15 @@ export default function CiPage() {
       {/* A different dataset (repo/branch switch) crossfades as a whole; new runs expand in individually. */}
       {!disconnected && <FreshnessBanner f={kept} onRetry={() => void mutate()} />}
 
-      <Swap id={disconnected ? "github" : isLoading && !data ? "loading" : error && !data ? "error" : !data?.length ? "empty" : `list-${gen}`} className="overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+      <Swap id={disconnected ? "github" : noRepos ? "no-repos" : (isLoading || repos.isLoading) && !data ? "loading" : error && !data ? "error" : !data?.length ? "empty" : `list-${gen}`} className="overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
         {disconnected ? (
           <ConnectGitHub message={((error ?? repos.error) as Error | undefined)?.message} setup={((error ?? repos.error) as ApiError | undefined)?.setup} />
-        ) : isLoading && !data ? (
+        ) : noRepos ? (
+          <Empty
+            title="No repositories mapped yet"
+            hint="CI shows GitHub Actions runs for the repositories your services map to. Tag a service console:repo=owner/name (or set services.<name>.repo in console.config.json), and set GITHUB_TOKEN so the console can read the runs."
+          />
+        ) : (isLoading || repos.isLoading) && !data ? (
           <div className="space-y-px p-2">{Array.from({ length: 8 }, (_, i) => <Skeleton key={i} className="h-12" />)}</div>
         ) : error && !data ? (
           <Empty title="Could not load runs" hint={(error as Error).message} />

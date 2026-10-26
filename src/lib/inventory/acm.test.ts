@@ -52,10 +52,10 @@ test("ACM: InUseBy → tls links; facts notAfter, inUse, autoRenew, state", () =
   assert.equal(byId("unread").tagsUnread, true);
 });
 
-test("ACM: health — expiry windows, renewal, validation; FAILED and unused is unknown 'safe to delete'", () => {
+test("ACM: health — expiry windows, renewal, validation; FAILED and unused is a warning 'safe to delete'", () => {
   const h = (id: string) => [byId(id).health, byId(id).healthReason];
   assert.deepEqual(h("in-use"), ["ok", undefined]);
-  assert.deepEqual(h("failed-unused"), ["unknown", "validation failed — unused, safe to delete"]);
+  assert.deepEqual(h("failed-unused"), ["warning", "validation failed — unused, safe to delete"]);
   assert.deepEqual(h("failed-used"), ["warning", "validation failed"]);
   assert.deepEqual(h("pending"), ["warning", "waiting for validation: create _a1.pending.acme.example. CNAME _b2.acm-validations.aws."]);
   assert.deepEqual(h("imported-soon"), ["warning", "expires in 20 days (imported — renew it yourself)"]);
@@ -80,9 +80,9 @@ test("ACM: no secret sentinel in resources or detail; detail lists validation re
   assert.deepEqual(d.sections[2].table?.rows, [[ALB]]);
 });
 
-test("ACM: the Acme simulation — ALB, API and CloudFront certificates in use, the failed one unknown and unused; eu-west-1 has its own", () => {
+test("ACM: the Acme simulation — ALB, API and CloudFront certificates in use, the failed one a warning and unused; eu-west-1 has its own", () => {
   const home = acmResult(simAcm("us-east-1", NOW), { now: NOW });
-  assert.deepEqual(home.resources.map((r) => [r.name.split(" · ")[0], r.health, r.facts?.inUse]), [["*.acme.dev", "ok", true], ["api-public.acme.example", "ok", true], ["www.acme.example", "ok", true], ["old.acme.example", "unknown", false]]);
+  assert.deepEqual(home.resources.map((r) => [r.name.split(" · ")[0], r.health, r.facts?.inUse]), [["*.acme.dev", "ok", true], ["api-public.acme.example", "ok", true], ["www.acme.example", "ok", true], ["old.acme.example", "warning", false]]);
   assert.equal(home.links.length, 3);
   const eu = acmResult(simAcm("eu-west-1", NOW), { now: NOW }).resources;
   assert.deepEqual(eu.map((r) => [r.region, r.health]), [["eu-west-1", "ok"]]);

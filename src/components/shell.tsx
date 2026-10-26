@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import useSWR from "swr";
-import { loadedAt, overviewKey, useCachedOverview, useCapability, useEnv, useEnvList, useSavedViews, type EnvListItem } from "@/lib/client/env";
+import { loadedAt, overviewKey, trackedJson, useCachedOverview, useCapability, useEnv, useEnvList, useSavedViews, type EnvListItem } from "@/lib/client/env";
 import { effectiveOverview, groupByRegion } from "@/lib/client/format";
 import { REGION_EVENT, readRegionFilter, regionLabel, useRegionFilter, useRegions, type RegionFilter } from "@/lib/client/region";
 import { STATE_RANK } from "@/lib/status";
@@ -60,7 +60,7 @@ interface Issue {
 }
 // Problems in every discovered environment, from the server's background sampler (one request, any number of envs).
 function useIssues() {
-  const data = useSWR<Issue[]>("/api/issues", { refreshInterval: 10_000, keepPreviousData: true }).data;
+  const data = useSWR<Issue[]>("/api/issues", trackedJson, { refreshInterval: 10_000, keepPreviousData: true }).data;
   const list = Array.isArray(data) ? data : []; // the header renders on every page: never crash it on a bad body
   return [...list].sort((a, b) => Number(b.protected) - Number(a.protected)).map((x) => ({ env: x.env, label: x.envLabel, prot: x.protected, whole: x.kind === "env" || x.key === "env", r: { key: x.key, name: x.name, state: x.state, reasons: x.reasons, uptime: x.since ? { since: x.since } : undefined } }));
 }

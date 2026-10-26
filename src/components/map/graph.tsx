@@ -929,7 +929,6 @@ const NodesLayer = memo(function NodesLayer({ nodes, byKey, groupInfo, lod, hot,
             selected={selected === n.id}
             showEnv={showEnv}
             envLabel={envLabel(r?.env ?? (laneNames && !n.lane.startsWith("__") ? n.lane : undefined))}
-            lanes={laneNames}
             dupe={dupes.has(n.id)}
             alarm={!!n.key && !!alarmed?.has(n.key)}
             h={h}

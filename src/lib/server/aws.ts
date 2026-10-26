@@ -39,7 +39,7 @@ import {
   securityGroupOf, serviceOf, taggedHostFilters, taggedHostOf, tagMap, targetHealthOf, taskDefOf, versionWithStage,
   type LbConfig, type SdkRule, type SdkScalableTarget, type SdkScalingPolicy, type TargetHealthDetail,
 } from "../aws-mapping.ts";
-import { roleArnFromCaller } from "../capability-rules.ts";
+import { combineTargets, roleArnFromCaller, type SimDecision } from "../capability-rules.ts";
 import { LIMITS, REGION } from "../config.ts";
 import { jsonKeyValue, parseSecretRef, withJsonKey } from "../envvars.ts";
 import { periodFor } from "../metric-specs.ts";
@@ -871,22 +871,37 @@ export function awsCloud(region: string = REGION): Cloud {
 
     principal,
 
-    // F06: what the console's own role may do, per action, for any resource. An identity that may not simulate its
-    // own policy gets {} (capability.ts then relies on what real calls teach it).
-    async simulate(actions) {
+    // F06: what the console's own role may do, per action — against its target resources where capability.ts names
+    // some (real resources of the action's type: a policy scoped to resource ARNs is denied for "*"; decisionsOf says
+    // when a denial there is final, combineTargets merges them), else for any resource. One call per resource (IAM gets
+    // one slot). An identity that may not simulate its own policy gets {} (capability.ts then relies on what real calls
+    // teach it).
+    async simulate(actions, targets = {}) {
       const names = [...new Set(actions)];
       if (!names.length) return {};
       try {
         const source = await principal();
         if (!source) return {};
-        const out: Record<string, "allowed" | "implicitDeny" | "explicitDeny"> = {};
-        for (const ActionNames of chunk(names, 100)) {
-          let Marker: string | undefined;
-          do {
-            const r = await k.iam.send(new SimulatePrincipalPolicyCommand({ PolicySourceArn: source, ActionNames, ResourceArns: ["*"], Marker, MaxItems: 1000 }), t());
-            Object.assign(out, decisionsOf(r.EvaluationResults ?? []));
-            Marker = r.IsTruncated ? r.Marker : undefined;
-          } while (Marker);
+        const byResource = new Map<string, string[]>();
+        for (const a of names) {
+          const arns = (Object.hasOwn(targets, a) ? targets[a] : []).filter((x) => x.startsWith("arn:"));
+          for (const res of arns.length ? arns : ["*"]) byResource.set(res, [...(byResource.get(res) ?? []), a]);
+        }
+        const seen: Record<string, SimDecision[]> = {};
+        for (const [res, list] of byResource) {
+          for (const ActionNames of chunk(list, 100)) {
+            let Marker: string | undefined;
+            do {
+              const r = await k.iam.send(new SimulatePrincipalPolicyCommand({ PolicySourceArn: source, ActionNames, ResourceArns: [res], Marker, MaxItems: 1000 }), t());
+              for (const [a, d] of Object.entries(decisionsOf(r.EvaluationResults ?? [], res !== "*"))) (seen[a] ??= []).push(d);
+              Marker = r.IsTruncated ? r.Marker : undefined;
+            } while (Marker);
+          }
+        }
+        const out: Record<string, SimDecision> = {};
+        for (const [a, ds] of Object.entries(seen)) {
+          const d = combineTargets(ds);
+          if (d) out[a] = d;
         }
         return out;
       } catch (e) {

@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { renderChild, srcUrl } from "./render-tsx.ts";
 import { ago, combineFreshness, describeFreshness, effectiveState, isQuiet, isStale, type Freshness } from "./freshness.ts";
 
 const NOW = Date.UTC(2026, 9, 5, 14, 5, 0); // 14:05 UTC
@@ -90,53 +89,16 @@ test("freshnessHeadline: nothing when quiet; the worst problem first", async () 
   assert.equal(freshnessHeadline(f({ completeness: "unknown" }), NOW), "Completeness unknown");
 });
 
-// The client contracts of this package (freshness banner, pin button, region filter) are .tsx, which Node can't load.
-// A child process registers a small loader (TypeScript transpile for .tsx, "@/" and extensionless paths like Next)
-// and renders them with react-dom/server.
-const root = new URL("../../", import.meta.url);
-const hooks = `
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import ts from ${JSON.stringify(new URL("node_modules/typescript/lib/typescript.js", root).href)};
-const SRC = ${JSON.stringify(new URL("src/", root).href)};
-const file = (p) => existsSync(p) && !statSync(p).isDirectory();
-export async function resolve(spec, ctx, next) {
-  let target;
-  if (spec.startsWith("@/")) target = new URL(spec.slice(2), SRC).href;
-  else if ((spec.startsWith("./") || spec.startsWith("../")) && ctx.parentURL?.startsWith("file:")) target = new URL(spec, ctx.parentURL).href;
-  else return next(spec, ctx);
-  const p = fileURLToPath(target);
-  if (file(p)) return { url: target, shortCircuit: true };
-  for (const e of [".ts", ".tsx", "/index.ts", "/index.tsx"]) if (file(p + e)) return { url: pathToFileURL(p + e).href, shortCircuit: true };
-  return next(spec, ctx);
-}
-export async function load(url, ctx, next) {
-  if (!url.endsWith(".tsx")) return next(url, ctx);
-  const source = ts.transpileModule(readFileSync(fileURLToPath(url), "utf8"), {
-    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-    fileName: fileURLToPath(url),
-  }).outputText;
-  return { format: "module", source, shortCircuit: true };
-}`;
-const register = `import { register } from "node:module"; register(${JSON.stringify(`data:text/javascript,${encodeURIComponent(hooks)}`)});`;
-const renderChild = (body: string) => {
-  const out = execFileSync(process.execPath, ["--no-warnings", "--import", `data:text/javascript,${encodeURIComponent(register)}`, "--input-type=module", "-e", body], {
-    encoding: "utf8",
-    cwd: fileURLToPath(root),
-    timeout: 60_000,
-  });
-  return JSON.parse(out.trim().split("\n").pop()!);
-};
-
+// The client contracts of this package (freshness banner, pin button, region filter) are .tsx: render-tsx.ts renders
+// them in a child process.
 test("client contracts render: banner, stale badge, pin button, region helpers", () => {
-  const src = (p: string) => JSON.stringify(new URL(`src/${p}`, root).href);
   const o = renderChild(`
 const { createElement: h } = await import("react");
 const { renderToString } = await import("react-dom/server");
 const { SWRConfig } = await import("swr");
-const { FreshnessBanner, StaleBadge } = await import(${src("components/freshness-banner.tsx")});
-const pin = await import(${src("components/pin-button.tsx")});
-const region = await import(${src("lib/client/region.tsx")});
+const { FreshnessBanner, StaleBadge } = await import(${srcUrl("components/freshness-banner.tsx")});
+const pin = await import(${srcUrl("components/pin-button.tsx")});
+const region = await import(${srcUrl("lib/client/region.tsx")});
 const NOW = ${NOW};
 const fresh = { observedAt: NOW - 60_000, staleAfterMs: 300_000, source: "sampler", completeness: "complete" };
 const out = {};

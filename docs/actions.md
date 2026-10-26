@@ -110,7 +110,7 @@ a success clears it. Each action is then in one of four states:
 | State | What you see |
 |---|---|
 | **Allowed** | the button works as usual |
-| **Denied** — the policy explicitly denies it, or AWS refused it in the last 10 minutes | the button is disabled with *The console's AWS identity lacks lambda:PublishVersion — see Settings → AWS permissions*; the API refuses it with 409 before anything runs |
+| **Denied** — the policy explicitly denies it, no statement allows it on any of the real resources it was simulated against (below), or AWS refused it in the last 10 minutes | the button is disabled with *The console's AWS identity lacks ec2:StopInstances — see Settings → AWS permissions*; the API refuses it with 409 before anything runs |
 | **Probably denied** — the simulation found no statement allowing it | a warning (*AWS permission not verified — likely denied*) on the button and in the plan; you can still try, and AWS decides |
 | **Not verified** — nothing simulated or observed yet | nothing is shown; AWS decides |
 
@@ -119,10 +119,25 @@ write is allowed, or *Not verified*) and, per service, whether its actions are a
 service control policies, resource policies or tag conditions (such as `console:power=allow` below), so a
 simulated *allowed* can still be refused by AWS — that refusal then wins.
 
+Actions that name a resource are simulated against real ones, not against `*`: a policy scoped to resource ARNs, like
+the operator policy's `service/*/*`, allows nothing for `*`. ECS service actions (`ecs:UpdateService`,
+`CreateService`, `DeleteService`) use one service in each cluster, and `ecs:RunTask` and `RegisterTaskDefinition` its
+task definition. EC2 start, stop, reboot and terminate, RDS start and stop, Auto Scaling, Elastic Beanstalk, App Runner,
+CloudFront, Step Functions, EventBridge, Lambda, SQS and SNS actions use the first resource of their type in each
+environment and region of the [cloud map](cloud-map.md) (a type found in more than five places stays against `*`). Never
+the console's own: not its service, nor anything tagged `console:self=true` or the `CONSOLE_SELF_INSTANCE` instance.
+Denied on every one, with no tag condition left unchecked, is a denial; allowed on some only (a policy scoped to
+`service/acme-staging/*` or to `acme-staging-*` names) stays *probably denied*. Lambda functions, SQS queues, SNS
+topics and EventBridge buses can carry resource policies of their own, which the simulation doesn't read, so for their
+actions a missing statement stays *probably denied* (an explicit deny still denies). Launching hosts
+(`ec2:RunInstances`, `ec2:CreateTags`), `iam:PassRole`, S3 objects, API Gateway and EKS nodegroups are simulated against
+`*`. The resources come from the cloud map's last build, which the simulation never starts itself: until the first
+build only the ECS actions have real resources, and the simulation runs again once it exists.
+
 ## Turn it on
 
-With the read-only policy AWS refuses these buttons: once the policy simulation has run they carry the *likely denied*
-warning, and after AWS refuses one it is disabled for 10 minutes with the missing permission as the reason. Add these
+With the read-only policy AWS refuses these buttons: once the policy simulation has run they are disabled with the
+missing permission as the reason. Add these
 statements from `infra/iam-policy.json` to the console's role (see [Connect AWS](connect-aws.md#step-5-turn-on-more-one-feature-at-a-time)):
 
 | Statement | Grants | What it risks |

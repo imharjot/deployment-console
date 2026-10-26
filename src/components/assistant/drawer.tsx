@@ -17,7 +17,7 @@ import { Sheet } from "../motion";
 import { Button, Chip, IconButton, Skeleton, cx } from "../ui";
 import { useMe } from "../user-menu";
 import { getJson } from "@/lib/client/api";
-import { useEnvList } from "@/lib/client/env";
+import { trackedJson, useEnvList } from "@/lib/client/env";
 import { useRegions } from "@/lib/client/region";
 import { ecsNoteTarget } from "@/lib/notes";
 import { RunBoundary } from "./boundary";
@@ -138,7 +138,7 @@ interface IssueLike {
 // What to ask first: the problems the sampler sees right now (the shell's /api/issues, same request), plus a general
 // question. Clicking one asks it — scoped to the resource's inventory key, like the panels' "Why is this unhealthy?".
 function Welcome() {
-  const issues = useSWR<IssueLike[]>("/api/issues", { refreshInterval: 10_000, keepPreviousData: true }).data;
+  const issues = useSWR<IssueLike[]>("/api/issues", trackedJson, { refreshInterval: 10_000, keepPreviousData: true }).data;
   const envs = useEnvList().data;
   const home = useRegions().data?.home;
   const list = (Array.isArray(issues) ? issues : [])

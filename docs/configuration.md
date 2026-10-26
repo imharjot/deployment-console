@@ -122,7 +122,7 @@ editor.
 | `externals.<id>` | a system outside AWS, shown on the map: `label` (required), `sub` (a subtitle), `note` (shown in its panel), `side` (`source` on the left, `destination` on the right) |
 | `connections[]` | an arrow: `from` and `to` are `service:<name>`, `database:<id>`, `cache:<id>`, `ext:<id>`, or the aliases `ingress` (the environment's load balancer or reverse proxy), `db` (its first attributed database) and `cache` (its first cache, else a redis/valkey/memcached service). Optional `label`, `kind` (`http`, `sql`, `cache`, `stream` or `api`) and `envs: ["staging"]` to limit it to some environments. A declared arrow replaces an inferred one between the same pair. |
 | `github.owner` | like `GITHUB_OWNER` (and takes precedence over it): match services to `owner/<name>` repositories |
-| `pricing.fargateVcpuHour`, `pricing.fargateGbHour`, `pricing.multiplier` | list prices for the [Costs](costs.md) estimate (defaults: us-east-1 on-demand); `multiplier` scales every estimate, for example `1.1` for a pricier region |
+| `pricing.fargateVcpuHour`, `pricing.fargateGbHour`, `pricing.multiplier` | overrides for the [Costs](costs.md) estimate (defaults: on-demand list prices of each resource's region); `multiplier` scales every estimate, for example `0.8` for a 20 % discount |
 | `costs.tagKey` | the cost allocation tag that splits spend by environment (default `aws:ecs:clusterName`; a tag of your own may hold the environment id, label or cluster name) |
 | `costs.spikePercent` | flag AWS services whose last-7-day average is this much above the 21 days before (default `30`, 1–1000) |
 | `costs.cacheHours` | hours a Cost Explorer snapshot is reused, 1–168 (default `6`); each snapshot is about 4 billed requests |

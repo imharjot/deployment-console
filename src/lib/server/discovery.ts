@@ -7,6 +7,7 @@ import "server-only";
 import type { ConsoleConfig } from "../console-config.ts";
 import { PROXY_IMAGE, attribute, envTagDecides, envTagOf, envsFromClusters, inferEdges, parseImageRef, placement, stageWordsOf, workloadGraph, type HostRef, type NodeRef, type SgRule } from "../discover.ts";
 import { clusterSkip, configWarnings, healthcheckProblem, unassignedOf, type DiscoveryWarning } from "../discovery-rules.ts";
+import { simulationTargets, type SampleRow } from "../capability-rules.ts";
 import { regionalIds } from "../regions.ts";
 import type { EdgeKind, EnvInfo, RawBox, RawCache, RawCluster, RawDb, RawService, TopoEdge, TopoNode } from "../types.ts";
 import { cached } from "./cache.ts";
@@ -199,6 +200,23 @@ export async function selfOutsideEnvs(): Promise<{ cluster: string; family: stri
   if (!self || "unknown" in self) return undefined;
   if ((await listEnvs()).some((e) => e.cluster === self.cluster)) return undefined;
   return { ...self, region: homeRegion() };
+}
+
+// Real resources for the IAM simulation (capability.ts, F06): per cluster, a service that isn't the console, and its
+// task definition; for the other writes, resources of each action's type among `rows` (the cloud-map inventory's last
+// build, which capability.ts hands in). {} — simulate against "*" — when the console can't tell which service is its
+// own, or there is none.
+export async function simulationTargetsNow(rows: SampleRow[] = []): Promise<Record<string, string[]>> {
+  const self = await selfRef();
+  if (self && "unknown" in self) return {};
+  const clusters = [];
+  for (const e of await listEnvs()) {
+    if (!e.cluster || !e.clusterArn) continue;
+    const services = await servicesOf(e.cluster, e.region).catch(() => [] as RawService[]);
+    const sampled = services.map((x) => ({ name: x.name, family: x.taskDef?.family, taskDefinitionArn: x.taskDef?.arn }));
+    clusters.push({ cluster: e.cluster, clusterArn: e.clusterArn, services: sampled });
+  }
+  return simulationTargets(clusters, self, rows, process.env.CONSOLE_SELF_INSTANCE?.trim() || undefined);
 }
 
 // ---------- per-region inventory → per-env catalog ----------

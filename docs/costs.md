@@ -60,8 +60,15 @@ What discovery sees running, times on-demand list prices, times 730 hours:
 | RDS instance | instance class, doubled for Multi-AZ; stopped instances count as $0 |
 | ElastiCache | node type × nodes; Valkey 20 % less than Redis OSS |
 
-Prices are us-east-1, Linux, on-demand. Sizes the price table doesn't know show *no list price* and are left out of
-the total rather than guessed. Rates and a regional multiplier can be set under `pricing` (below).
+Prices are Linux on-demand list prices of the region each resource runs in, from the AWS Price List
+(`src/lib/list-prices.ts`; refresh it with `node scripts/list-prices.mjs`, which needs `pricing:GetProducts`). A region
+missing from that table is priced as us-east-1, and each environment says whose prices it used. Sizes the table doesn't
+know show *no list price* and are left out of the total rather than guessed. Fargate rates and a multiplier can be set
+under `pricing` (below).
+
+Besides the ECS environments, the estimate counts what the resource inventory places elsewhere: EC2 instances outside
+any cluster, and the databases and caches of environments known only from tags (an EC2 box and its database tagged
+`Environment=staging`) or of no environment.
 
 ## Estimates vs actuals
 
@@ -119,9 +126,9 @@ All optional, in `console.config.json`:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `pricing.fargateVcpuHour` | `0.04048` | USD per Fargate vCPU-hour (x86; ARM is 20 % less) |
-| `pricing.fargateGbHour` | `0.004445` | USD per Fargate GB-hour |
-| `pricing.multiplier` | `1` | applied to every estimate, Fargate rates included — e.g. the ratio of your region's prices to us-east-1 |
+| `pricing.fargateVcpuHour` | the region's list price | USD per Fargate vCPU-hour (x86; ARM is 20 % less) |
+| `pricing.fargateGbHour` | the region's list price | USD per Fargate GB-hour |
+| `pricing.multiplier` | `1` | applied to every estimate, Fargate rates included — e.g. `0.8` for a 20 % discount |
 | `costs.tagKey` | `aws:ecs:clusterName` | cost allocation tag that splits spend by environment |
 | `costs.spikePercent` | `30` | spike threshold, in percent |
 | `costs.cacheHours` | `6` | how long a snapshot is reused, 1–168 hours (a value outside that range is reported under **Settings → Environments** and the default is used) |

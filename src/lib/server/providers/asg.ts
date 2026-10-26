@@ -126,7 +126,7 @@ const setDesired: ProviderAction<{ desired: number }> = {
     return {
       summary: `Set ${g.name} desired capacity ${g.desired} → ${input.desired} (min ${g.min}, max ${g.max})`,
       changes: [`SetDesiredCapacity ${g.name} = ${input.desired}${type ? ` (${type})` : ""}`], warnings,
-      estimate: capacityDelta(type, g.desired, input.desired, ratesFrom(consoleConfig().config.pricing)),
+      estimate: capacityDelta(type, g.desired, input.desired, ratesFrom(consoleConfig().config.pricing, r.region)),
     };
   },
   async run(r, input, ctx) {

@@ -354,12 +354,14 @@ test("activity: deploys and rollbacks within the window", () => {
     { at: now - 3_000, kind: "action", title: "services.switch ok", detail: "revision 41" },
     { at: now - 4_000, kind: "ecs", title: "ECS problem", detail: "deployment failed: rolling back to 40" },
     { at: now - 5_000, kind: "ecs", title: "ECS", detail: "has reached a steady state" },
+    { at: now - 6_000, kind: "ecs", title: "ECS", detail: "(deployment ecs-svc/1234567890123456789) deployment completed." },
+    { at: now - 6_500, kind: "ecs", title: "ECS", detail: "has started 1 tasks: (task 0123456789abcdef0123456789abcdef)." },
     { at: now - 7 * 3_600_000, kind: "deploy", title: "Deploy success" },
   ];
-  assert.deepEqual(items.map(isDeployOrRollback), [true, false, true, true, false, true]);
-  assert.equal(filterActivity(items, { kind: "deploys", hours: 6 }, now).length, 3);
-  assert.equal(filterActivity(items, { kind: "all", hours: 6 }, now).length, 5);
-  assert.equal(filterActivity(items, { kind: "all" }, now).length, 6);
+  assert.deepEqual(items.map(isDeployOrRollback), [true, false, true, true, false, true, false, true]);
+  assert.equal(filterActivity(items, { kind: "deploys", hours: 6 }, now).length, 4);
+  assert.equal(filterActivity(items, { kind: "all", hours: 6 }, now).length, 7);
+  assert.equal(filterActivity(items, { kind: "all" }, now).length, 8);
 });
 
 test("needs <role> from a 403, and the region filter", () => {
