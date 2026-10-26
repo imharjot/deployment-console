@@ -527,6 +527,39 @@ test("B.4: covered but unmatched → hidden and flagged once per type; table typ
   assert.equal(by("endpoint/acme-recs").healthReason, "Listed by Resource Explorer — sagemaker couldn't read it (sagemaker:ListEndpoints)");
 });
 
+test("B.4: covered and partly matched → the unmatched rows are stale index entries: left out, one note, no key-format flag", () => {
+  // The VPC provider returned both live Elastic IPs; Resource Explorer still indexes one that was released.
+  const eip = (id: string) => R(`arn:aws:ec2:us-east-1:${ACCT}:elastic-ip/${id}`, "elastic-ip", id, { provider: "vpc" });
+  const live = [eip("eipalloc-a"), eip("eipalloc-b")];
+  const { resources, notes } = infer({
+    results: [result(live), result([
+      G(`arn:aws:ec2:us-east-1:${ACCT}:elastic-ip/eipalloc-a`, "ec2:elastic-ip"),
+      G(`arn:aws:ec2:us-east-1:${ACCT}:elastic-ip/eipalloc-b`, "ec2:elastic-ip"),
+      G(`arn:aws:ec2:us-east-1:${ACCT}:elastic-ip/eipalloc-gone`, "ec2:elastic-ip"),
+    ])],
+    home: "us-east-1", accountId: ACCT,
+    covered: new Set(["ec2:elastic-ip@us-east-1"]),
+  });
+  assert.deepEqual(resources.map((r) => r.key).sort(), live.map((r) => r.key).sort(), "the released address is not listed, not even hidden");
+  assert.deepEqual(notes, ["catch-all: 1 ec2:elastic-ip in us-east-1 listed by Resource Explorer but not by vpc, which returned the others of that type — stale index entries, left out"]);
+});
+
+test("B.4: a Systems Manager managed instance folds into its EC2 instance (tags copied, a Systems Manager prop), never a second row", () => {
+  const inst = R("ec2:i-0abc", "ec2-instance", "acme-box", { provider: "ec2", tags: { Name: "acme-box" } });
+  const { resources, notes } = infer({
+    results: [result([inst]), result([
+      G(`arn:aws:ssm:us-east-1:${ACCT}:managed-instance/i-0abc`, "ssm:managed-instance", { tags: { patch: "weekly" } }),
+      G(`arn:aws:ssm:us-east-1:${ACCT}:managed-instance/mi-0onprem`, "ssm:managed-instance"),
+    ])],
+    home: "us-east-1", accountId: ACCT,
+  });
+  assert.deepEqual(resources.map((r) => r.key).sort(), [inst.key, `arn:aws:ssm:us-east-1:${ACCT}:managed-instance/mi-0onprem`].sort(), "an on-premises node has no instance to fold into");
+  const box = resources.find((r) => r.key === inst.key)!;
+  assert.deepEqual(box.tags, { Name: "acme-box", patch: "weekly" });
+  assert.ok(box.props.some((p) => p.label === "Systems Manager" && p.value === "managed instance"));
+  assert.deepEqual(notes, []);
+});
+
 test("B.4: generic rows are resolvable by ARN (not as tokens) and keep their Config parent once mapped", () => {
   const svc = R("svc", "ecs-service", "svc");
   const sub = R(`arn:aws:ec2:us-east-1:${ACCT}:subnet/subnet-1`, "subnet", "a", { provider: "vpc" });

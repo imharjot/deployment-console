@@ -329,8 +329,11 @@ const normPath = (p: string) =>
     .replace(/\/\d+(?=\/|$)/g, "/:n")
     .replace(/\/[A-Z]{2,}-\d+(?=\/|$)/g, "/:lot");
 
+// The status facet lists HTTP codes only: apps log their own `status` / `code` fields ("active", "P2002"), which
+// still match a `status:` query but are not response codes.
 export function facetValue(msg: string, field: (typeof FACET_FIELDS)[number]): string | undefined {
   const v = extract(msg, field);
   if (v === undefined) return undefined;
+  if (field === "status") return /^[1-5]\d\d$/.test(v) ? v : undefined;
   return field === "path" ? normPath(v) : field === "method" ? v.toUpperCase() : v;
 }

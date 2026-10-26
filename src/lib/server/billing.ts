@@ -6,7 +6,8 @@
 // instances don't pay again. A manual refresh is limited to one per 5 minutes across all users and is audited.
 // Read-only towards AWS. Everything behind this needs the `costs` permission (checked by the routes and operations).
 import "server-only";
-import { estimateRunRate, ratesFrom, type Rates } from "../costs.ts";
+import { estimateRunRate, leftovers, ratesFrom, type Leftovers } from "../costs.ts";
+import { idName } from "../inventory/assign.ts";
 import {
   SERVICE_TAG, SPLIT_COST_TAG, buildSpend, classifyCeError, fixFor, isoDay, windowOf, type CeErrorCode, type CostsView, type Day, type EnvRef, type Part,
   type RawAnomaly, type RunRateEnv, type RunRateView, type SpendSnapshot, type SpendUnavailable, type SpendView,
@@ -16,7 +17,8 @@ import { cached } from "./cache.ts";
 import { getDb } from "./db.ts";
 import { consoleConfig, inventory, listEnvs, servicesOf } from "./discovery.ts";
 import { HttpError, errText } from "./errors.ts";
-import { sourceKind } from "./sources.ts";
+import { getInventory } from "./inventory.ts";
+import { homeRegion, sourceKind } from "./sources.ts";
 
 // ---------- the source ----------
 
@@ -65,7 +67,7 @@ function settings() {
     tagKey: config.costs?.tagKey ?? SPLIT_COST_TAG,
     spikePercent: config.costs?.spikePercent ?? 30,
     cacheHours: config.costs?.cacheHours ?? 6,
-    rates: ratesFrom(config.pricing),
+    rates: ratesFrom(config.pricing, homeRegion()),
     customRates: Object.keys(config.pricing ?? {}).length > 0,
   };
 }
@@ -197,14 +199,17 @@ async function actualView(s: Stored, kind: Billing["kind"]): Promise<SpendView |
 // Free and instant: what is running now × list prices. Recomputed at most every 30 s from discovery's caches.
 export async function runRate(): Promise<RunRateView> {
   const { rates, customRates } = settings();
-  return (await cached(`costs:estimate:${JSON.stringify(rates)}`, 30_000, () => buildRunRate(rates, customRates))).value;
+  return (await cached(`costs:estimate:${JSON.stringify(rates)}`, 30_000, () => buildRunRate(customRates))).value;
 }
 
-async function buildRunRate(rates: Rates, customRates: boolean): Promise<RunRateView> {
-  const [envs, inv] = await Promise.all([listEnvs(), inventory()]);
-  const errors = [...inv.errors];
+async function buildRunRate(customRates: boolean): Promise<RunRateView> {
+  const pricing = consoleConfig().config.pricing;
+  const errors: string[] = [];
+  const [envs, inv, view] = await Promise.all([listEnvs(), inventory(), getInventory().catch((err) => void errors.push(`inventory: ${errText(err)}`))]);
+  errors.unshift(...inv.errors);
   const out: RunRateEnv[] = [];
   for (const e of envs) {
+    const rates = ratesFrom(pricing, e.region);
     const c = inv.catalogs.get(e.id);
     const services = await servicesOf(e.cluster, e.region).catch((err) => (errors.push(`${e.id} services: ${errText(err)}`), []));
     const est = estimateRunRate(
@@ -220,13 +225,29 @@ async function buildRunRate(rates: Rates, customRates: boolean): Promise<RunRate
       },
       rates,
     );
-    out.push({ env: e.id, label: e.label, protected: e.protected, ...est });
+    out.push({ env: e.id, label: e.label, protected: e.protected, regions: [rates.region], ...est });
   }
-  if (inv.unassigned.databases.length || inv.unassigned.caches.length) {
-    const est = estimateRunRate({ services: [], hosts: [], databases: inv.unassigned.databases, caches: inv.unassigned.caches }, rates);
-    out.push({ env: "", label: "Not in an environment", protected: false, ...est });
+  // The inventory adds what the ECS environments leave out (costs.ts leftovers); without it, discovery's own.
+  const rest: Leftovers[] = view
+    ? leftovers(view.resources.map((r) => ({ ...r, id: idName(r) })), new Set(out.flatMap((x) => x.items.map((i) => `${i.kind}:${i.id}`))))
+    : [{ env: "", region: homeRegion(), hosts: [], ...inv.unassigned }];
+  for (const g of rest) {
+    const rates = ratesFrom(pricing, g.region);
+    const est = estimateRunRate({ services: [], ...g }, rates);
+    if (!est.items.length) continue;
+    const to = out.find((o) => o.env === g.env);
+    if (to) {
+      Object.assign(to, {
+        monthly: to.monthly + est.monthly, items: [...to.items, ...est.items], unpriced: [...to.unpriced, ...est.unpriced],
+        regions: [...new Set([...to.regions, rates.region])],
+      });
+    } else {
+      const meta = view?.envs.find((v) => v.id === g.env);
+      const label = g.env ? (meta?.label ?? g.env) : "Not in an environment";
+      out.push({ env: g.env, label, protected: meta?.protected ?? false, regions: [rates.region], ...est });
+    }
   }
-  return { at: Date.now(), monthly: out.reduce((a, x) => a + x.monthly, 0), rates, customRates, envs: out, errors };
+  return { at: Date.now(), monthly: out.reduce((a, x) => a + x.monthly, 0), rates: settings().rates, customRates, envs: out, errors };
 }
 
 export async function costsView(): Promise<CostsView> {

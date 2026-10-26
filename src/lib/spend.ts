@@ -356,6 +356,7 @@ export interface RunRateEnv {
   env: string; // "" for resources not attributed to an environment
   label: string;
   protected: boolean;
+  regions: string[]; // whose list prices priced it (us-east-1 for a region the price table doesn't have)
   monthly: number;
   items: RunItem[];
   unpriced: string[];

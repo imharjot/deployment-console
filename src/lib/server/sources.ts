@@ -8,6 +8,7 @@ import type {
 } from "../types.ts";
 // Type-only (erased at build time, so this adds no module to the import graph — see the note above getCloud).
 import type { ImageCheck, LbConfig, ScalableTarget, TargetHealthDetail } from "../aws-mapping.ts";
+import type { SimDecision } from "../capability-rules.ts";
 export type { ImageCheck, LbConfig, ScalableTarget, TargetHealthDetail } from "../aws-mapping.ts";
 
 export interface MetricSpec {
@@ -116,9 +117,10 @@ export interface Cloud {
   probe?(cluster: string, service: string, url: string): ProbeResult;
   // CONSOLE_REGIONS=all-enabled resolves through this (ec2:DescribeRegions on AWS; the simulated account's MOCK_REGIONS).
   enabledRegions?(): Promise<string[]>;
-  // An IAM policy simulation of the console's own identity for these actions (resource "*"; {} when the identity may
-  // not simulate), and that identity's ARN — a role's, not the session's (src/lib/server/capability.ts).
-  simulate?(actions: string[]): Promise<Record<string, "allowed" | "implicitDeny" | "explicitDeny">>;
+  // An IAM policy simulation of the console's own identity for these actions ({} when the identity may not simulate),
+  // each against its target resource ARNs or "*" — and that identity's ARN, a role's, not the session's
+  // (src/lib/server/capability.ts).
+  simulate?(actions: string[], targets?: Record<string, string[]>): Promise<Record<string, SimDecision>>;
   principal?(): Promise<string | undefined>;
 }
 

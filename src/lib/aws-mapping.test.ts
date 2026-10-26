@@ -419,6 +419,14 @@ test("metric pages append to the same series; IAM decisions keep only known valu
   assert.deepEqual(decisionsOf([{ EvalActionName: "ecs:UpdateService", EvalDecision: "allowed" }, { EvalActionName: "ec2:RunInstances", EvalDecision: "explicitDeny" }, { EvalActionName: "x:Y", EvalDecision: "maybe" }]), {
     "ecs:UpdateService": "allowed", "ec2:RunInstances": "explicitDeny",
   });
+  // Against a real resource an implicit deny that needed no context is final; one that missed context stays implicit.
+  const onResource = [
+    { EvalActionName: "ecs:UpdateService", EvalDecision: "implicitDeny" },
+    { EvalActionName: "ecs:RunTask", EvalDecision: "implicitDeny", MissingContextValues: ["aws:RequestTag/console:created"] },
+    { EvalActionName: "ecs:DeleteService", EvalDecision: "allowed" },
+  ];
+  assert.deepEqual(decisionsOf(onResource, true), { "ecs:UpdateService": "resourceDeny", "ecs:RunTask": "implicitDeny", "ecs:DeleteService": "allowed" });
+  assert.deepEqual(decisionsOf(onResource), { "ecs:UpdateService": "implicitDeny", "ecs:RunTask": "implicitDeny", "ecs:DeleteService": "allowed" }, "against * it stays a probably");
 });
 
 test("ecrTarget: a bare name is this account's ECR; a registry says which account and region; anything else is null", () => {
@@ -731,7 +739,17 @@ test("aws.ts: a write is sent once and a reset after sending is outcome unknown;
           </TargetHealthDescriptions>`, "http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"));
         case "GetCallerIdentity":
           return send(200, xml("GetCallerIdentity", `<Arn>arn:aws:sts::${ACCT}:assumed-role/acme-deployment-console/0a1b</Arn><UserId>AROAEXAMPLE:0a1b</UserId><Account>${ACCT}</Account>`, "https://sts.amazonaws.com/doc/2011-06-15/"));
-        case "SimulatePrincipalPolicy":
+        case "SimulatePrincipalPolicy": {
+          const q = new URLSearchParams(body);
+          const resource = q.get("ResourceArns.member.1") ?? "";
+          if (resource.startsWith("arn:")) {
+            const acts = [...q.entries()].filter(([k]) => k.startsWith("ActionNames.member.")).map(([, v]) => v);
+            // A policy scoped to the staging cluster; ecs:RunTask carries a request-tag condition the simulator can't see.
+            const member = (a: string) => a === "ecs:RunTask"
+              ? `<member><EvalActionName>${a}</EvalActionName><EvalResourceName>${resource}</EvalResourceName><EvalDecision>implicitDeny</EvalDecision><MissingContextValues><member>aws:RequestTag/console:created</member></MissingContextValues></member>`
+              : `<member><EvalActionName>${a}</EvalActionName><EvalResourceName>${resource}</EvalResourceName><EvalDecision>${resource.includes("/acme-staging/") ? "allowed" : "implicitDeny"}</EvalDecision></member>`;
+            return send(200, xml("SimulatePrincipalPolicy", `<IsTruncated>false</IsTruncated><EvaluationResults>${acts.map(member).join("")}</EvaluationResults>`, "https://iam.amazonaws.com/doc/2010-05-08/"));
+          }
           if (seen.filter((x) => x === op).length > 1) {
             return send(403, `<ErrorResponse xmlns="https://iam.amazonaws.com/doc/2010-05-08/"><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>User: arn:aws:sts::${ACCT}:assumed-role/acme-deployment-console/0a1b is not authorized to perform: iam:SimulatePrincipalPolicy on resource: arn:aws:iam::${ACCT}:role/acme-deployment-console</Message></Error><RequestId>r-2</RequestId></ErrorResponse>`);
           }
@@ -739,6 +757,7 @@ test("aws.ts: a write is sent once and a reset after sending is outcome unknown;
             <member><EvalActionName>ecs:UpdateService</EvalActionName><EvalResourceName>*</EvalResourceName><EvalDecision>allowed</EvalDecision></member>
             <member><EvalActionName>ec2:RunInstances</EvalActionName><EvalResourceName>*</EvalResourceName><EvalDecision>implicitDeny</EvalDecision></member>
           </EvaluationResults>`, "https://iam.amazonaws.com/doc/2010-05-08/"));
+        }
         default:
           return json(400, { __type: "UnknownOperationException", message: op });
       }
@@ -768,6 +787,11 @@ test("aws.ts: a write is sent once and a reset after sending is outcome unknown;
     await tryIt("principal", () => c.principal());
     await tryIt("simulate", () => c.simulate(["ecs:UpdateService", "ec2:RunInstances"]));
     await tryIt("simulateDenied", () => c.simulate(["ecs:UpdateService"]));
+    await tryIt("simulateTargeted", () => c.simulate(["ecs:UpdateService", "ecs:DeleteService", "ecs:RunTask"], {
+      "ecs:UpdateService": ["arn:aws:ecs:${R}:${ACCT}:service/acme-production/api", "arn:aws:ecs:${R}:${ACCT}:service/acme-staging/api"],
+      "ecs:DeleteService": ["arn:aws:ecs:${R}:${ACCT}:service/acme-production/api"],
+      "ecs:RunTask": ["arn:aws:ecs:${R}:${ACCT}:task-definition/acme-api:41"],
+    }));
     process.stdout.write(JSON.stringify(out), () => process.exit(0));
   `;
   const env: NodeJS.ProcessEnv = {
@@ -818,6 +842,11 @@ test("aws.ts: a write is sent once and a reset after sending is outcome unknown;
     assert.equal(sim.get("ResourceArns.member.1"), "*");
     assert.deepEqual(r.simulate.ok, { "ecs:UpdateService": "allowed", "ec2:RunInstances": "implicitDeny" });
     assert.deepEqual(r.simulateDenied.ok, {});
+    // Service-scoped actions are simulated against real services, one call per resource: denied everywhere with no
+    // missing context is final; allowed in staging only stays a "probably"; RunTask's tag condition keeps it one too.
+    assert.deepEqual(r.simulateTargeted.ok, { "ecs:UpdateService": "implicitDeny", "ecs:DeleteService": "resourceDeny", "ecs:RunTask": "implicitDeny" });
+    const targeted = bodies.get("SimulatePrincipalPolicy")!.slice(2).map((b) => new URLSearchParams(b).get("ResourceArns.member.1")).sort();
+    assert.deepEqual(targeted, [`arn:aws:ecs:${R}:${ACCT}:service/acme-production/api`, `arn:aws:ecs:${R}:${ACCT}:service/acme-staging/api`, `arn:aws:ecs:${R}:${ACCT}:task-definition/acme-api:41`]);
     assert.equal(count("GetCallerIdentity"), 1, "the principal is read once");
   } finally {
     server.close();

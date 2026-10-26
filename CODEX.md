@@ -107,7 +107,11 @@ first. License: Apache-2.0 (LICENSE).
 - Costs: `Billing` (`src/lib/server/billing.ts`) is a third door beside `Cloud` and `Ci`, with its own globalThis
   singleton; `billing-aws.ts` always calls Cost Explorer in us-east-1 ($0.01 per request), so a 4-request snapshot is
   cached in memory and in `settings` (`costs:snapshot`) for `costs.cacheHours`. List-price estimates are pure
-  (`src/lib/costs.ts`, analysis in `src/lib/spend.ts`).
+  (`src/lib/costs.ts`, analysis in `src/lib/spend.ts`) and priced in each resource's region from
+  `src/lib/list-prices.ts`, which `scripts/list-prices.mjs` regenerates from the AWS Price List (a region missing from it
+  falls back to us-east-1; `RunRateEnv.regions` says whose prices were used). The run rate prices discovery's ECS
+  environments, then what the resource inventory places elsewhere (`leftovers()`: tag-only environments, EC2 instances
+  outside a cluster, databases and caches in no environment), skipping anything already priced.
 - Agents & API: every capability is an `Operation` (`src/lib/server/ops/types.ts`) in `ops/core.ts`, `ops/costs.ts` or
   `ops/provision.ts`; `ops/index.ts` validates input (`src/lib/ops-schema.ts`), checks the role, applies the token-mode
   gate (`gate()` in `src/lib/automation.ts`) and creates approvals (`ops/approvals.ts`, atomic transitions, sealed
@@ -289,7 +293,10 @@ first. License: Apache-2.0 (LICENSE).
   workload keys get `@<region>` too). Environment ids renamed for a region (`production-eu-west-1`) also catch that
   region's resources whose tags or names say `production` (`regionalEnv` in `assign.ts`). Security-group "allowed"
   edges into data stores are port-aware (`ruleReaches` in `discover.ts`; `listenPorts` in `infer.ts`). ECS services
-  alias their task-definition family ARN, which EventBridge Scheduler and Pipes targets name. Generic resources take labels, categories
+  alias their task-definition family ARN, which EventBridge Scheduler and Pipes targets name. A catch-all row of a type
+  its provider covers that matched nothing is a stale Resource Explorer entry when other rows of that type and region
+  did match (left out with a note); when none matched it stays hidden and flagged as a key-format bug (`foldGenerics`
+  in `infer.ts`). Systems Manager managed-instance rows fold into their EC2 instance. Generic resources take labels, categories
   and map visibility from `src/lib/inventory/aws-services.ts` (UI code uses `categoryOf` / `kindLabelOf` / `serviceOf`
   and `iconOf` / `shortOf`, never `KIND_INFO[r.kind]` for a resource). Mock names for every provider live in
   `mock-names.ts` (frozen). Registered-but-unbuilt providers answer `NOT_IMPLEMENTED` (`src/lib/permissions.ts`) and
@@ -379,7 +386,11 @@ real-account agent run has been made.
   session and user ARNs, the caller named in a refusal and the caller's own role, but keeps other role ARNs (the role a
   PassRole needs is what the person has to fix). Provider write actions are registered with `watchActions()`
   (inventory-actions, the capability and permissions routes) and simulated too; an empty simulation means not verified,
-  and a role under an IAM path (NoSuchEntity: its session ARN doesn't show the path) is explained as such.
+  and a role under an IAM path (NoSuchEntity: its session ARN doesn't show the path) is explained as such. Against `*`
+  an action allowed only on resource ARNs is an implicit deny too, so ECS service actions are simulated against one real
+  service per cluster and `ecs:RunTask` against its task definition (`simulationTargets`, `simulationTargetsNow`):
+  denied everywhere with no missing context values is `resourceDeny` (denied), a mix stays implicit (`combineTargets`).
+  Other actions are still simulated against `*`.
 - `iam-policy.test.ts` skips `src/lib/server/agents/inference/` and `runtime/` (connection credentials, not the console
   role) and fails if `@aws-sdk/client-bedrock-runtime` is imported anywhere else.
 - Agents: never call `op.run()` or a Cloud method directly from agent code — go through `invoke()` with

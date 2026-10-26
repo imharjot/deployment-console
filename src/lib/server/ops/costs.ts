@@ -78,10 +78,11 @@ export const ops = defineOps([
       return {
         currency: "USD",
         monthlyTotal: usd(envs.reduce((a, e) => a + e.monthly, 0)),
-        note: `List-price estimate${r.customRates ? " (custom rates from console.config.json)" : ", us-east-1 on-demand"}; excludes data transfer, storage, load balancers, NAT, Spot and Savings Plans.`,
+        note: `List-price estimate at each region's on-demand prices${r.customRates ? ", adjusted by pricing in console.config.json" : ""}; excludes data transfer, storage, load balancers, NAT, Spot and Savings Plans.`,
         environments: envs.map((e) => ({
           env: e.env || "(not in an environment)",
           label: e.label,
+          pricedAt: e.regions.join(", "),
           monthly: usd(e.monthly),
           items: e.items.map((i) => ({ kind: i.kind, name: i.name, detail: i.detail, monthly: i.monthly === null ? null : usd(i.monthly), ...(i.note ? { note: i.note } : {}) })),
           ...(e.unpriced.length ? { noListPrice: e.unpriced } : {}),

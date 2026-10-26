@@ -102,6 +102,14 @@ test("facet values normalise paths", () => {
   assert.equal(facetValue(POST500.msg, "status"), "503");
 });
 
+test("the status facet keeps HTTP codes only", () => {
+  assert.equal(facetValue(pino({ msg: "kyc", status: "active" }).msg, "status"), undefined);
+  assert.equal(facetValue(pino({ msg: "db", code: "P2002" }).msg, "status"), undefined);
+  assert.equal(facetValue(pino({ msg: "list", status: 7 }).msg, "status"), undefined);
+  assert.equal(facetValue(pino({ res: { statusCode: 404 } }).msg, "status"), "404");
+  assert.equal(facetValue("GET /health status=200 took=3", "status"), "200");
+});
+
 test("200k lines filter in well under a second", () => {
   const c = q("status:>=500 OR level:error");
   const lines = Array.from({ length: 200_000 }, (_, i) => (i % 97 ? GET200 : POST500));

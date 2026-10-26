@@ -244,7 +244,7 @@ const targetOf = (l: Live, id: string): PowerTarget => ({ state: l.state, asg: l
 const refuse = (msg: string | undefined) => {
   if (msg) throw new HttpError(409, msg);
 };
-const rates = () => ratesFrom(consoleConfig().config.pricing);
+const rates = (region: string) => ratesFrom(consoleConfig().config.pricing, region);
 
 const TEXT: Record<PowerAction, { title: string; description: string; summary: string; undo: string; verifies: string }> = {
   start: {
@@ -289,7 +289,7 @@ function powerAction(action: PowerAction): ProviderAction {
       if (action === "start" && !l.hasEip) warnings.push("It gets a new public IP (no Elastic IP) — DNS records pointing at the old one break.");
       if (action === "reboot") warnings.push("About a minute or two of downtime for whatever runs on it.");
       if (action !== "start" && l.tags["eks:cluster-name"]) warnings.push("It is a Kubernetes node: its pods are not drained first.");
-      const est = action === "start" ? capacityDelta(l.type, 0, 1, rates()) : action === "stop" ? capacityDelta(l.type, 1, 0, rates()) : undefined;
+      const est = action === "start" ? capacityDelta(l.type, 0, 1, rates(r.region)) : action === "stop" ? capacityDelta(l.type, 1, 0, rates(r.region)) : undefined;
       return { summary: `${title.split(" ")[0]} ${r.name} (${id}, ${l.type})`, changes: [`${action === "start" ? "StartInstances" : action === "stop" ? "StopInstances" : "RebootInstances"} ${id}`], warnings, estimate: est };
     },
     async run(r, _input, ctx) {

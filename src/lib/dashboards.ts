@@ -831,7 +831,8 @@ export function currentFailures<R extends CiRunLike>(runs: R[], now: number = Da
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
-// Activity: deploys and rollbacks (a deploy run, a console revision switch or rollback, ECS rolling back).
+// Activity: deploys and rollbacks (a deploy run, a console revision switch or rollback, an ECS rollout completing
+// or rolling back). ECS counts on its own: a service deployed without GitHub connected still shows its deploys.
 export interface ActivityLike {
   at: number;
   kind: string;
@@ -842,7 +843,7 @@ export function isDeployOrRollback(i: ActivityLike): boolean {
   if (i.kind === "deploy") return true;
   const text = `${i.title} ${i.detail ?? ""}`;
   if (i.kind === "action") return /\b(switch|rollback|roll back|revision|deploy)/i.test(text);
-  if (i.kind === "ecs") return /roll(ing|ed)? back|rollback/i.test(text);
+  if (i.kind === "ecs") return /deployment completed|roll(ing|ed)? back|rollback/i.test(text);
   return false;
 }
 export function filterActivity<T extends ActivityLike>(items: T[], o: { kind?: unknown; hours?: unknown }, now: number = Date.now()): T[] {

@@ -6,8 +6,8 @@
 // - Links: certificate → each InUseBy ARN (tls).
 // - Health: ISSUED with more than 30 days left ok; 7 days or less error; 30 days or less without automatic renewal
 //   (imported, renewal ineligible, renewal failed or still pending) warning; EXPIRED or REVOKED error;
-//   PENDING_VALIDATION warning with the CNAME to create; FAILED / VALIDATION_TIMED_OUT warning when in use, else unknown
-//   "validation failed — unused, safe to delete".
+//   PENDING_VALIDATION warning with the CNAME to create; FAILED / VALIDATION_TIMED_OUT warning, in use or not (unused:
+//   "validation failed — unused, safe to delete": the state is known and there is something to clean up, so not unknown).
 // - Facts: state, notAfter, inUse, autoRenew (propagate R3 warns what an expiring certificate serves; R7 marks an unused
 //   one idle).
 // No AWS calls and no `server-only`, so node:test runs it (acm.test.ts).
@@ -106,7 +106,7 @@ function healthOf(c: RawCert, now: number): { health: Health; reason?: string } 
     }
     case "FAILED":
     case "VALIDATION_TIMED_OUT":
-      return inUse ? { health: "warning", reason: `validation failed${c.detail?.FailureReason ? ` (${c.detail.FailureReason})` : ""}` } : { health: "unknown", reason: "validation failed — unused, safe to delete" };
+      return inUse ? { health: "warning", reason: `validation failed${c.detail?.FailureReason ? ` (${c.detail.FailureReason})` : ""}` } : { health: "warning", reason: "validation failed — unused, safe to delete" };
     case "INACTIVE":
       return { health: "stopped", reason: "inactive" };
     default:

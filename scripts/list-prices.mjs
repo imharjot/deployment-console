@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+// Regenerates src/lib/list-prices.ts from the AWS Price List API (free, public prices; any credentials with
+// pricing:GetProducts). Uses the AWS CLI so the console needs no extra SDK package:
+//
+//   AWS_PROFILE=<profile> node scripts/list-prices.mjs            # every region
+//   AWS_PROFILE=<profile> node scripts/list-prices.mjs us-east-1  # just these (merged into the existing file)
+//
+// Per region it keeps the hourly on-demand price of the "large" size of each family in FAMILIES (a family without a
+// large size is scaled from its medium, as costs.ts scales every other size), plus Fargate's x86 Linux rates.
+import { execFile } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { promisify } from "node:util";
+
+const run = promisify(execFile);
+const OUT = new URL("../src/lib/list-prices.ts", import.meta.url);
+const FAMILIES = {
+  ec2: ["t3", "t3a", "t4g", "m5", "m5a", "m6i", "m6a", "m6g", "m7i", "m7g", "c5", "c5a", "c6i", "c6a", "c6g", "c7i", "c7g", "r5", "r6i", "r6g", "r7g"],
+  rds: ["db.t3", "db.t4g", "db.m5", "db.m6i", "db.m6g", "db.m7g", "db.r5", "db.r6i", "db.r6g", "db.r7g"],
+  cache: ["cache.t3", "cache.t4g", "cache.m5", "cache.m6g", "cache.m7g", "cache.r5", "cache.r6g", "cache.r7g"],
+};
+// What each service's query keeps: one product per instance type in the region itself. The usage type must be the
+// plain one ("APS3-NodeUsage:…"): Outposts, Local Zones, extended support and the like carry their own prefix.
+const plain = (usage) => (a) => new RegExp(`^([A-Z0-9]+-)?${usage}:`).test(a.usagetype ?? "");
+const QUERIES = {
+  ec2: ["AmazonEC2", { operatingSystem: "Linux", tenancy: "Shared", preInstalledSw: "NA", capacitystatus: "Used", licenseModel: "No License required", operation: "RunInstances" }, plain("BoxUsage")],
+  rds: ["AmazonRDS", { databaseEngine: "PostgreSQL", deploymentOption: "Single-AZ", productFamily: "Database Instance" }, plain("InstanceUsage")],
+  cache: ["AmazonElastiCache", { cacheEngine: "Redis", productFamily: "Cache Instance" }, plain("NodeUsage")],
+};
+
+async function products(service, filters) {
+  const args = ["pricing", "get-products", "--region", "us-east-1", "--service-code", service, "--output", "json", "--filters",
+    ...Object.entries(filters).map(([k, v]) => `Type=TERM_MATCH,Field=${k},Value=${v}`)];
+  const { stdout } = await run("aws", args, { maxBuffer: 512 * 1024 * 1024 });
+  return JSON.parse(stdout).PriceList.map((p) => JSON.parse(p));
+}
+const onDemand = (p) => {
+  for (const t of Object.values(p.terms?.OnDemand ?? {})) for (const d of Object.values(t.priceDimensions)) if (Number(d.pricePerUnit.USD) > 0) return Number(d.pricePerUnit.USD);
+};
+
+async function region(code) {
+  const out = { fargate: undefined, ec2: {}, rds: {}, cache: {} };
+  for (const [kind, [service, filters, keep]] of Object.entries(QUERIES)) {
+    const byType = new Map();
+    for (const p of await products(service, { regionCode: code, locationType: "AWS Region", ...filters })) {
+      const a = p.product.attributes, usd = onDemand(p);
+      if (usd === undefined || !keep(a)) continue;
+      if (byType.has(a.instanceType) && byType.get(a.instanceType) !== usd) throw new Error(`${code} ${a.instanceType}: two prices (${byType.get(a.instanceType)}, ${usd}) — tighten the ${kind} query`);
+      byType.set(a.instanceType, usd);
+    }
+    for (const f of FAMILIES[kind]) {
+      const large = byType.get(`${f}.large`) ?? (byType.has(`${f}.medium`) ? byType.get(`${f}.medium`) * 2 : undefined);
+      if (large !== undefined) out[kind][f] = +large.toFixed(6);
+    }
+  }
+  const fg = await products("AmazonECS", { regionCode: code, locationType: "AWS Region" });
+  const rate = (re) => fg.filter((p) => re.test(p.product.attributes.usagetype ?? "")).map(onDemand).find((x) => x !== undefined);
+  const vcpu = rate(/(^|-)Fargate-vCPU-Hours:perCPU$/), gb = rate(/(^|-)Fargate-GB-Hours$/);
+  if (vcpu !== undefined && gb !== undefined) out.fargate = [vcpu, gb];
+  return out;
+}
+
+const previous = (() => {
+  try {
+    return JSON.parse(/= (\{[\s\S]*\});\s*$/.exec(readFileSync(OUT, "utf8"))[1]);
+  } catch {
+    return {};
+  }
+})();
+const wanted = process.argv.slice(2).length
+  ? process.argv.slice(2)
+  : JSON.parse((await run("aws", ["ec2", "describe-regions", "--all-regions", "--region", "us-east-1", "--query", "Regions[].RegionName", "--output", "json"])).stdout).sort();
+const prices = { ...previous };
+const queue = [...wanted];
+await Promise.all(Array.from({ length: 6 }, async () => {
+  for (let r = queue.shift(); r; r = queue.shift()) {
+    const got = await region(r);
+    if (got.fargate || Object.keys(got.ec2).length) prices[r] = got;
+    process.stderr.write(`${r} ${got.fargate ? "fargate " : ""}ec2 ${Object.keys(got.ec2).length} rds ${Object.keys(got.rds).length} cache ${Object.keys(got.cache).length}\n`);
+  }
+}));
+const sorted = Object.fromEntries(Object.keys(prices).sort().map((k) => [k, prices[k]]));
+writeFileSync(OUT, `// Generated by scripts/list-prices.mjs from the AWS Price List API on ${new Date().toISOString().slice(0, 10)}. Do not edit by hand.
+// Hourly on-demand USD per region: the "large" size of each family (EC2 Linux shared tenancy, RDS PostgreSQL
+// Single-AZ, ElastiCache Redis OSS node) and Fargate x86 Linux [per vCPU-hour, per GB-hour].
+export interface RegionPrices {
+  fargate?: [number, number];
+  ec2: Record<string, number>;
+  rds: Record<string, number>;
+  cache: Record<string, number>;
+}
+export const LIST_PRICES: Record<string, RegionPrices> = {
+${Object.entries(sorted).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(",\n")}
+};
+`);
+process.stderr.write(`wrote ${Object.keys(sorted).length} regions\n`);

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { actionsFor, ALL_WRITE_ACTIONS, combine, CONSOLE_WRITES, decide, ECS_WRITE_ACTIONS, OBSERVED_TTL_MS, roleArnFromCaller, simulationFailureNote } from "./capability-rules.ts";
+import { actionsFor, ALL_WRITE_ACTIONS, combine, combineTargets, CONSOLE_WRITES, decide, ECS_WRITE_ACTIONS, OBSERVED_TTL_MS, roleArnFromCaller, SERVICE_SCOPED_ACTIONS, simulationFailureNote, simulationTargets } from "./capability-rules.ts";
 
 const NOW = 1_800_000_000_000;
 
@@ -46,6 +46,38 @@ test("decide: observed deny within TTL, explicit deny → denied; implicit → p
   assert.equal(decide({ deniedAt: NOW - 1_000, allowedAt: NOW - 60_000 }, NOW), "denied");
   assert.equal(decide({ simulated: "implicitDeny", allowedAt: NOW - 1_000 }, NOW), "allowed");
   assert.equal(decide({ simulated: "explicitDeny", allowedAt: NOW - 1_000 }, NOW), "denied");
+});
+
+test("decide: an implicit deny against a real resource without missing context is a denial; a real success still wins", () => {
+  assert.equal(decide({ simulated: "resourceDeny" }, NOW), "denied");
+  assert.equal(decide({ simulated: "resourceDeny", allowedAt: NOW - 1_000 }, NOW), "allowed");
+});
+
+test("simulationTargets: per cluster, the first service that isn't the console's own, for the service-scoped actions", () => {
+  const prod = { cluster: "acme-production", clusterArn: "arn:aws:ecs:eu-west-1:123456789012:cluster/acme-production", services: [
+    { name: "deployment-console", family: "acme-console", taskDefinitionArn: "arn:aws:ecs:eu-west-1:123456789012:task-definition/acme-console:3" },
+    { name: "api", family: "acme-api", taskDefinitionArn: "arn:aws:ecs:eu-west-1:123456789012:task-definition/acme-api:41" },
+  ] };
+  const staging = { cluster: "acme-staging", clusterArn: "arn:aws:ecs:eu-west-1:123456789012:cluster/acme-staging", services: [{ name: "web" }] };
+  const prodApi = "arn:aws:ecs:eu-west-1:123456789012:service/acme-production/api";
+  const stagingWeb = "arn:aws:ecs:eu-west-1:123456789012:service/acme-staging/web";
+  assert.deepEqual(simulationTargets([prod, staging], { cluster: "acme-production", family: "acme-console" }), {
+    ...Object.fromEntries(SERVICE_SCOPED_ACTIONS.map((a) => [a, [prodApi, stagingWeb]])),
+    "ecs:RunTask": ["arn:aws:ecs:eu-west-1:123456789012:task-definition/acme-api:41"],
+  }, "one service per cluster; staging's web has no task definition ARN, so no RunTask target there");
+  assert.deepEqual(simulationTargets([prod])["ecs:UpdateService"], ["arn:aws:ecs:eu-west-1:123456789012:service/acme-production/deployment-console"], "not on ECS: no service is the console");
+  assert.deepEqual(simulationTargets([{ cluster: "", services: [{ name: "web" }] }]), {}, "a compose environment has no cluster ARN");
+  assert.deepEqual(simulationTargets([{ ...prod, services: [prod.services[0]] }], { cluster: "acme-production", family: "acme-console" }), {}, "only the console itself: simulate against *");
+});
+
+test("combineTargets: allowed or denied only when every cluster agrees; a mix is a probably", () => {
+  assert.equal(combineTargets([]), undefined);
+  assert.equal(combineTargets(["allowed", "allowed"]), "allowed");
+  assert.equal(combineTargets(["resourceDeny", "resourceDeny"]), "resourceDeny", "a read-only identity: denied everywhere");
+  assert.equal(combineTargets(["explicitDeny", "resourceDeny"]), "resourceDeny");
+  assert.equal(combineTargets(["explicitDeny"]), "explicitDeny");
+  assert.equal(combineTargets(["resourceDeny", "allowed"]), "implicitDeny", "scoped to the staging cluster: not denied outright");
+  assert.equal(combineTargets(["implicitDeny", "resourceDeny"]), "implicitDeny", "a tag condition the simulator can't see");
 });
 
 test("combine: the worst state wins; nothing needed is allowed", () => {

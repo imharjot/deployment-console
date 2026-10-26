@@ -58,10 +58,13 @@ export function simulationFailureNote(e: { name?: unknown; message?: unknown } |
   return `not verified: ${text}`;
 }
 
-export type SimDecision = "allowed" | "implicitDeny" | "explicitDeny";
+// resourceDeny: an implicit deny simulated against a real resource with no missing context values — nothing the
+// simulator can't see could still grant it for these actions (ECS has no resource policies; SCPs and permission
+// boundaries only take away), so it is a denial, not a "probably".
+export type SimDecision = "allowed" | "implicitDeny" | "explicitDeny" | "resourceDeny";
 
 export interface Evidence {
-  simulated?: SimDecision; // iam:SimulatePrincipalPolicy (resource "*", no context)
+  simulated?: SimDecision; // iam:SimulatePrincipalPolicy (resource "*" or a real one — simulationTargets — no context)
   deniedAt?: number; // a real call was refused (AccessDenied) at this time
   allowedAt?: number; // a real call succeeded at this time
 }
@@ -77,6 +80,7 @@ export function decide(e: Evidence | undefined, now: number, ttlMs: number = OBS
   if (denied) return "denied";
   if (e.simulated === "explicitDeny") return "denied";
   if (fresh(e.allowedAt)) return "allowed";
+  if (e.simulated === "resourceDeny") return "denied";
   if (e.simulated === "implicitDeny") return "probably-denied";
   if (e.simulated === "allowed") return "allowed";
   return "unknown";
@@ -87,4 +91,45 @@ const RANK: Record<CapState, number> = { denied: 0, "probably-denied": 1, unknow
 // The worst of several states (an action needing three IAM actions is as capable as its weakest one). None → allowed.
 export function combine(states: CapState[]): CapState {
   return states.reduce<CapState>((w, s) => (RANK[s] < RANK[w] ? s : w), "allowed");
+}
+
+// ---------- what to simulate against (F06) ----------
+
+// ECS actions whose IAM resource is a service. A policy scoped to arn:…:service/*/* (the console's own recommended one)
+// is an implicit deny for resource "*" but allowed for a real service, so these are simulated against one.
+export const SERVICE_SCOPED_ACTIONS: readonly string[] = ["ecs:CreateService", "ecs:DeleteService", "ecs:UpdateService"];
+
+export interface SimulationCluster {
+  cluster: string;
+  clusterArn?: string;
+  services: { name: string; family?: string; taskDefinitionArn?: string }[];
+}
+
+// The real resources to simulate each action against: in every cluster, the first service that isn't the console's
+// own (and its task definition, for ecs:RunTask). One per cluster because the documented narrowing scopes these
+// actions by cluster (service/acme-staging/*). An action with no target is simulated against "*". A policy scoped by
+// service name rather than cluster can still be misjudged by the sample; simulating every service would settle it, at
+// one IAM call per service.
+export function simulationTargets(clusters: SimulationCluster[], self?: { cluster: string; family: string }): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  const add = (action: string, arn: string) => (out[action] ??= []).push(arn);
+  for (const c of clusters) {
+    const m = /^arn:(aws[\w-]*):ecs:([a-z0-9-]+):(\d{12}):cluster\/(.+)$/.exec(c.clusterArn ?? "");
+    if (!m) continue;
+    const s = c.services.find((x) => !(self && self.cluster === c.cluster && x.family === self.family));
+    if (!s) continue;
+    for (const a of SERVICE_SCOPED_ACTIONS) add(a, `arn:${m[1]}:ecs:${m[2]}:${m[3]}:service/${m[4]}/${s.name}`);
+    if (s.taskDefinitionArn?.startsWith("arn:")) add("ecs:RunTask", s.taskDefinitionArn);
+  }
+  return out;
+}
+
+// One action simulated against several resources is allowed, or denied, only when every one agrees. A mix (a policy
+// scoped to some clusters) stays a "probably", as it was against "*".
+export function combineTargets(ds: SimDecision[]): SimDecision | undefined {
+  if (!ds.length) return undefined;
+  if (ds.every((d) => d === "allowed")) return "allowed";
+  if (ds.every((d) => d === "explicitDeny")) return "explicitDeny";
+  if (ds.every((d) => d === "explicitDeny" || d === "resourceDeny")) return "resourceDeny";
+  return "implicitDeny";
 }

@@ -110,7 +110,7 @@ a success clears it. Each action is then in one of four states:
 | State | What you see |
 |---|---|
 | **Allowed** | the button works as usual |
-| **Denied** — the policy explicitly denies it, or AWS refused it in the last 10 minutes | the button is disabled with *The console's AWS identity lacks lambda:PublishVersion — see Settings → AWS permissions*; the API refuses it with 409 before anything runs |
+| **Denied** — the policy explicitly denies it, no statement allows an ECS service action on a real service in any cluster (below), or AWS refused it in the last 10 minutes | the button is disabled with *The console's AWS identity lacks lambda:PublishVersion — see Settings → AWS permissions*; the API refuses it with 409 before anything runs |
 | **Probably denied** — the simulation found no statement allowing it | a warning (*AWS permission not verified — likely denied*) on the button and in the plan; you can still try, and AWS decides |
 | **Not verified** — nothing simulated or observed yet | nothing is shown; AWS decides |
 
@@ -118,6 +118,12 @@ a success clears it. Each action is then in one of four states:
 write is allowed, or *Not verified*) and, per service, whether its actions are allowed. The simulation can't see
 service control policies, resource policies or tag conditions (such as `console:power=allow` below), so a
 simulated *allowed* can still be refused by AWS — that refusal then wins.
+
+ECS service actions (`ecs:UpdateService`, `CreateService`, `DeleteService`, and `ecs:RunTask` against a task
+definition) are simulated against one real service in each cluster, not against `*`: a policy scoped to
+`service/*/*`, like the operator policy here, allows nothing for `*`. Denied in every cluster, with no tag condition
+left unchecked, is a denial; allowed in some clusters only (a policy scoped to `service/acme-staging/*`) stays
+*probably denied*. Other actions are simulated against `*`.
 
 ## Turn it on
 

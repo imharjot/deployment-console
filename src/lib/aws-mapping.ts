@@ -3,6 +3,7 @@
 // response these rules read, written structurally, so an SDK v3 output is assignable to it and node:test can feed
 // plain fixtures (Acme ones, or read-only CLI JSON with its timestamps parsed into Dates). The simulated account
 // (src/lib/server/mock.ts) uses the same helpers where it builds the same shapes.
+import type { SimDecision } from "./capability-rules.ts";
 import { hostsFromEnv, parseImageRef } from "./discover.ts";
 import type {
   RawCache, RawContainer, RawDb, RawDeployment, RawEvent, RawLb, RawLbRule, RawLbTarget, RawLbTargetGroup, RawRevision, RawSecurityGroup,
@@ -771,12 +772,15 @@ export function appendMetrics(out: Record<string, [number, number][]>, status: M
 
 // ---------- IAM policy simulation (F06) ----------
 
-export type SimDecision = "allowed" | "implicitDeny" | "explicitDeny";
-export function decisionsOf(results: { EvalActionName?: string; EvalDecision?: string }[]): Record<string, SimDecision> {
+export type { SimDecision };
+// onResource: the simulation named a real resource (not "*"). There an implicit deny that needed no context values is
+// final (resourceDeny); one that missed context (tag conditions) stays an implicit deny.
+export function decisionsOf(results: { EvalActionName?: string; EvalDecision?: string; MissingContextValues?: string[] }[], onResource = false): Record<string, SimDecision> {
   const out: Record<string, SimDecision> = {};
   for (const r of results) {
     const d = r.EvalDecision;
-    if (r.EvalActionName && (d === "allowed" || d === "implicitDeny" || d === "explicitDeny")) out[r.EvalActionName] = d;
+    if (!r.EvalActionName || !(d === "allowed" || d === "implicitDeny" || d === "explicitDeny")) continue;
+    out[r.EvalActionName] = onResource && d === "implicitDeny" && !r.MissingContextValues?.length ? "resourceDeny" : d;
   }
   return out;
 }

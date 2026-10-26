@@ -675,12 +675,16 @@ function coveredBy(covered: Set<string> | undefined, type: string, region: strin
 
 // The catch-all's rows against the first-class resources (B.4): a sub-object is only counted; a row that is a
 // resource some provider already shows is dropped and gives it the tags it lacks (a field-level copy — never
-// mergeResource, so it can't relabel the resource); a row of a type a provider listed completely but that matched
-// nothing is kept hidden and flagged (a key-format bug fails visibly); the rest are generic resources.
+// mergeResource, so it can't relabel the resource); a Systems Manager managed instance is folded into its EC2
+// instance the same way. A row of a type a provider listed completely but that matched nothing is stale when other
+// rows of that type and region did match (the key format works; Resource Explorer still indexes something deleted):
+// it is left out with a note. If nothing of that type matched, it is kept hidden and flagged (a key-format bug fails
+// visibly). The rest are generic resources.
 function foldGenerics(ix: Index, generics: Resource[], input: InferInput, notes: string[]): { kept: Resource[]; hiddenTypes: Record<string, number> } {
   const hiddenTypes: Record<string, number> = {};
   const kept: Resource[] = [];
-  const unmatched = new Map<string, number>();
+  const matched = new Set<string>(); // type@region with at least one row that matched a first-class resource
+  const unmatched = new Map<string, Resource[]>(); // covered type@region → its rows that matched nothing
   let owners: Map<string, string> | undefined;
   const ownerOf = (type: string) => {
     owners ??= new Map([...ix.byKey.values()].flatMap((r) => [r.key, ...(r.aliases ?? [])].map((a) => parseArn(a)).filter((p): p is ParsedArn => !!p).map((p) => [arnType(p), r.provider] as [string, string])));
@@ -696,17 +700,27 @@ function foldGenerics(ix: Index, generics: Resource[], input: InferInput, notes:
       hiddenTypes[type] = (hiddenTypes[type] ?? 0) + 1;
       continue;
     }
+    const at = `${type}@${region}`;
     const hit = g.key.startsWith("arn:") ? arnKeys(ix, g.key) : ix.byKey.has(g.key) ? [g.key] : [];
     if (hit.length) {
+      matched.add(at);
       const r = hit.length === 1 ? ix.byKey.get(hit[0]) : undefined;
       if (r) for (const [k, v] of Object.entries(g.tags ?? {})) if (!Object.hasOwn(r.tags, k)) r.tags[k] = v;
       continue;
     }
+    // Systems Manager's record of an instance is that instance, not a second resource.
+    if (type === "ssm:managed-instance" && p?.id) {
+      const inst = ix.byKey.get(`ec2:${p.id}`) ?? ix.byKey.get(`ec2:${p.id}@${region}`);
+      if (inst?.kind === "ec2-instance") {
+        for (const [k, v] of Object.entries(g.tags ?? {})) if (!Object.hasOwn(inst.tags, k)) inst.tags[k] = v;
+        if (!inst.props.some((x) => x.label === "Systems Manager")) inst.props.push({ label: "Systems Manager", value: "managed instance" });
+        continue;
+      }
+    }
     const parent = g.parent?.startsWith("arn:") ? one(arnKeys(ix, g.parent)) ?? g.parent : g.parent;
     const base: Resource = { ...g, parent, resourceType: type, service: g.service ?? info.service.label, category: g.category ?? info.category };
     if (coveredBy(input.covered, type, region)) {
-      unmatched.set(`${type}@${region}`, (unmatched.get(`${type}@${region}`) ?? 0) + 1);
-      kept.push({ ...base, hidden: true, healthReason: `Covered by ${ownerOf(type) ?? "its provider"} but not matched — key-format bug?` });
+      unmatched.set(at, [...(unmatched.get(at) ?? []), base]);
       continue;
     }
     const why = Object.hasOwn(input.unreadable ?? {}, `${type}@${region}`) ? input.unreadable![`${type}@${region}`] : undefined;
@@ -715,9 +729,15 @@ function foldGenerics(ix: Index, generics: Resource[], input: InferInput, notes:
       healthReason: why ? `Listed by ${SOURCE[g.source ?? ""] ?? "the catch-all"} — ${why}` : g.healthReason ?? "No dedicated reader for this type yet",
     });
   }
-  for (const [at, n] of unmatched) {
+  for (const [at, rows] of unmatched) {
     const [type, region] = at.split("@");
-    notes.push(`catch-all: ${n} ${type} in ${region} covered by ${ownerOf(type) ?? "its provider"} but not matched — key-format bug?`);
+    const owner = ownerOf(type) ?? "its provider";
+    if (matched.has(at)) {
+      notes.push(`catch-all: ${rows.length} ${type} in ${region} listed by ${SOURCE[rows[0].source ?? ""] ?? "the catch-all"} but not by ${owner}, which returned the others of that type — stale index entries, left out`);
+      continue;
+    }
+    for (const r of rows) kept.push({ ...r, hidden: true, healthReason: `Covered by ${owner} but not matched — key-format bug?` });
+    notes.push(`catch-all: ${rows.length} ${type} in ${region} covered by ${owner} but not matched — key-format bug?`);
   }
   return { kept, hiddenTypes };
 }
