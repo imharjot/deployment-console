@@ -48,6 +48,15 @@ First public version (0.1.0). What the console can do today:
   - CI says when no repository is mapped yet, instead of "No runs on this branch".
   - `npm run smoke` refuses to run unless the console reports the simulated account, and retries a GET once after a
     dropped connection.
+  - Every write that names a resource is simulated against real ones, not only ECS's: EC2 power, RDS start and stop,
+    Auto Scaling, Elastic Beanstalk, App Runner, CloudFront, Step Functions, EventBridge, Lambda, SQS and SNS against a
+    resource of their type in each environment and region of the cloud map, `ecs:RegisterTaskDefinition` against a
+    task definition. A read-only role now sees EC2, RDS and Auto Scaling buttons disabled with the reason; Lambda, SQS,
+    SNS and EventBridge stay a warning, as their resources can carry policies of their own.
+  - Cloud map labels keep the real name at every zoom: inside environment lanes the overview level dropped the
+    environment's word, so `acme-production-pg` and `acme-staging-pg` both read `acme-pg`.
+  - Dashboards and the Incident view read `/api/envs` and `/api/issues` from the shell's polls instead of fetching
+    each a second time in the same second.
 
 ### Cloud map — the whole account
 - **Cloud map** (`/map`): every resource the console can find, with the connections between them, grouped by

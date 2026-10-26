@@ -264,7 +264,12 @@ first. License: Apache-2.0 (LICENSE).
   sharing is audited, in the same transaction), UI `src/components/dashboards/`, pages `/dashboards`, `/dashboards/[id]`,
   `/incident`. `/` follows the `home` pref, but `?r=`, `?env=` and `?view=overview` always show the Overview (the
   sidebar's Overview links there). Widget SWR keys are namespaced `["dash", url]` so they never share a cache entry with
-  components that read the same URL into another shape (the palette's `/api/dashboards`, the stars' `/api/pins`).
+  components that read the same URL into another shape (the palette's `/api/dashboards`, the stars' `/api/pins`). The
+  exceptions are `/api/envs` and `/api/issues`, which the shell polls on every page: `useApi` reads the shell's entry
+  (`SHELL_POLLED` in `src/lib/client/env.tsx`: same key and fetcher, no polling or first fetch of its own; `loadedAt` /
+  `failedAt` give its times) — namespaced, each went out twice in the same second on dashboards and the Incident view.
+  Such a passive reader keeps focus revalidation on: SWR hands focus and reconnect to a key's first-subscribed hook
+  only, and a page's hooks subscribe before the shell's.
 - Cloud map: every AWS service (and Cloudflare, and declared workloads) is a **provider** in
   `src/lib/server/providers/*.ts` (contract in `providers/types.ts`, groups `ecs.ts`, `compute.ts`, `serverless.ts`,
   `edge.ts`, simulated data under `providers/mock/`, names in `mock-names.ts`). `src/lib/server/inventory.ts` plans
@@ -387,10 +392,16 @@ real-account agent run has been made.
   PassRole needs is what the person has to fix). Provider write actions are registered with `watchActions()`
   (inventory-actions, the capability and permissions routes) and simulated too; an empty simulation means not verified,
   and a role under an IAM path (NoSuchEntity: its session ARN doesn't show the path) is explained as such. Against `*`
-  an action allowed only on resource ARNs is an implicit deny too, so ECS service actions are simulated against one real
-  service per cluster and `ecs:RunTask` against its task definition (`simulationTargets`, `simulationTargetsNow`):
-  denied everywhere with no missing context values is `resourceDeny` (denied), a mix stays implicit (`combineTargets`).
-  Other actions are still simulated against `*`.
+  an action allowed only on resource ARNs is an implicit deny too, so actions with a resource type are simulated against
+  real ones (`simulationTargets`, `simulationTargetsNow`): ECS service actions against one service per cluster,
+  `ecs:RunTask` / `RegisterTaskDefinition` against its task definition, and `RESOURCE_TYPED_ACTIONS` (EC2 power, RDS
+  power, Auto Scaling, Beanstalk, App Runner, CloudFront, Step Functions, EventBridge, Lambda, SQS, SNS) against the
+  first resource of their ARN type per environment and region of the cloud-map inventory's last build
+  (`cachedInventory()`, handed in by `capability.ts`, which simulates again once the first build exists; never
+  `console:self` / `CONSOLE_SELF_INSTANCE`, unread tags or other accounts; a type in more than 5 places stays on `*`).
+  Denied on every sample with no missing context values is `resourceDeny` (denied) only for services without resource
+  policies (`denialIsFinal`: Lambda, SQS, SNS, EventBridge stay implicit); a mix stays implicit (`combineTargets`).
+  Launches (`RunInstances`, `CreateTags`), `iam:PassRole`, S3 objects, API Gateway and EKS nodegroups stay on `*`.
 - `iam-policy.test.ts` skips `src/lib/server/agents/inference/` and `runtime/` (connection credentials, not the console
   role) and fails if `@aws-sdk/client-bedrock-runtime` is imported anywhere else.
 - Agents: never call `op.run()` or a Cloud method directly from agent code — go through `invoke()` with

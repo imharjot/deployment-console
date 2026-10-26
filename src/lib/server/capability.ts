@@ -3,13 +3,16 @@
 // UI rule: denied disables the control with a reason, probably-denied warns, unknown shows nothing.
 // The actions covered are the console's own writes (ALL_WRITE_ACTIONS) plus every cloud-map provider's declared write
 // actions, which the map's action runner and the permissions routes register with watchActions(); a new set of
-// actions is simulated on the next refresh. ECS service actions are simulated against a real service per cluster
-// (and ecs:RunTask against its task definition): a policy scoped to services is an implicit deny for "*". There, an
-// implicit deny that needed no context values in every cluster is a denial; elsewhere it is only "probably" (the
-// simulation can't see service control policies, resource policies or tag conditions). A real refusal (AccessDenied)
-// always wins over it.
+// actions is simulated on the next refresh. Actions with a resource type are simulated against real resources: ECS
+// service actions against a service per cluster (ecs:RunTask and RegisterTaskDefinition against its task definition),
+// EC2, RDS, Auto Scaling, Lambda, SQS… writes against a resource of their type per environment and region of the
+// cloud-map inventory — a policy scoped to resource ARNs is an implicit deny for "*". There, an implicit deny that
+// needed no context values on every sample is a denial for services without resource policies; elsewhere it is only
+// "probably" (the simulation can't see service control policies, resource policies or tag conditions). A real
+// refusal (AccessDenied) always wins over it.
 import "server-only";
 import { ALL_WRITE_ACTIONS, combine, decide, ECS_WRITE_ACTIONS, OBSERVED_TTL_MS, simulationFailureNote, VAR_REFERENCE_READS, type SimDecision } from "../capability-rules.ts";
+import type { InventoryView } from "../inventory/types.ts";
 import type { CapabilityView, CapState } from "../types.ts";
 import { observeCalls } from "./aws-limiter.ts";
 import { accessDeniedOf, errText } from "./errors.ts";
@@ -26,6 +29,7 @@ interface Store {
   note?: string;
   observed: Map<string, { deniedAt?: number; allowedAt?: number; resource?: string }>;
   watched?: Set<string>; // provider write actions (watchActions)
+  withoutInventory?: boolean; // the last simulation ran before the cloud-map inventory's first build
   refreshing?: Promise<void>;
 }
 
@@ -97,16 +101,21 @@ export function capability(actions: readonly string[]): { state: CapState; why?:
 // Everything simulated: the console's writes and the map's, sorted.
 const wanted = () => [...new Set([...ALL_WRITE_ACTIONS, ...watched()])].sort();
 
-// Simulate every console write at most every 10 minutes (force: now; also as soon as new actions are watched). Never
-// throws: a failure becomes the note "not verified: …" and the previous result (if any) stays. The simulated account
-// allows everything.
+// inventory.ts's cachedInventory, once the first simulation has imported it (lazily, like discovery.ts).
+let lastInventory: (() => InventoryView | undefined) | undefined;
+
+// Simulate every console write at most every 10 minutes (force: now; also as soon as new actions are watched, and once
+// the cloud-map inventory's first build is there when the last simulation had to do without it). Never throws: a
+// failure becomes the note "not verified: …" and the previous result (if any) stays. The simulated account allows
+// everything.
 export function refreshCapability(force = false): Promise<void> {
   const now = Date.now();
   if (S.refreshing) return S.refreshing;
   const list = wanted();
   const forList = list.join(",");
   const grown = S.attemptedAt !== undefined && S.simulatedFor !== forList;
-  if (!force && !grown && S.attemptedAt !== undefined && now - S.attemptedAt < REFRESH_MS) return Promise.resolve();
+  const inventoryArrived = S.withoutInventory === true && lastInventory?.() !== undefined;
+  if (!force && !grown && !inventoryArrived && S.attemptedAt !== undefined && now - S.attemptedAt < REFRESH_MS) return Promise.resolve();
   S.attemptedAt = now;
   S.simulatedFor = forList; // a failed attempt waits REFRESH_MS like a good one, unless the list changes again
   const run = (async () => {
@@ -122,8 +131,16 @@ export function refreshCapability(force = false): Promise<void> {
         S.note = "not verified: this AWS source can't simulate IAM policies";
         return;
       }
-      // Real resources to simulate against; never fatal — without them every action is simulated against "*".
-      const targets = await import("./discovery.ts").then((d) => d.simulationTargetsNow()).catch(() => ({}));
+      // Real resources to simulate against; never fatal — without them every action is simulated against "*". Outside
+      // ECS they come from the cloud-map inventory's last build, which is never started from here.
+      const inventory = await import("./inventory.ts")
+        .then((m) => {
+          lastInventory = m.cachedInventory;
+          return m.cachedInventory();
+        })
+        .catch(() => undefined);
+      S.withoutInventory = !inventory;
+      const targets = await import("./discovery.ts").then((d) => d.simulationTargetsNow(inventory?.resources)).catch(() => ({}));
       const result = await cloud.simulate(list, targets);
       const clean: Record<string, SimDecision> = {};
       for (const a of list) {

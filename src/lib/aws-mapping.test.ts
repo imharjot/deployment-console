@@ -427,6 +427,9 @@ test("metric pages append to the same series; IAM decisions keep only known valu
   ];
   assert.deepEqual(decisionsOf(onResource, true), { "ecs:UpdateService": "resourceDeny", "ecs:RunTask": "implicitDeny", "ecs:DeleteService": "allowed" });
   assert.deepEqual(decisionsOf(onResource), { "ecs:UpdateService": "implicitDeny", "ecs:RunTask": "implicitDeny", "ecs:DeleteService": "allowed" }, "against * it stays a probably");
+  // A function, queue or topic can carry a policy of its own that grants what the console's policy doesn't.
+  const policied = [{ EvalActionName: "lambda:InvokeFunction", EvalDecision: "implicitDeny" }, { EvalActionName: "ec2:StopInstances", EvalDecision: "implicitDeny" }];
+  assert.deepEqual(decisionsOf(policied, true), { "lambda:InvokeFunction": "implicitDeny", "ec2:StopInstances": "resourceDeny" });
 });
 
 test("ecrTarget: a bare name is this account's ECR; a registry says which account and region; anything else is null", () => {

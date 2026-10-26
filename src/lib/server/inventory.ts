@@ -710,6 +710,7 @@ export async function inventoryEnvs(): Promise<EnvEntry[]> {
 
 // Without triggering discovery: what the last build found (undefined before the first one).
 export const cachedInventoryEnvs = (): EnvEntry[] | undefined => state().built?.view.envs;
+export const cachedInventory = (): InventoryView | undefined => state().built?.view;
 
 // Protected when its tags weren't read (R01: fail closed), when any hint about the resource names a protected
 // environment (assign.ts sets protectedBy), when it is tagged console:protected=true, or — unless

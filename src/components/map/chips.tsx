@@ -78,17 +78,6 @@ export function breakable(s: string): ReactNode {
   ));
 }
 
-// Overview labels inside an environment's lane: "acme-production-order-events" → "acme-order-events" (the lane
-// already says production). Only a whole token in the middle of the name goes; full detail keeps the real name.
-export function laneName(name: string, env?: string, label?: string) {
-  let out = name;
-  for (const t of new Set([env, label].filter((x): x is string => !!x && x.length > 1).map((x) => x.toLowerCase()))) {
-    const esc = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    out = out.replace(new RegExp(`([-_.])${esc}(?=[-_.])`, "i"), "");
-  }
-  return out.length >= 3 ? out : name;
-}
-
 function describe(n: LayoutNode, r: Resource | undefined, g: GroupInfo | undefined, envLabel: string) {
   if (g) {
     const bits = [`${nodeTitle(n)} in ${envLabel}`, "group"];
@@ -109,7 +98,7 @@ function describe(n: LayoutNode, r: Resource | undefined, g: GroupInfo | undefin
 // Group nodes: two offset card edges behind the face.
 const STACK = "[box-shadow:4px_4px_0_-1px_var(--panel-2),4px_4px_0_0_var(--border-strong),8px_8px_0_-1px_var(--panel-2),8px_8px_0_0_var(--border)]";
 
-export const NodeChip = memo(function NodeChip({ n, r, g, lod, hot, match, ctx, selected, showEnv, envLabel, lanes, dupe, alarm, h }: {
+export const NodeChip = memo(function NodeChip({ n, r, g, lod, hot, match, ctx, selected, showEnv, envLabel, dupe, alarm, h }: {
   n: LayoutNode;
   r?: Resource;
   g?: GroupInfo;
@@ -120,7 +109,6 @@ export const NodeChip = memo(function NodeChip({ n, r, g, lod, hot, match, ctx, 
   selected: boolean;
   showEnv: boolean;
   envLabel: string;
-  lanes: boolean; // in environment lanes: overview labels may drop the environment's name
   dupe?: boolean; // another node in this lane has the same name: add the kind's short name
   alarm?: boolean; // a (non-scaling) alarm that watches it is in ALARM
   h: ChipHandlers;
@@ -128,8 +116,7 @@ export const NodeChip = memo(function NodeChip({ n, r, g, lod, hot, match, ctx, 
   const Icon = r ? iconOf(r) : KIND_ICON[n.kind] ?? Puzzle;
   const health: Health = r?.health ?? g?.worst ?? "unknown";
   const problem = isProblem(health);
-  const title = nodeTitle(n, r);
-  const short = r && lanes && lod === "mid" ? laneName(title, r.env, envLabel) : title;
+  const title = nodeTitle(n, r); // the real name at every zoom: "acme-production-pg" and "acme-staging-pg" never both read "acme-pg"
   const kindShort = r ? shortOf(r) : (KIND_INFO[n.kind]?.label ?? n.kind);
   const group = !!g;
   const remote = !!r && isRemote(r);
@@ -203,8 +190,8 @@ export const NodeChip = memo(function NodeChip({ n, r, g, lod, hot, match, ctx, 
         </span>
       ) : lod === "mid" ? (
         <span className="flex min-w-0 flex-1 items-center gap-[0.35em] px-[0.45em]" style={{ fontSize: "var(--mid-font, 20px)" }}>
-          {roomForIcon(short, n.w) && createElement(Icon, { className: "hue-text flex-none", style: { width: "0.85em", height: "0.85em" }, strokeWidth: 1.8, "aria-hidden": true })}
-          <span className="line-clamp-2 min-w-0 flex-1 font-medium leading-[1.12] tracking-[-0.015em] text-fg [overflow-wrap:normal]">{breakable(short)}</span>
+          {roomForIcon(title, n.w) && createElement(Icon, { className: "hue-text flex-none", style: { width: "0.85em", height: "0.85em" }, strokeWidth: 1.8, "aria-hidden": true })}
+          <span className="line-clamp-2 min-w-0 flex-1 font-medium leading-[1.12] tracking-[-0.015em] text-fg [overflow-wrap:normal]">{breakable(title)}</span>
           {g && g.problems > 0 ? <ProblemCount n={g.problems} /> : <HealthDot health={health} still className="!size-[0.42em]" />}
         </span>
       ) : (

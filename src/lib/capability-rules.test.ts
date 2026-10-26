@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { actionsFor, ALL_WRITE_ACTIONS, combine, combineTargets, CONSOLE_WRITES, decide, ECS_WRITE_ACTIONS, OBSERVED_TTL_MS, roleArnFromCaller, SERVICE_SCOPED_ACTIONS, simulationFailureNote, simulationTargets } from "./capability-rules.ts";
+import {
+  actionsFor, ALL_WRITE_ACTIONS, combine, combineTargets, CONSOLE_WRITES, decide, denialIsFinal, ECS_WRITE_ACTIONS, OBSERVED_TTL_MS, RESOURCE_TYPED_ACTIONS, roleArnFromCaller,
+  SERVICE_SCOPED_ACTIONS, simulationFailureNote, simulationTargets, TASK_DEFINITION_ACTIONS,
+} from "./capability-rules.ts";
 
 const NOW = 1_800_000_000_000;
 
@@ -63,11 +66,48 @@ test("simulationTargets: per cluster, the first service that isn't the console's
   const stagingWeb = "arn:aws:ecs:eu-west-1:123456789012:service/acme-staging/web";
   assert.deepEqual(simulationTargets([prod, staging], { cluster: "acme-production", family: "acme-console" }), {
     ...Object.fromEntries(SERVICE_SCOPED_ACTIONS.map((a) => [a, [prodApi, stagingWeb]])),
-    "ecs:RunTask": ["arn:aws:ecs:eu-west-1:123456789012:task-definition/acme-api:41"],
-  }, "one service per cluster; staging's web has no task definition ARN, so no RunTask target there");
+    ...Object.fromEntries(TASK_DEFINITION_ACTIONS.map((a) => [a, ["arn:aws:ecs:eu-west-1:123456789012:task-definition/acme-api:41"]])),
+  }, "one service per cluster; staging's web has no task definition ARN, so no RunTask or RegisterTaskDefinition target there");
   assert.deepEqual(simulationTargets([prod])["ecs:UpdateService"], ["arn:aws:ecs:eu-west-1:123456789012:service/acme-production/deployment-console"], "not on ECS: no service is the console");
   assert.deepEqual(simulationTargets([{ cluster: "", services: [{ name: "web" }] }]), {}, "a compose environment has no cluster ARN");
   assert.deepEqual(simulationTargets([{ ...prod, services: [prod.services[0]] }], { cluster: "acme-production", family: "acme-console" }), {}, "only the console itself: simulate against *");
+});
+
+test("simulationTargets: other writes, against the first resource of their type in each environment and region of the inventory", () => {
+  const A = "123456789012";
+  const ec2 = (id: string, env?: string, tags: Record<string, string> = {}) => ({ key: `ec2:${id}`, aliases: [id, `arn:aws:ec2:eu-west-1:${A}:instance/${id}`], region: "eu-west-1", env, tags });
+  const rds = (id: string, env: string, more = {}) => ({ key: `rds:${id}`, aliases: [`arn:aws:rds:eu-west-1:${A}:db:${id}`, `aurora:${id}`], region: "eu-west-1", env, tags: {}, ...more });
+  const fn = (name: string, region: string, more: { account?: string; source?: "reference" } = {}) => ({ key: `arn:aws:lambda:${region}:${more.account ?? A}:function:${name}`, region, env: "production", tags: {}, ...more });
+  // In key order, which decides the sample: the console's host (tagged), the CONSOLE_SELF_INSTANCE box, two in production…
+  const [CONSOLE, BOX, PROD_A, PROD_B, STAGE, LOOSE] = [0, 1, 2, 3, 4, 5].map((n) => `i-0123456789abcdef${n}`);
+  const rows = [
+    ec2(PROD_B, "production"), ec2(PROD_A, "production"), ec2(STAGE, "staging"), ec2(LOOSE),
+    ec2(CONSOLE, "production", { "console:self": "true" }),
+    ec2(BOX),
+    rds("acme-staging-pg", "staging"), rds("acme-production-pg", "production"), rds("acme-old", "production", { tagsUnread: true }),
+    fn("acme-orders", "eu-west-1"), fn("acme-orders", "us-east-1"), fn("acme-partner", "eu-central-1", { account: "111122223333" }),
+    fn("acme-ref", "us-west-2", { source: "reference" }),
+    { key: `arn:aws:cloudfront::${A}:distribution/EDFDVBD632BHDS5`, region: "global", env: "production", tags: {} },
+    { key: "ecs:service/acme-production/api", aliases: [`arn:aws:ecs:eu-west-1:${A}:task-definition/acme-api`], region: "eu-west-1", env: "production", tags: {} },
+    ...["a", "b", "c", "d", "e", "f"].map((env) => ({ key: `arn:aws:sqs:eu-west-1:${A}:acme-jobs-${env}`, region: "eu-west-1", env, tags: {} })),
+  ];
+  const t = simulationTargets([], undefined, rows, BOX);
+  const instance = (id: string) => `arn:aws:ec2:eu-west-1:${A}:instance/${id}`;
+  for (const a of ["ec2:StartInstances", "ec2:StopInstances", "ec2:RebootInstances", "ec2:TerminateInstances"]) {
+    assert.deepEqual(t[a], [instance(PROD_A), instance(STAGE), instance(LOOSE)], `${a}: one per environment (and the unassigned), never the console's own host`);
+  }
+  assert.deepEqual(t["rds:StopDBInstance"], [`arn:aws:rds:eu-west-1:${A}:db:acme-production-pg`, `arn:aws:rds:eu-west-1:${A}:db:acme-staging-pg`], "the console key's ARN alias; unread tags are skipped");
+  assert.deepEqual(t["lambda:InvokeFunction"], [`arn:aws:lambda:eu-west-1:${A}:function:acme-orders`, `arn:aws:lambda:us-east-1:${A}:function:acme-orders`], "one per region too; never another account's, nor a reference");
+  assert.deepEqual(t["cloudfront:CreateInvalidation"], [`arn:aws:cloudfront::${A}:distribution/EDFDVBD632BHDS5`]);
+  assert.equal(t["sqs:SendMessage"], undefined, "found in more places than are sampled: against *");
+  assert.equal(t["ecs:RunTask"], undefined, "ECS targets come from the clusters, never from inventory rows");
+  assert.equal(t["ec2:RunInstances"], undefined, "a launch names resources that don't exist yet: against *");
+  assert.ok(Object.keys(RESOURCE_TYPED_ACTIONS).every((a) => !a.startsWith("ecs:")));
+});
+
+test("denialIsFinal: only for services without resource policies", () => {
+  for (const a of ["ecs:UpdateService", "ec2:StopInstances", "rds:StopDBInstance", "autoscaling:SetDesiredCapacity", "states:StartExecution"]) assert.equal(denialIsFinal(a), true, a);
+  for (const a of ["lambda:InvokeFunction", "sqs:SendMessage", "sns:Publish", "events:EnableRule", "s3:PutObject", "iam:PassRole"]) assert.equal(denialIsFinal(a), false, `${a}: a resource policy may grant it`);
 });
 
 test("combineTargets: allowed or denied only when every cluster agrees; a mix is a probably", () => {
@@ -116,10 +156,12 @@ console.log(JSON.stringify({ before: before.source, after, scale: c.capability([
 
 test("capability store (AWS-shaped): simulation, observations, throttled refresh and failures that never throw", () => {
   const o = runChild("aws", `
-let calls = 0; let fail = false;
+let calls = 0; let fail = false; let targets;
 globalThis.__consoleCloud = Promise.resolve({
-  simulate: async (actions) => {
+  clusters: async () => [],
+  simulate: async (actions, t) => {
     calls++;
+    targets = t;
     if (fail) throw Object.assign(new Error("User: arn:aws:sts::123456789012:assumed-role/acme-console/s is not authorized to perform: iam:SimulatePrincipalPolicy on resource: arn:aws:iam::123456789012:role/acme-console"), { name: "AccessDenied" });
     return Object.fromEntries(actions.map((a) => [a, a.startsWith("ecs:") ? "implicitDeny" : a === "ec2:StopInstances" ? "explicitDeny" : "allowed"]));
   },
@@ -128,11 +170,20 @@ const c = await import(${JSON.stringify(store)});
 const out = {};
 await Promise.all([c.refreshCapability(), c.refreshCapability()]);
 out.callsAfterFirst = calls;
+out.targetsBeforeInventory = targets;
 out.view = c.capabilityView();
 out.scale = c.capability(["ecs:UpdateService"]);
 out.power = c.capability(["ec2:StartInstances", "ec2:StopInstances"]);
 await c.refreshCapability();
 out.callsThrottled = calls;
+// The cloud-map inventory's first build arrives: simulated again once, against its resources.
+const arn = "arn:aws:ec2:us-east-1:123456789012:instance/i-0123456789abcdef0";
+globalThis.__consoleInventory.built = { view: { resources: [{ key: "ec2:i-0123456789abcdef0", aliases: [arn], region: "us-east-1", env: "staging", tags: {} }] } };
+await c.refreshCapability();
+out.callsAfterInventory = calls;
+out.stopTargets = targets["ec2:StopInstances"];
+await c.refreshCapability();
+out.callsThrottledAgain = calls;
 c.noteAllowed("ecs:UpdateService");
 out.scaleAfterSuccess = c.capability(["ecs:UpdateService"]).state;
 out.readOnlyAfterSuccess = c.capabilityView().readOnly;
@@ -157,12 +208,16 @@ console.log(JSON.stringify(out));`);
   assert.deepEqual(o.power.missing, ["ec2:StopInstances"]);
   assert.match(o.power.why, /can't ec2:StopInstances \(denied by its IAM policy\)/);
   assert.equal(o.callsThrottled, 1, "at most every 10 minutes");
+  assert.deepEqual(o.targetsBeforeInventory, {}, "no clusters and no inventory yet: everything against *");
+  assert.equal(o.callsAfterInventory, 2, "the inventory's first build is simulated against at once");
+  assert.deepEqual(o.stopTargets, ["arn:aws:ec2:us-east-1:123456789012:instance/i-0123456789abcdef0"]);
+  assert.equal(o.callsThrottledAgain, 2, "then every 10 minutes again");
   assert.equal(o.scaleAfterSuccess, "allowed");
   assert.equal(o.readOnlyAfterSuccess, false);
   assert.equal(o.db.state, "denied");
   assert.match(o.db.why, /AWS refused it recently/);
   assert.equal(o.dbAfter, "allowed", "a success clears the refusal");
-  assert.equal(o.callsForced, 2);
+  assert.equal(o.callsForced, 3);
   assert.match(o.failedView.note, /^not verified: The console's AWS identity can't iam:SimulatePrincipalPolicy/);
   assert.ok(!o.failedView.note.includes("assumed-role"));
   assert.equal(o.failedView.source, "simulated", "the previous result stays");

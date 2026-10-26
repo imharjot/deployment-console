@@ -872,8 +872,10 @@ export function awsCloud(region: string = REGION): Cloud {
     principal,
 
     // F06: what the console's own role may do, per action — against its target resources where capability.ts names
-    // some (a policy scoped to services is denied for "*"; combineTargets merges them), else for any resource. An
-    // identity that may not simulate its own policy gets {} (capability.ts then relies on what real calls teach it).
+    // some (real resources of the action's type: a policy scoped to resource ARNs is denied for "*"; decisionsOf says
+    // when a denial there is final, combineTargets merges them), else for any resource. One call per resource (IAM gets
+    // one slot). An identity that may not simulate its own policy gets {} (capability.ts then relies on what real calls
+    // teach it).
     async simulate(actions, targets = {}) {
       const names = [...new Set(actions)];
       if (!names.length) return {};
