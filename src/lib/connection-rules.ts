@@ -238,6 +238,15 @@ export function suggestHome(regions: { region: string; clusters?: number }[], cu
 // scope even in the same account.
 export const scopeKey = (source: Source, account: string, home: string) => `${source}:${account}:${home}`;
 
+// A write from a page loaded before a switch to another account or home region: it sent the token GET /api/me gave it
+// (x-console-connection), and that is no longer the console's. Reads never are; nor are signing in and out and one's own
+// preferences, and callers that send no token (API and agent tokens, scripts) aren't this check's to refuse.
+const PERSONAL = /^\/api\/(auth|me)(\/|$)/;
+export function staleWrite(o: { method: string; path: string; sent: string | null; current: string }): boolean {
+  if (o.sent === null || ["GET", "HEAD", "OPTIONS"].includes(o.method.toUpperCase()) || PERSONAL.test(o.path)) return false;
+  return o.sent !== o.current;
+}
+
 // For the page and the audit log: never a key, and the external ID only as "set".
 export function describeSignIn(s: SignIn): string {
   if (s.kind === "profile") return `profile ${s.profile}`;

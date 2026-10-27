@@ -103,7 +103,7 @@ When the account or the home region changes, the console forgets what it learned
 act on the new one's same-named services: remembered task counts ("Start" after "Stop"), state history, the costs
 snapshot, pending host launches, and approvals nobody has used; the audit log records it, and keeps everything else, as do
 notes. A switch waits for the changes this console has in flight, and is refused while any change or agent run is still
-going.
+going. Pages open before a switch can't act on the new account: their writes are refused until they are reloaded.
 
 **Pinning it in the environment instead** (a team deployment, or Docker Compose): set the variables where the console
 runs, and they decide that part; Settings shows it read-only and names the variable. `CONSOLE_SOURCE=aws` pins the

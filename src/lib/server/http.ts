@@ -2,6 +2,8 @@ import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { can, isRole, roleFor, type Perm, type User } from "../rbac.ts";
 import type { EnvName } from "../types.ts";
+import { staleWrite } from "../connection-rules.ts";
+import { connectionToken } from "./connection-state.ts";
 import { HttpError, errText, errorBody } from "./errors.ts";
 
 export const json = (data: unknown, status = 200) =>
@@ -40,9 +42,19 @@ export function envOf(v: unknown): EnvName {
   return v;
 }
 
+// A write from a page loaded before the console switched to another AWS account or home region would act on the new
+// account's same-named services: refused before the route runs, on every write path (src/lib/connection-rules.ts
+// staleWrite says which). A switch also waits for agent runs, which send no token.
+function refuseStaleConnection(req: NextRequest) {
+  if (staleWrite({ method: req.method, path: req.nextUrl.pathname, sent: req.headers.get("x-console-connection"), current: connectionToken() })) {
+    throw Object.assign(new HttpError(409, "this page was loaded before the console switched to another AWS account or home region; reload it and try again"), { code: "connection_changed" });
+  }
+}
+
 export function handle<C>(fn: (req: NextRequest, ctx: C) => Promise<Response>) {
   return async (req: NextRequest, ctx: C) => {
     try {
+      refuseStaleConnection(req);
       return await fn(req, ctx);
     } catch (e) {
       if (e instanceof HttpError) {

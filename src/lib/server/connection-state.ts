@@ -9,6 +9,7 @@
 // module constant clears it in place from its own hook (onConnectionChange). aws-limiter.ts, cache.ts and sources.ts
 // read `gen` and `ctrl` from the same globalThis object inline: their imports must not change (CODEX gotchas).
 // No "server-only" import: mock.ts imports this, and tests load mock.ts without the react-server condition.
+import { createHash } from "node:crypto";
 import type { EffectiveConnection, SavedConnection } from "../connection-rules.ts";
 
 export interface ConnectionState {
@@ -29,6 +30,14 @@ export interface ConnectionState {
 const g = globalThis as Record<string, unknown> & { __consoleConnection?: ConnectionState };
 export const connectionState = (): ConnectionState => (g.__consoleConnection ??= { gen: 0, ctrl: new AbortController(), hooks: new Map() });
 export const generation = (): number => connectionState().gen;
+
+// Whose data a page shows (the scope: source, account and home region), as an opaque token: GET /api/me hands it to
+// the page, which sends it with every write (x-console-connection), and http.ts refuses a write from a page loaded
+// before a switch to another account or home region. "" until the console has recorded a scope.
+export const connectionToken = (): string => {
+  const key = connectionState().scope?.key;
+  return key ? createHash("sha256").update(key).digest("base64url").slice(0, 16) : "";
+};
 
 export const connectionChanged = (): Error =>
   Object.assign(new Error("the AWS connection changed while this was being read; try again"), { name: "ConnectionChangedError", status: 503 });

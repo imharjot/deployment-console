@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, scopeKey, suggestHome, withInput, type SavedConnection,
+  describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, scopeKey, staleWrite, suggestHome, withInput, type SavedConnection,
 } from "./connection-rules.ts";
 
 const saved = (s: Partial<SavedConnection> = {}): SavedConnection => ({ source: "aws", rev: 1, by: "admin@example.com", at: 1, ...s });
@@ -98,4 +98,18 @@ test("home suggestion: the region with most ECS clusters, the current home on a 
   assert.equal(suggestHome([{ region: "us-east-1", clusters: 0 }, { region: "eu-west-1" }]), undefined);
   assert.equal(scopeKey("aws", "123456789012", "eu-west-1"), "aws:123456789012:eu-west-1");
   assert.equal(describeSignIn({ kind: "role", roleArn: "arn:aws:iam::123456789012:role/r", externalId: "secret-ish" }), "role arn:aws:iam::123456789012:role/r (external ID set)");
+});
+
+test("a write from a page loaded before a switch is stale; reads, sign-in, own preferences and token callers aren't", () => {
+  const w = (method: string, path: string, sent: string | null) => staleWrite({ method, path, sent, current: "now" });
+  assert.equal(w("POST", "/api/services/restart", "before"), true);
+  assert.equal(w("PUT", "/api/connection", "before"), true);
+  assert.equal(w("POST", "/api/approvals/a1/decide", "before"), true);
+  assert.equal(w("DELETE", "/api/notes/n1", ""), true, "a page loaded before the first scope was recorded");
+  assert.equal(w("POST", "/api/services/restart", "now"), false);
+  assert.equal(w("POST", "/api/ops/services.restart", null), false, "API and agent tokens send none");
+  assert.equal(w("GET", "/api/overview", "before"), false);
+  assert.equal(w("POST", "/api/auth/logout", "before"), false);
+  assert.equal(w("PUT", "/api/me/prefs", "before"), false);
+  assert.equal(w("POST", "/api/media", "before"), true, "a path that only starts like /api/me is no exemption");
 });

@@ -122,7 +122,9 @@ Errors come as `{ error }`, plus `problems` for invalid input:
 People signed in to the console can call the same API with their session (`POST` requests also need the header
 `x-console-csrf: 1` and the console's own `Origin` — exactly `CONSOLE_PUBLIC_URL` when it is set), with the same role
 checks. For them changes run directly — they already confirm in the UI — but the `confirm` and `reason` inputs still
-apply.
+apply. A script that wants the console's pages' guard against acting on another account sends `x-console-connection`
+with the `connection` value of `GET /api/me`: after an admin switches the AWS account or home region, its writes get
+`409` (`connection_changed`) until it reads the value again.
 
 **Confirmations.** Change operations take `confirm` and, where it matters, `reason`, exactly like the UI's dialogs:
 `"yes"` on non-protected environments; on protected ones the text a person would type (the service name to restart,

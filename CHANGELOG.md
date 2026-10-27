@@ -16,8 +16,9 @@ First public version (0.1.0). What the console can do today:
   background write of the previous connection is retired. A new account or home region forgets what would act on the
   old one's same-named services: remembered task counts, state history, the costs snapshot, pending host launches and
   approvals. An environment variable that is set (`CONSOLE_SOURCE`, `AWS_REGION`, `AWS_PROFILE`, `CONSOLE_REGIONS`)
-  still decides its part, read-only on the page. `.env.example` and `docker-compose.yml` no longer pin
-  `CONSOLE_SOURCE=mock`.
+  still decides its part, read-only on the page. A page loaded before a switch can't act on the new account: its writes
+  carry the connection it loaded with and are refused (409) until it reloads. `.env.example` and `docker-compose.yml`
+  no longer pin `CONSOLE_SOURCE=mock`.
 - **Docker compose environments**: `environments.<id>.host` (an EC2 instance id) makes a box that runs its apps with
   docker compose an environment of its own. Its declared `workloads` become read-only service tiles judged by the box's
   state and their health checks, drawn on the overview map from their `uses`; the box gets power actions and metrics.

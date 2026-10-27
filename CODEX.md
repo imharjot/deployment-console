@@ -63,6 +63,11 @@ first. License: Apache-2.0 (LICENSE).
     before its first await. The switch waits for them, then refuses while any console has an operation `running` or an
     agent run unfinished. It writes the connection row compare-and-swap, together with the scope and the forget, in one
     audited transaction. `mutate()` also refuses (409) when the database holds a newer `rev` than this console applied.
+  - Stale pages: `GET /api/me` gives each page a token of the scope it shows (`connectionToken()`). The page pins it
+    once per load (`src/lib/client/connection.ts`, which wraps `fetch`), and every same-origin write sends it as
+    `x-console-connection`. `handle()` (`http.ts`) answers `409 connection_changed` before the route runs when it
+    differs (`staleWrite()` in `connection-rules.ts`). Reads, `/api/auth/*` and `/api/me/*` are never refused, nor are
+    callers that send no token.
   - The switch signal is never put in `AbortSignal.any` (Node keeps a composite per call alive on a long-lived source):
     `limitedClient` follows it with a per-call controller and removes its listener when the call settles.
   - New account or home region (`ensureScope`, settings key `connection:scope`): `forgetAccountData()` drops what would

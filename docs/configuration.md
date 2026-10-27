@@ -75,7 +75,9 @@ signs in as its environment says (a task role, IRSA) and an admin can't pick ano
 The page shows each pinned part read-only and names the variable, so a deployment can pin its connection in its task
 definition or compose file. The config file's `inventory.regions`
 comes before Settings too. The choice is stored in the console's database, never AWS keys. Several consoles sharing one
-database follow a switch within the sampler's next tick (30 s), and refuse a change planned before it. A switch waits for
+database follow a switch within the sampler's next tick (30 s), and refuse a change planned before it. A page loaded
+before a switch can't act on the new account: every write it sends carries the connection it loaded with, and the
+console answers `409` until the page is reloaded. A switch waits for
 changes in flight and is refused while any console has a change or an agent run going. If the database can't be read
 at boot, the connection is unknown: pages answer `503` until it can be, never the simulated account in its place.
 [Connect AWS](connect-aws.md) has the steps.
