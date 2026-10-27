@@ -1,7 +1,7 @@
 // Settings sections, grouped the way people look for them: this device and me, the cloud the console reads, the
 // team, and where notifications go. The layout draws the side navigation and each section's header from this list;
 // the overview page draws its cards from it. Pages still enforce their own role.
-import { Cloud, LayoutGrid, Palette, Plug, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Cloud, LayoutGrid, Palette, Plug, PlugZap, ShieldCheck, UserRound, Users, type LucideIcon } from "lucide-react";
 import { ROLES, type Role } from "@/lib/rbac";
 
 export interface SettingsSection {
@@ -25,6 +25,14 @@ export const SETTINGS_GROUPS: { label: string; items: SettingsSection[] }[] = [
   {
     label: "Cloud",
     items: [
+      {
+        href: "/settings/aws",
+        label: "AWS connection",
+        icon: PlugZap,
+        hue: "hue-cyan",
+        description: "The simulated account or yours: how the console signs in to AWS, its home region and the regions it reads. Switches without a restart.",
+        role: "admin",
+      },
       { href: "/settings/environments", label: "Environments", icon: Cloud, hue: "hue-blue", description: "What discovery found: clusters and compose boxes, their services, databases and connections." },
       { href: "/settings/permissions", label: "AWS permissions", icon: ShieldCheck, hue: "hue-orange", description: "What the console's AWS identity can read and change, and the IAM policy that grants the rest.", role: "operator" },
     ],

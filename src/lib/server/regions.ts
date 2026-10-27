@@ -1,18 +1,20 @@
 // The regions this console reads (src/lib/regions.ts has the rules): CONSOLE_REGIONS, then console.config.json
-// `inventory.regions`, then the home region (homeRegion(): AWS_REGION, or us-east-1 for the simulated account).
+// `inventory.regions`, then Settings → AWS connection's choice (a real account only), then the home region
+// (homeRegion(): AWS_REGION or Settings' home, or us-east-1 for the simulated account).
 // "all-enabled" asks the account once a day which regions it has enabled (ec2:DescribeRegions; the simulated account
 // answers MOCK_REGIONS). Discovery, the inventory and GET /api/regions use it.
 import "server-only";
 import { parseRegions, resolveAllEnabled } from "../regions.ts";
+import { connectionState } from "./connection-state.ts";
 import { consoleConfig } from "./discovery.ts";
 import { errText } from "./errors.ts";
-import { getCloud, homeRegion } from "./sources.ts";
+import { getCloud, homeRegion, sourceKind } from "./sources.ts";
 
 export interface ConsoleRegions {
   home: string;
   regions: string[]; // home first
   allEnabled: boolean;
-  source: "env" | "config" | "default";
+  source: "env" | "config" | "settings" | "default";
   problems?: string[]; // invalid entries that were dropped, or why "all-enabled" fell back to the home region
 }
 
@@ -45,8 +47,10 @@ async function enabledRegions(): Promise<{ regions?: string[]; error?: string }>
 export async function consoleRegions(): Promise<ConsoleRegions> {
   const env = process.env.CONSOLE_REGIONS;
   const config = consoleConfig().config.inventory?.regions;
-  const source = env?.trim() ? "env" : config === "all-enabled" || (Array.isArray(config) && config.length) ? "config" : "default";
-  const p = parseRegions(env, config, homeRegion());
+  const configured = config === "all-enabled" || (Array.isArray(config) && config.length) ? config : undefined;
+  const chosen = sourceKind() === "aws" ? connectionState().effective?.regions : undefined;
+  const source = env?.trim() ? "env" : configured ? "config" : chosen ? "settings" : "default";
+  const p = parseRegions(env, configured ?? chosen, homeRegion());
   const out: ConsoleRegions = { home: p.regions[0], regions: p.regions, allEnabled: p.allEnabled, source };
   const problems = [...p.problems];
   if (p.allEnabled) {

@@ -2,6 +2,27 @@
 // and the agent platform's worker (durable runs; it claims steps only while agents are on).
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // The AWS connection Settings saved (environment variables that are set still decide their part), before anything
+    // reads AWS; then whose data the console holds, forgetting a previous account's (src/lib/server/connection.ts).
+    if (process.env.NEXT_PHASE !== "phase-production-build") {
+      const c = await import("./lib/server/connection");
+      // A database that isn't up yet (Postgres starting next to the console) gets 20 s. After that the connection stays
+      // unknown (pages answer 503) until the sampler can read it: never the simulated account in its place.
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await c.loadConnection();
+          break;
+        } catch (e) {
+          if (attempt === 10) {
+            c.markConnectionUnknown();
+            console.error(`[deployment-console] AWS connection unknown, the console database is unavailable: ${(e as Error).message}`);
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 2_000));
+        }
+      }
+      await Promise.race([c.ensureScope().catch(() => {}), new Promise((r) => setTimeout(r, 8_000).unref?.())]); // the sampler retries until AWS answers
+    }
     await import("./lib/server/capability"); // registers the AWS-call observer: refusals and successes of console writes
     const { startSampler } = await import("./lib/server/console");
     (await import("./lib/server/notify")).startNotifications(); // state changes + actions → Slack/webhook integrations

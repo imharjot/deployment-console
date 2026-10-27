@@ -8,18 +8,26 @@ import { LIMITS } from "../../config.ts";
 import { enrichAll } from "../../work-queue.ts";
 import type { EnrichState } from "../../inventory/types.ts";
 import { limitedClient, type SdkClient } from "../aws-limiter.ts";
+import { connectionCredentials } from "../connection-credentials.ts";
+import { generation } from "../connection-state.ts";
 import { HttpError, errText } from "../errors.ts";
 import { deniedAction, type ProviderContext } from "./types.ts";
 
 // SDK retries back off on throttling instead of failing. Writes that must not be repeated blindly pass a lower
-// maxAttempts (F31: a retried write whose first attempt reached AWS may act twice).
-export const sdkConfig = (region: string, o: { maxAttempts?: number } = {}) => ({ region, retryMode: "adaptive" as const, maxAttempts: o.maxAttempts ?? 3 });
+// maxAttempts (F31: a retried write whose first attempt reached AWS may act twice). Credentials: the AWS connection's.
+export const sdkConfig = (region: string, o: { maxAttempts?: number } = {}) => ({ region, retryMode: "adaptive" as const, maxAttempts: o.maxAttempts ?? 3, credentials: connectionCredentials });
 
 // One client per region, built on first use, its send() bounded by the SDK-call limiter (aws-limiter.ts) under
 // `service` (default: the client's own service id) and that region.
 export function perRegion<T>(make: (region: string) => T, service?: string): (region: string) => T {
   const clients = new Map<string, T>();
+  let born = generation();
   return (region) => {
+    // Clients belong to one AWS connection: after a switch (connection-state.ts) the old ones refuse to send.
+    if (generation() !== born) {
+      clients.clear();
+      born = generation();
+    }
     let c = clients.get(region);
     if (!c) clients.set(region, (c = limited(make(region), service, region)));
     return c;

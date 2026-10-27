@@ -11,6 +11,7 @@ import { cx } from "@/components/ui";
 import { ROLE_INFO, displayName, useMe } from "@/components/user-menu";
 import { useCapability, useEnvList } from "@/lib/client/env";
 import { usePerfChoice } from "@/lib/client/perf";
+import type { ConnectionView } from "@/lib/connection-rules";
 import { SETTINGS_SECTIONS, lockedFor, type SettingsSection } from "./sections";
 
 type Status = { text: string; tone?: "ok" | "warn" | "muted" };
@@ -23,11 +24,19 @@ export default function SettingsOverview() {
   const cap = useCapability();
   const users = useSWR<unknown[]>(admin ? "/api/users" : null).data;
   const integrations = useSWR<IntegrationList>("/api/integrations").data;
+  const connection = useSWR<ConnectionView>(admin ? "/api/connection" : null, { revalidateOnFocus: false }).data;
   const { choice } = useTheme();
   const perf = usePerfChoice();
 
   const enabled = integrations?.integrations.filter((i) => i.enabled).length;
   const status: Record<string, Status | undefined> = {
+    "/settings/aws": connection
+      ? connection.identityError
+        ? { text: "AWS didn't confirm the sign-in", tone: "warn" }
+        : connection.source === "aws"
+          ? { text: `${connection.identity ? `AWS account ${connection.identity.account}` : "Your AWS account"} · home ${connection.home}`, tone: "ok" }
+          : { text: "Simulated account (Acme)", tone: "muted" }
+      : undefined,
     "/settings/interface": { text: `${choice === "system" ? "System theme" : choice === "dark" ? "Dark theme" : "Light theme"} · ${perf.level === "lite" ? "lite effects" : "full effects"}${perf.choice === "auto" ? " (auto)" : ""}`, tone: "muted" },
     "/settings/account": me ? { text: `${displayName(me.user)} · ${ROLE_INFO[me.user.role].label}`, tone: "muted" } : undefined,
     "/settings/environments": envs ? { text: envs.length ? `${envs.length} environment${envs.length === 1 ? "" : "s"} · ${envs.map((e) => e.label).join(", ")}` : "No environments discovered yet", tone: envs.length ? "ok" : "warn" } : undefined,

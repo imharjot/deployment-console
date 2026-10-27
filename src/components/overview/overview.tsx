@@ -205,7 +205,11 @@ function EnvOverviewPage({ env, label, region }: { env: string; label?: string; 
           <div className="flex items-start gap-2.5 rounded-2xl border border-dashed border-line-strong px-4 py-3 text-[14px] leading-relaxed text-fg-2">
             <FlaskConical className="mt-0.5 size-4 flex-none text-fg-3" strokeWidth={1.5} />
             <span>
-              <b className="text-fg">Mock data.</b> Simulated clusters, rollouts and logs (<code className="font-mono text-xs">CONSOLE_SOURCE=mock</code>). Actions change the simulation only.
+              <b className="text-fg">Mock data.</b> Simulated clusters, rollouts and logs; actions change the simulation only. An admin connects your AWS account in{" "}
+              <Link href="/settings/aws" className="text-accent hover:underline">
+                Settings → AWS connection
+              </Link>
+              .
             </span>
           </div>
         )}

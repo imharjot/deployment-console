@@ -12,8 +12,9 @@ risks. This page covers the same steps by hand, and the ECS console's own statem
 
 ## Before you start
 
-- ECS clusters in one AWS account. One console covers one account and the regions you give it (`CONSOLE_REGIONS`, or
-  `inventory.regions` in the config file; the home region, `AWS_REGION`, first — [Configuration](configuration.md)).
+- ECS clusters in one AWS account. One console covers one account and the regions you give it (Settings → AWS
+  connection, `CONSOLE_REGIONS` or `inventory.regions` in the config file; the home region first —
+  [Configuration](configuration.md)).
 - Permission to create an IAM policy and a role.
 - The console running on your machine ([Quickstart](quickstart.md), option A) or anywhere else.
 - The AWS CLI v2 for the commands below. You can do the same in the AWS console if you prefer.
@@ -79,23 +80,44 @@ start the console.
 
 ## Step 3: Point the console at your account
 
-Edit `.env.local`:
+Open **Settings → AWS connection** (admins), then:
+
+1. **Account:** choose **Your AWS account**.
+2. **Sign-in:** choose **Profile** and pick `console-readonly`. The list shows the profile names in this machine's
+   `~/.aws/config` and `~/.aws/credentials`; nothing else is read from them, and the console never stores keys.
+3. Choose **Test connection**. It shows the account and identity AWS signed you in as, and how many ECS clusters
+   each enabled region has, then suggests the region with most of them as the home region.
+4. Pick the **home region** (the region your ECS clusters run in), and whether to read **all enabled regions** too.
+5. Choose **Save and switch**. The console switches at once, no restart: the next request reads your account.
+
+The other sign-ins:
+
+- **Default credentials**, the AWS SDK's usual chain: the ECS task role or EC2 instance profile the console runs with,
+  or this machine's default profile.
+- **Assume a role**: give its ARN (and an external ID if its trust policy asks for one). The console assumes it with
+  its default credentials and renews the session before it ends. Those credentials need `sts:AssumeRole` on the role,
+  and the role's trust policy must name them. The role holds the console's policy; `sts:AssumeRole` belongs to whoever
+  assumes it, so the generated policies don't include it.
+
+When the account or the home region changes, the console forgets what it learned about the previous one, so it can't
+act on the new one's same-named services: remembered task counts ("Start" after "Stop"), state history, the costs
+snapshot, pending host launches, and approvals nobody has used; the audit log records it, and keeps everything else, as do
+notes. A switch waits for the changes this console has in flight, and is refused while any change or agent run is still
+going.
+
+**Pinning it in the environment instead** (a team deployment, or Docker Compose): set the variables where the console
+runs, and they decide that part; Settings shows it read-only and names the variable. `CONSOLE_SOURCE=aws` pins the
+sign-in as well: on ECS the console then signs in as its task role, and nobody can pick another identity in Settings.
 
 ```bash
-CONSOLE_SOURCE=aws          # "mock" (or unset) is the demo; any other value is an error
+CONSOLE_SOURCE=aws          # "mock" is the demo; any other value is an error
 AWS_REGION=eu-west-1        # the region your ECS clusters run in
 AWS_PROFILE=console-readonly
 ```
 
-`AWS_REGION` falls back to `AWS_DEFAULT_REGION`, then to `us-east-1`. Stop the server (Ctrl-C) and run `npm run dev`
-again: environment changes need a restart.
-
-**Using Docker Compose instead?** In `docker-compose.yml`, uncomment the `~/.aws` volume and the `AWS_PROFILE` line,
-then start it with your settings:
-
-```bash
-CONSOLE_SOURCE=aws AWS_REGION=eu-west-1 AWS_PROFILE=console-readonly docker compose up --build
-```
+`AWS_REGION` falls back to `AWS_DEFAULT_REGION`. Environment changes need a restart (stop the server with Ctrl-C and run
+`npm run dev` again). With Docker Compose, uncomment the `~/.aws` volume in `docker-compose.yml` either way: Settings'
+profile list reads the mounted files.
 
 ## Step 4: Check what it found
 

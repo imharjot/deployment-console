@@ -19,6 +19,7 @@ import "server-only";
 import { createMutations, type MutationContext, type MutationEvent, type MutationHandle, type MutationResult, type MutationSpec } from "../mutation-core.ts";
 import { currentAgentContext } from "./agents/principals.ts";
 import { writeAudit } from "./audit.ts";
+import { connectionState } from "./connection-state.ts";
 import { getDb } from "./db.ts";
 import { HttpError, isOutcomeUnknown } from "./errors.ts";
 
@@ -41,8 +42,18 @@ function agentGuard(ctx: MutationContext | undefined): void {
     throw Object.assign(new HttpError(500, "agent runs must change resources through invoke() as the agent"), { code: "agent_bypass" });
 }
 
+// Every change belongs to one AWS connection: none starts while Settings switches it, a switch waits for those in flight
+// (connection.ts), and one planned before another console switched the shared connection is refused.
 export async function mutate<T>(spec: MutationSpec, body: (h: MutationHandle) => Promise<T>): Promise<MutationResult<T>> {
-  return coordinator.mutate(spec, body);
+  const s = connectionState();
+  if (s.switching) throw new HttpError(503, "the console is switching its AWS connection; try again in a moment");
+  s.writes = (s.writes ?? 0) + 1; // counted before any await, so a switch that starts now waits for this change
+  try {
+    await (await import("./connection.ts")).assertConnectionCurrent();
+    return await coordinator.mutate(spec, body);
+  } finally {
+    s.writes--;
+  }
 }
 
 // Listeners never throw (a throwing listener is ignored); the return value unsubscribes.

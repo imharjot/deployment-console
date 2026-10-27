@@ -161,49 +161,69 @@ async function regionOf(config: { region?: unknown } | undefined): Promise<strin
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type SdkClient = { send: (...a: any[]) => Promise<any> };
 
+// The AWS connection's generation (connection-state.ts, read inline: see the note on imports at the top). A client made
+// for an earlier connection refuses to send, and the calls it has in flight are aborted when the connection changes.
+type Generation = { gen: number; ctrl: AbortController };
+const generationNow = () => (globalThis as { __consoleConnection?: Generation }).__consoleConnection;
+const connectionChanged = () =>
+  Object.assign(new Error("the AWS connection changed while this was being read; try again"), { name: "ConnectionChangedError", status: 503 });
+
 // Wraps client.send in place and returns the same client. `service` defaults to the client's serviceId (mapped to the
 // IAM prefix), `region` to its configured region. Wrapping an already wrapped client changes nothing.
 export function limitedClient<C extends SdkClient>(client: C, service?: string, region?: string): C {
   const c = client as C & { [WRAPPED]?: true; config?: { serviceId?: unknown; region?: unknown } };
   if (c[WRAPPED]) return client;
+  const born = generationNow()?.gen ?? 0;
   const svc = service || serviceName(typeof c.config?.serviceId === "string" ? c.config.serviceId : "aws");
   let where: Promise<string> | undefined = region ? Promise.resolve(region) : undefined;
   const send = c.send.bind(c) as (command: unknown, options?: unknown, cb?: unknown) => Promise<unknown>;
   const limited = async (command: unknown, options?: unknown, cb?: unknown): Promise<unknown> => {
     if (typeof options === "function" || typeof cb === "function") return send(command, options, cb); // callback style: unused here
     const opts = (options ?? undefined) as SendOptions | undefined;
-    const signals = [opts?.abortSignal, currentCallSignal()].filter((s): s is AbortSignal => !!s);
-    const abortSignal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
-    const r = await (where ??= regionOf(c.config));
-    return state().limiter.run(`${svc}@${r}`, async () => {
-      const k = counter(svc, r);
-      k.requests++;
-      const op = operationOf(command);
-      const t0 = performance.now();
-      try {
-        const out = (await send(command, abortSignal ? { ...opts, abortSignal } : opts)) as Meta;
-        k.attempts += out?.$metadata?.attempts ?? 1;
-        if (op) observe(`${svc}:${op}`);
-        return out;
-      } catch (caught) {
-        let e = caught;
-        k.attempts += (e as Meta)?.$metadata?.attempts ?? 1;
-        k.errors++;
-        if (throttled(e)) k.throttled++;
-        // The request had been handed to the SDK: a write cut short by a deadline or an abort may have taken effect.
-        // A handler that rejects with the signal's own reason shares that object with every call the signal stopped
-        // before it started, so the flag goes on a copy.
-        const name = (e as { name?: unknown })?.name;
-        if ((name === "AbortError" || name === "TimeoutError") && !isReadOperation(op)) {
-          if (abortSignal && e === abortSignal.reason) e = Object.assign(new Error(String((e as { message?: unknown }).message ?? name)), { name, cause: caught });
-          (e as { afterSend?: boolean }).afterSend = true; // errors.ts flagAfterSend, inlined (see the note on imports at the top)
+    const conn = generationNow();
+    if ((conn?.gen ?? 0) !== born) throw connectionChanged();
+    // The switch's signal lives as long as the connection: in AbortSignal.any it would keep an entry for every call
+    // alive (Node holds the composites of a live source). A per-call controller follows it, and lets go when done.
+    const switchSignal = conn?.ctrl.signal; // this generation's: a switch replaces conn.ctrl before aborting it
+    const switched = new AbortController();
+    const follow = () => switched.abort(switchSignal?.reason);
+    switchSignal?.addEventListener("abort", follow, { once: true });
+    try {
+      const signals = [opts?.abortSignal, currentCallSignal(), switchSignal ? switched.signal : undefined].filter((s): s is AbortSignal => !!s);
+      const abortSignal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+      const r = await (where ??= regionOf(c.config));
+      return await state().limiter.run(`${svc}@${r}`, async () => {
+        const k = counter(svc, r);
+        k.requests++;
+        const op = operationOf(command);
+        const t0 = performance.now();
+        try {
+          const out = (await send(command, abortSignal ? { ...opts, abortSignal } : opts)) as Meta;
+          k.attempts += out?.$metadata?.attempts ?? 1;
+          if (op) observe(`${svc}:${op}`);
+          return out;
+        } catch (caught) {
+          let e = caught;
+          k.attempts += (e as Meta)?.$metadata?.attempts ?? 1;
+          k.errors++;
+          if (throttled(e)) k.throttled++;
+          // The request had been handed to the SDK: a write cut short by a deadline or an abort may have taken effect.
+          // A handler that rejects with the signal's own reason shares that object with every call the signal stopped
+          // before it started, so the flag goes on a copy.
+          const name = (e as { name?: unknown })?.name;
+          if ((name === "AbortError" || name === "TimeoutError") && !isReadOperation(op)) {
+            if (abortSignal && e === abortSignal.reason) e = Object.assign(new Error(String((e as { message?: unknown }).message ?? name)), { name, cause: caught });
+            (e as { afterSend?: boolean }).afterSend = true; // errors.ts flagAfterSend, inlined (see the note on imports at the top)
+          }
+          if (op) observe(`${svc}:${op}`, e);
+          throw e;
+        } finally {
+          sample(k, performance.now() - t0);
         }
-        if (op) observe(`${svc}:${op}`, e);
-        throw e;
-      } finally {
-        sample(k, performance.now() - t0);
-      }
-    }, abortSignal);
+      }, abortSignal);
+    } finally {
+      switchSignal?.removeEventListener("abort", follow);
+    }
   };
   Object.defineProperty(c, "send", { value: limited, configurable: true, writable: true });
   Object.defineProperty(c, WRAPPED, { value: true });

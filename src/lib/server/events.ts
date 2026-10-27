@@ -10,6 +10,7 @@ import type { CiRun } from "../types.ts";
 import { runs } from "./ci.ts";
 import { getDb } from "./db.ts";
 import { knownRepos, listEnvs } from "./discovery.ts";
+import { connectionState } from "./connection-state.ts";
 import { errText } from "./errors.ts";
 import { configOf, pruneDeliveries, readAll, recordDelivery } from "./plugins/store.ts";
 
@@ -159,8 +160,10 @@ export function startCiWatcher() {
   const w = globalThis as { __consoleCiWatcher?: ReturnType<typeof setInterval> };
   if (w.__consoleCiWatcher) return;
   const started = Date.now();
+  // A repo seen for the first time starts at the watcher's start or the last switch of the AWS connection, whichever is
+  // later: a new account's (or the demo's) earlier failures are never announced.
   const tick = () => {
-    checkCi(started).catch((e) => console.error(JSON.stringify({ level: 40, msg: "ci watcher failed", err: errText(e) })));
+    checkCi(Math.max(started, connectionState().switchedAt ?? 0)).catch((e) => console.error(JSON.stringify({ level: 40, msg: "ci watcher failed", err: errText(e) })));
   };
   w.__consoleCiWatcher = setInterval(tick, 60_000);
   w.__consoleCiWatcher.unref?.();

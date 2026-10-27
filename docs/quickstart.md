@@ -31,11 +31,11 @@ You should see:
 Open **http://localhost:3200**. The first page takes a few seconds to compile. You're signed in as `you@example.com`
 with the admin role, and a **Mock data** banner on the overview tells you you're looking at the simulation.
 
-Why no sign-in? `.env.local` (copied from `.env.example`) sets two things:
+Why no sign-in, and why the simulation? `.env.local` (copied from `.env.example`):
 
 | Setting | Means |
 |---|---|
-| `CONSOLE_SOURCE=mock` | use the simulated account instead of AWS |
+| `CONSOLE_SOURCE` left unset | the simulated account, until an admin connects AWS in **Settings → AWS connection** ([Connect AWS](connect-aws.md)) |
 | `AUTH_MODE=dev` | skip sign-in and act as `DEV_USER_EMAIL`, an admin. Only for your own machine: it is refused when `NODE_ENV=production` |
 
 Users, the audit log and other console data are stored in SQLite under `./data`. Delete that folder to start fresh.

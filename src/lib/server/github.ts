@@ -5,6 +5,7 @@ import { LIMITS } from "../config.ts";
 import { summarize } from "../junit.ts";
 import type { CiJob, CiRun, CommitInfo } from "../types.ts";
 import { cached, memo } from "./cache.ts";
+import { retire } from "./connection-state.ts";
 import { NotConfiguredError, flagAfterSend } from "./errors.ts";
 import type { Ci, Compare } from "./sources.ts";
 
@@ -145,7 +146,12 @@ export function slimCompare(raw: unknown): GhCompare {
   };
 }
 
-export function githubCi(): Ci {
+// Retired when the AWS connection changes (connection-state.ts): the CI source follows the data source.
+export function githubCi(born?: number): Ci {
+  return retire(github(), born);
+}
+
+function github(): Ci {
   return {
     kind: "github",
 

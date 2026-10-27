@@ -25,6 +25,7 @@ import type { EnvInfo } from "../../types.ts";
 import { userById } from "../auth/users.ts";
 import { onTransition } from "../console.ts";
 import { getDb, newId } from "../db.ts";
+import { onConnectionChange } from "../connection-state.ts";
 import { errText } from "../errors.ts";
 import { homeRegion } from "../sources.ts";
 import { claimTriggerFire } from "./store.ts";
@@ -60,6 +61,12 @@ interface TriggerState {
 }
 const g = globalThis as { __consoleWorkflowTriggers?: TriggerState };
 const st: TriggerState = (g.__consoleWorkflowTriggers ??= { started: false, queue: [] });
+// A new AWS connection: queued state events are the previous one's, and its alarms start over like a first pass (seen,
+// not fired), so every alarm already in ALARM in the new account doesn't fire workflows.
+onConnectionChange("workflow-triggers", () => {
+  st.queue.length = 0;
+  st.alarms = undefined;
+});
 
 export interface TickReport {
   fired: { workflowId: string; version: number; runId: string; key: string }[];

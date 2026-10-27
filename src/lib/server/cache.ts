@@ -62,7 +62,17 @@ function detached<T>(fn: () => Promise<T>): Promise<T> {
   return als && typeof als.exit === "function" ? als.exit(fn) : fn();
 }
 
+// The AWS connection's generation (connection-state.ts, read inline to keep this module free of server-only imports). A
+// fetch started for an earlier connection answers whoever waits for it but is never stored; one refused because the
+// connection changed isn't remembered as a failure either: the next caller simply asks again.
+const generation = () => (globalThis as { __consoleConnection?: { gen: number } }).__consoleConnection?.gen ?? 0;
+const changedSince = (born: number, err?: unknown) => generation() !== born || (err as { name?: unknown } | null)?.name === "ConnectionChangedError";
+function forget(key: string, entry: Entry) {
+  if (store.get(key) === entry) store.delete(key);
+}
+
 function fetchInto<T>(key: string, entry: Entry, fn: () => Promise<T>): Promise<{ value: T; at: number }> {
+  const born = generation();
   let p: Promise<T>;
   try {
     p = Promise.resolve(detached(fn));
@@ -72,6 +82,11 @@ function fetchInto<T>(key: string, entry: Entry, fn: () => Promise<T>): Promise<
   const run: Promise<{ value: T; at: number }> = p.then(
     (value) => {
       const at = Date.now();
+      if (changedSince(born)) {
+        if (entry.pending === run) entry.pending = undefined;
+        forget(key, entry);
+        return { value, at };
+      }
       entry.value = value;
       entry.at = at;
       entry.error = undefined;
@@ -81,6 +96,11 @@ function fetchInto<T>(key: string, entry: Entry, fn: () => Promise<T>): Promise<
       return { value, at };
     },
     (err) => {
+      if (changedSince(born, err)) {
+        if (entry.pending === run) entry.pending = undefined;
+        forget(key, entry);
+        throw asError(err);
+      }
       entry.error = asError(err);
       entry.errorAt = Date.now();
       if (entry.pending === run) entry.pending = undefined;

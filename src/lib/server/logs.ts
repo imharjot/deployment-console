@@ -12,6 +12,7 @@ import {
 import type { User } from "../rbac.ts";
 import type { EnvName, InsightsResult, LogLine, LogPage } from "../types.ts";
 import { cached } from "./cache.ts";
+import { onConnectionChange } from "./connection-state.ts";
 import { HttpError } from "./errors.ts";
 import { catalog, inRegion } from "./discovery.ts";
 import { consoleRegions } from "./regions.ts";
@@ -238,6 +239,8 @@ interface QueryOwner {
 }
 const gi = globalThis as { __consoleInsights?: { owners: Map<string, QueryOwner>; perUser: RateLimiter } };
 const I = (gi.__consoleInsights ??= { owners: new Map(), perUser: new RateLimiter(INSIGHTS_PER_USER, INSIGHTS_WINDOW_MS) });
+// Logs Insights query ids belong to the account that ran them: after a switch they'd be polled with another one's.
+onConnectionChange("logs", () => I.owners.clear());
 
 const running = (now: number) => [...I.owners.values()].filter((q) => !q.done && now - q.startedAt < INSIGHTS_RUNNING_MS).length;
 

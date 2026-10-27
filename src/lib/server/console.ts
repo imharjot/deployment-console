@@ -9,7 +9,7 @@ import { LIMITS } from "../config.ts";
 import { periodFor } from "../metric-specs.ts";
 import { parseImageRef, placement } from "../discover.ts";
 import type { Freshness } from "../freshness.ts";
-import { WINDOW_MS, extendSpans, latestState, rebuild, record, restore, uptime, type Span, type Transition } from "../history.ts";
+import { WINDOW_MS, extendSpans, latestState, rebuild, record, reset as resetHistory, restore, uptime, type Span, type Transition } from "../history.ts";
 import { mutationState } from "../mutation-core.ts";
 import { canonicalKey, parseArn } from "../mutation-keys.ts";
 import {
@@ -26,6 +26,7 @@ import { readAudit, recallDesired, rememberDesired } from "./audit.ts";
 import { cached, invalidate } from "./cache.ts";
 import { migrationsChanged } from "./ci.ts";
 import { capability } from "./capability.ts";
+import { connectionState, generation, onConnectionChange } from "./connection-state.ts";
 import { getDb, newId } from "./db.ts";
 import { catalog, consoleConfig, envInfo, inRegion, listEnvs, metaOf, servicesAt, workloadsOf, type Catalog, type ServiceMeta } from "./discovery.ts";
 import { HttpError, errText } from "./errors.ts";
@@ -568,6 +569,16 @@ const sampled = (shared.sampled ??= new Map());
 const spans = (shared.spans ??= new Map());
 const shortfalls = (shared.shortfall ??= new Map());
 const restoring = (shared.restoring ??= new Map());
+// A new AWS connection: the overviews, observed spans, shortfalls and state histories in memory describe the previous
+// one. History is restored again from the console DB, where connection.ts has forgotten the previous account's rows.
+onConnectionChange("console", () => {
+  latest.clear();
+  sampled.clear();
+  spans.clear();
+  shortfalls.clear();
+  restoring.clear();
+  resetHistory();
+});
 export const latestOverview = (env: string) => latest.get(env);
 // Subscribers get an unsubscribe function (the live event stream subscribes per connection). Removal replaces the
 // array, so a broadcast already iterating the old one is never disturbed.
@@ -653,7 +664,7 @@ const parseJson = <T,>(s: string | null | undefined): T | undefined => {
 async function recentOperations(env: EnvInfo, now: number): Promise<Map<string, OperationNote[]>> {
   const rows = await (await getDb()).all<OpRow>(
     `SELECT id, action, actor, env, region, targets, params, state, verify, error, created_at FROM operations WHERE state IN ('succeeded', 'outcome_unknown') AND created_at > ? AND region = ? AND ${VERIFIED_ACTION_SQL} ORDER BY created_at DESC LIMIT 100`,
-    [now - 15 * 60_000, env.region],
+    [Math.max(now - 15 * 60_000, connectionState().scope?.since ?? 0), env.region], // the current account's only
   );
   const out = new Map<string, OperationNote[]>();
   for (const r of rows) {
@@ -680,6 +691,7 @@ export async function operationsFor(env: EnvInfo, service: string): Promise<Oper
 // ---------- overview ----------
 
 export async function overview(envId: string, opts: OverviewOptions = {}): Promise<EnvOverview> {
+  const born = generation();
   const now = Date.now();
   const env = await envInfo(envId);
   const cloud = await cloudFor(env);
@@ -832,8 +844,11 @@ export async function overview(envId: string, opts: OverviewOptions = {}): Promi
 
   // History: record every state (changes are persisted, after this process restored what an earlier one wrote);
   // attach uptime to full views.
-  await restoreEnv(env);
-  for (const r of [...services, ...infra]) noteState(env, r.key, r.state, now);
+  // Read for an AWS connection that has since been switched away from: answered, never recorded.
+  if (generation() === born) {
+    await restoreEnv(env);
+    for (const r of [...services, ...infra]) noteState(env, r.key, r.state, now);
+  }
   if (!opts.light) for (const r of [...services, ...infra]) r.uptime = uptime(`${env.id}/${r.key}`, now);
 
   const summary = emptySummary();
@@ -929,6 +944,12 @@ export function startSampler() {
 }
 
 async function sampleOnce(st: SamplerState) {
+  // Another console sharing the database may have switched the AWS connection, the database may only now be up, and AWS
+  // may still owe this connection's scope check. An identity AWS won't confirm shows on Settings → AWS connection and in
+  // every call: no need to log it each tick.
+  await import("./connection.ts").then((c) => c.syncConnection()).catch(() => {});
+  if (connectionState().unloaded) return; // the database is still down: the connection is unknown, nothing is sampled
+  const born = generation();
   let envs: EnvInfo[];
   try {
     envs = await listEnvs();
@@ -942,6 +963,7 @@ async function sampleOnce(st: SamplerState) {
       for (let env = queue.shift(); env; env = queue.shift()) await sampleEnv(env);
     }),
   );
+  if (generation() !== born) return; // switched mid-tick: the next tick starts on the new connection
   // R23: hosts launched for a cluster that never joined it (provision.ts); never allowed to stop the sampler. Imported
   // when needed: provision.ts imports this module.
   try {
@@ -959,8 +981,10 @@ async function sampleOnce(st: SamplerState) {
 }
 
 async function sampleEnv(env: EnvInfo) {
+  const born = generation();
   try {
     const o = await overview(env.id, { light: true });
+    if (generation() !== born) return;
     const t = Date.now();
     const prev = latest.get(env.id);
     latest.set(env.id, o);
@@ -1005,16 +1029,19 @@ function restoreEnv(env: EnvInfo): Promise<void> {
 }
 
 async function restoreHistory(env: EnvInfo) {
+  const born = generation();
   const db = await getDb();
   const now = Date.now();
   const start = now - WINDOW_MS;
   const saved = parseJson<Span[]>((await db.get<{ value: string }>("SELECT value FROM settings WHERE key = ?", [`observed:${env.id}`]))?.value);
   const envSpans = Array.isArray(saved) ? saved.filter((s) => Array.isArray(s) && s.length === 2 && s.every((n) => typeof n === "number")) : [];
+  if (generation() !== born) return; // the AWS connection changed meanwhile: these rows may be the previous account's
   if (envSpans.length && !spans.has(env.id)) spans.set(env.id, envSpans);
   const rows = await db.all<{ rkey: string; state: State; at: number }>(
     `SELECT s.rkey, s.state, s.at FROM state_changes s WHERE s.env = ? AND (s.at >= ? OR s.at = (SELECT MAX(t.at) FROM state_changes t WHERE t.env = s.env AND t.rkey = s.rkey AND t.at < ?)) ORDER BY s.at`,
     [env.id, start, start],
   );
+  if (generation() !== born) return;
   const byKey = new Map<string, Transition[]>();
   for (const r of rows) byKey.set(r.rkey, [...(byKey.get(r.rkey) ?? []), [Number(r.at), r.state]]);
   for (const [rkey, list] of byKey) {
@@ -1029,7 +1056,8 @@ async function verifyOperations(envs: EnvInfo[]) {
   const now = Date.now();
   const rows = await (await getDb()).all<OpRow>(
     `SELECT id, action, actor, env, region, targets, params, state, verify, error, created_at FROM operations WHERE state = 'succeeded' AND verify IS NULL AND created_at > ? AND ${VERIFIED_ACTION_SQL} ORDER BY created_at LIMIT 100`,
-    [now - 3600_000],
+    // Not before the current AWS account (or home region) took over: an earlier one's same-named services aren't these.
+    [Math.max(now - 3600_000, connectionState().scope?.since ?? 0)],
   );
   for (const r of rows) {
     if (!VERIFIED_ACTION.test(r.action)) continue;
@@ -1049,7 +1077,7 @@ async function verifyOperations(envs: EnvInfo[]) {
 export async function hostIssues(): Promise<{ env: string; cluster: string; id: string; reason: string; at: number }[]> {
   const rows = await (await getDb()).all<{ env: string; cluster: string; instance_ids: string; detail: string | null; created_at: number }>(
     "SELECT env, cluster, instance_ids, detail, created_at FROM host_reservations WHERE state = 'failed' AND created_at > ? ORDER BY created_at DESC LIMIT 50",
-    [Date.now() - 86_400_000],
+    [Math.max(Date.now() - 86_400_000, connectionState().scope?.since ?? 0)], // never another account's same-named env
   );
   return rows.flatMap((r) => {
     const ids = parseJson<unknown>(r.instance_ids);

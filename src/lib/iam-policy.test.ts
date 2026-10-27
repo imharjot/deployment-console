@@ -6,7 +6,9 @@
 // Waiters, type-only imports and non-client @aws-sdk packages are ignored; so is sts:GetCallerIdentity when nobody
 // declares it (it needs no permission). The agents' model adapters (src/lib/server/agents/inference/ and runtime/) are
 // not scanned: they call Bedrock with a connection's own credentials, never the console's role, so nothing they import
-// belongs in these policies — and @aws-sdk/client-bedrock-runtime may be imported nowhere else.
+// belongs in these policies — and @aws-sdk/client-bedrock-runtime may be imported nowhere else. Nor is
+// connection-credentials.ts: its sts:AssumeRole is a permission of the identity the console runs as, which assumes the
+// role holding these policies (docs/connect-aws.md).
 //
 // Rules:
 // - aws.ts / billing-aws.ts are granted by the hand-written statements; their classes are WRITES / SENSITIVE /
@@ -160,7 +162,7 @@ const NO_PERMISSION = new Set(["sts:GetCallerIdentity"]);
 // except the agents' model adapters (connection credentials, not the console role — see the header).
 const CONSOLE_SOURCES = ["src/lib/server/aws.ts", "src/lib/server/billing-aws.ts"];
 const SERVER = "src/lib/server/";
-const NOT_CONSOLE_ROLE = ["src/lib/server/agents/inference/", "src/lib/server/agents/runtime/"];
+const NOT_CONSOLE_ROLE = ["src/lib/server/agents/inference/", "src/lib/server/agents/runtime/", "src/lib/server/connection-credentials.ts"];
 const WRITES = new Set([
   "ecs:UpdateService", "ecs:RegisterTaskDefinition", "ec2:StartInstances", "ec2:StopInstances", "rds:StartDBInstance", "rds:StopDBInstance",
   "ssm:PutParameter", "secretsmanager:PutSecretValue", "s3:PutObject",

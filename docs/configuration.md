@@ -18,12 +18,13 @@ shorter than 32 characters, or Postgres without one makes every request answer `
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `CONSOLE_SOURCE` | `mock` | `aws` for your AWS account; `mock` (or unset) for the simulated demo account. Any other value is an error, so a typo never quietly runs the demo |
-| `AWS_REGION` | `AWS_DEFAULT_REGION`, else `us-east-1` | the console's home region: ECS environments and global services are read here first |
-| `CONSOLE_REGIONS` | the config's `inventory.regions`, else the home region alone | regions to read, comma-separated (the home region is always included and comes first), or `all-enabled` for every region enabled in the account (asked once a day through `ec2:DescribeRegions`). At most 30 |
+| `CONSOLE_SOURCE` | Settings → AWS connection, else `mock` | `aws` for your AWS account; `mock` for the simulated demo account. Unset: an admin chooses in **Settings → AWS connection**, without a restart (below). Any other value is an error, so a typo never quietly runs the demo |
+| `AWS_REGION` | `AWS_DEFAULT_REGION`, else Settings → AWS connection, else `us-east-1` | the console's home region: ECS environments and global services are read here first |
+| `AWS_PROFILE` | Settings → AWS connection, else the SDK's default chain | the profile in `~/.aws/config` the console signs in with. Keys in the environment (`AWS_ACCESS_KEY_ID`, …) pin the sign-in the same way |
+| `CONSOLE_REGIONS` | the config's `inventory.regions`, else Settings → AWS connection, else the home region alone | regions to read, comma-separated (the home region is always included and comes first), or `all-enabled` for every region enabled in the account (asked once a day through `ec2:DescribeRegions`). At most 30 |
 | `CONSOLE_AWS_CONCURRENCY` | `16` | the most AWS calls in flight at once (1–256), across discovery, the cloud map and actions. Each service also has its own cap per region: 4, or 2 for CloudWatch Logs, CloudFormation and Cloud Control, 1 for IAM and Route 53. `GET /api/diagnostics/aws` (operators and admins) shows requests, retries, throttles and queued calls per service and region |
 | `CONSOLE_ACTIVITY_BUDGET` | `5000` | CloudWatch metrics the cloud map may read per hour for idle marks (0–1,000,000; 0 turns them off). A series is read once an hour (support resources once a day); what doesn't fit waits for the next hour, and those resources aren't marked idle meanwhile. Settings → AWS permissions shows the last hour's count and its monthly cost ($0.01 per 1,000) |
-| `CONSOLE_CONFIG` | `./console.config.json` if it exists (with `CONSOLE_SOURCE=mock`: `examples/demo.console.config.json`) | path to the config file, relative to the working directory |
+| `CONSOLE_CONFIG` | `./console.config.json` if it exists (with the simulated account: `examples/demo.console.config.json`) | path to the config file, relative to the working directory |
 | `CONSOLE_PUBLIC_URL` | the request's origin (`http://localhost:3200` in notification links) | the console's public URL — used in notification links, invite links, SSO redirects, for `Secure` cookies, and as the only origin allowed to send changes (the CSRF check). Set it in production. |
 | `CONSOLE_TRUSTED_PROXIES` | `1` | how many proxies in front of the console append to `X-Forwarded-For`; the client's address (for the audit log and per-address throttles) is that many entries from the end. `1`: one load balancer or reverse proxy; `2`: CloudFront → ALB; `0`: nothing in front — the header is ignored and per-address throttles are off (per-email and per-token limits still apply) |
 | `DATABASE_URL` | — | `postgres://…` or `postgresql://…` to store users, sessions, audit log and integrations in Postgres. Unset = SQLite. Any other value is refused (the console answers 500 and fails its health check) rather than quietly falling back to SQLite |
@@ -63,6 +64,21 @@ Also used:
   (and in the Docker image). `AUTH_MODE=dev` is refused in production.
 - **`VERSION`** (Docker build argument, `--build-arg VERSION=<git sha>`) is shown in the sidebar. Outside Docker, set
   `NEXT_PUBLIC_VERSION` when you run `npm run build`.
+
+### The AWS connection: environment or Settings
+
+**Settings → AWS connection** (admins) chooses the account, the sign-in (a profile from `~/.aws`, the default
+credentials, or a role to assume), the home region and the regions to read, and switches without a restart. An
+environment variable that is set always decides its part: `CONSOLE_SOURCE`; `AWS_REGION` or `AWS_DEFAULT_REGION`;
+`AWS_PROFILE` or keys in the environment; `CONSOLE_REGIONS`. `CONSOLE_SOURCE=aws` pins the sign-in too: the console
+signs in as its environment says (a task role, IRSA) and an admin can't pick another identity the machine can reach.
+The page shows each pinned part read-only and names the variable, so a deployment can pin its connection in its task
+definition or compose file. The config file's `inventory.regions`
+comes before Settings too. The choice is stored in the console's database, never AWS keys. Several consoles sharing one
+database follow a switch within the sampler's next tick (30 s), and refuse a change planned before it. A switch waits for
+changes in flight and is refused while any console has a change or an agent run going. If the database can't be read
+at boot, the connection is unknown: pages answer `503` until it can be, never the simulated account in its place.
+[Connect AWS](connect-aws.md) has the steps.
 
 ## console.config.json
 

@@ -3,18 +3,16 @@
 // cluster's own CA. The token lives 60 s, is made per use, never logged and never leaves this module.
 import "server-only";
 import { request } from "node:https";
-import { defaultProvider } from "@aws-sdk/credential-provider-node";
 import { Hash } from "@smithy/hash-node";
 import { HttpRequest } from "@smithy/protocol-http";
 import { SignatureV4 } from "@smithy/signature-v4";
 import { CLUSTER_ID_HEADER, TOKEN_TTL_S, presignedUrl, stsHost, tokenFromUrl } from "../../inventory/compute-eks.ts";
+import { connectionCredentials } from "../connection-credentials.ts";
 
-let credentials: ReturnType<typeof defaultProvider> | undefined;
-
+// Signed with the AWS connection's credentials: the token says who the cluster is talking to.
 export async function eksToken(cluster: string, region: string): Promise<string> {
-  credentials ??= defaultProvider();
   const hostname = stsHost(region);
-  const signer = new SignatureV4({ credentials, region, service: "sts", sha256: Hash.bind(null, "sha256") });
+  const signer = new SignatureV4({ credentials: connectionCredentials, region, service: "sts", sha256: Hash.bind(null, "sha256") });
   const req = new HttpRequest({
     method: "GET", protocol: "https:", hostname, path: "/",
     query: { Action: "GetCallerIdentity", Version: "2011-06-15" },

@@ -16,6 +16,7 @@ import { writeAudit } from "./audit.ts";
 import { cached } from "./cache.ts";
 import { getDb } from "./db.ts";
 import { consoleConfig, inventory, listEnvs, servicesOf } from "./discovery.ts";
+import { generation } from "./connection-state.ts";
 import { HttpError, errText } from "./errors.ts";
 import { getInventory } from "./inventory.ts";
 import { homeRegion, sourceKind } from "./sources.ts";
@@ -151,23 +152,33 @@ async function ensure(force: boolean): Promise<Stored> {
   const b = await getBilling();
   const ttl = cacheHours * 3600_000;
   let s = g.__consoleCosts;
-  if (!s || !isFresh(s, b.kind, tagKey, ttl)) s = g.__consoleCosts = await load(); // another process may have paid already
+  if (!s || !isFresh(s, b.kind, tagKey, ttl)) {
+    const born = generation();
+    s = await load(); // another process may have paid already
+    if (generation() === born) g.__consoleCosts = s; // not into the next AWS connection's slot
+  }
   if (!force && isFresh(s, b.kind, tagKey, ttl)) return s;
   const prev = s;
-  // One snapshot at a time: concurrent page loads and refreshes share it.
-  g.__consoleCostsInflight ??= (async () => {
-    let next: Stored;
-    try {
-      next = { snapshot: await takeSnapshot(b, tagKey) };
-    } catch (e) {
-      next = { snapshot: prev.snapshot, error: { at: Date.now(), ...describe(e), source: b.kind } };
-      console.error(JSON.stringify({ level: 40, msg: "costs: Cost Explorer snapshot failed", err: next.error!.reason }));
-    }
-    await save(next);
-    return (g.__consoleCosts = next);
-  })().finally(() => {
-    g.__consoleCostsInflight = undefined;
-  });
+  // One snapshot at a time: concurrent page loads and refreshes share it. One taken for an AWS connection that has since
+  // been switched away from answers its callers but is neither kept nor saved.
+  if (!g.__consoleCostsInflight) {
+    const born = generation();
+    const run: Promise<Stored> = (async () => {
+      let next: Stored;
+      try {
+        next = { snapshot: await takeSnapshot(b, tagKey) };
+      } catch (e) {
+        next = { snapshot: prev.snapshot, error: { at: Date.now(), ...describe(e), source: b.kind } };
+        console.error(JSON.stringify({ level: 40, msg: "costs: Cost Explorer snapshot failed", err: next.error!.reason }));
+      }
+      if (generation() !== born) return next;
+      await save(next);
+      return (g.__consoleCosts = next);
+    })().finally(() => {
+      if (g.__consoleCostsInflight === run) g.__consoleCostsInflight = undefined;
+    });
+    g.__consoleCostsInflight = run;
+  }
   return g.__consoleCostsInflight;
 }
 

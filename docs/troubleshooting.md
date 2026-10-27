@@ -19,10 +19,16 @@ server log (your terminal, `docker compose logs console`, or the `/ecs/deploymen
 
 | What you see | Likely cause | Fix |
 |---|---|---|
-| The **Mock data** banner is still there | `CONSOLE_SOURCE` is unset or `mock` | set `CONSOLE_SOURCE=aws` and restart |
+| The **Mock data** banner is still there | nobody connected AWS yet, or `CONSOLE_SOURCE=mock` is set | connect it in **Settings → AWS connection**; if the page says `CONSOLE_SOURCE` decides, unset it (or set `aws`) where the console runs and restart |
+| Settings → AWS connection shows a part read-only, "set by …" | that environment variable (or `inventory.regions` in the config file) decides it | change or unset it where the console runs, then restart |
+| `AWS didn't accept this connection: …` when saving | the sign-in can't reach AWS: an unknown or expired profile, a role whose trust policy doesn't name the console's credentials, or no credentials at all | **Test connection** shows the same error; run `aws sts get-caller-identity --profile <name>` with the same profile |
+| `… change(s) still running; switch once they finish` | a restart, deploy or other change is in flight on the current account | wait for it (the service card shows it), then save again |
+| `… agent run(s) haven't finished` when switching | an agent run is still going on the current account; its plan names that account's resources | cancel it in **Automation** or let it finish, then save again |
+| `this console's AWS connection changed since the page loaded` | another admin (or another console sharing the database) switched the connection | reload the page: it shows the new account; make the change again if it still applies |
+| `503 the console's database is unavailable, so its AWS connection isn't known yet` | the database couldn't be read at boot, and Settings holds the connection | bring the database back; the console reads the connection within 30 s (or pin it with `CONSOLE_SOURCE`) |
 | `CONSOLE_SOURCE must be "aws" or "mock"` | a typo in `CONSOLE_SOURCE` (the console never falls back to the demo) | fix it and restart |
-| "No environments found yet" | wrong region, or no ECS clusters there | set `AWS_REGION`; check `aws ecs list-clusters` works with the same credentials |
-| `Could not load credentials`, `ExpiredToken` | no credentials, or an expired SSO session | set `AWS_PROFILE`; run `aws sso login` |
+| "No environments found yet" | wrong home region, or no ECS clusters there | **Test connection** in Settings → AWS connection lists the clusters per region; pick that home region (or set `AWS_REGION`) |
+| `Could not load credentials`, `ExpiredToken` | no credentials, or an expired SSO session | pick a profile in Settings → AWS connection (or set `AWS_PROFILE`); run `aws sso login` |
 | `AccessDeniedException` at the top of Settings | the role lacks a permission | attach [the policy](connect-aws.md#step-1-create-the-read-only-policy); the message names the missing action |
 | A button fails with `AccessDenied…` | the read-only policy, or a statement left out | add the feature's statements (see [Connect AWS](connect-aws.md#step-5-turn-on-more-one-feature-at-a-time)) |
 | A cluster is missing | it isn't `ACTIVE`, it's tagged `console:ignore=true`, it's in `ignoreClusters` / not listed with `discoverClusters: false`, or it's an AWS Batch cluster (`AWSBatch-…`, skipped unless the config names it) | see [How discovery works](discovery.md) |
@@ -124,4 +130,6 @@ server log (your terminal, `docker compose logs console`, or the `/ecs/deploymen
   wrong (the reason is in the server log); `degraded` (still `200`) in AWS mode while the config file has errors.
 - `GET /api/discovery` — the full discovery result as JSON (signed in), with `warnings` for what the config file names
   that the account doesn't have.
+- `GET /api/connection` — the AWS connection (admins): the account and identity AWS confirms, the sign-in, the home
+  region and regions, and which environment variable decides each part; `POST /api/connection/test` tries a candidate.
 - `GET /api/me` — who you are, your role and permissions (signed in, or with a token).
