@@ -7,8 +7,8 @@ import { ALL_ENABLED, MAX_REGIONS, REGION_CODE } from "./regions.ts";
 
 export type Source = "aws" | "mock";
 // How the console signs in: the SDK's default chain (a task or instance role, ~/.aws's default profile), a named
-// profile from ~/.aws, or a role assumed from the default chain. Never keys: the console's database stores no AWS
-// credentials.
+// profile from ~/.aws, or a role assumed from the default chain; Settings calls them the machine's own login, a saved
+// profile and switching into a role. Never keys: the console's database stores no AWS credentials.
 export type SignIn = { kind: "chain" } | { kind: "profile"; profile: string } | { kind: "role"; roleArn: string; externalId?: string };
 export type RegionsChoice = typeof ALL_ENABLED | string[];
 
@@ -62,6 +62,12 @@ export interface ConnectionTest {
   regions?: { region: string; clusters?: number; more?: boolean; error?: string }[];
   suggestedHome?: string;
   problems?: string[];
+  error?: string;
+}
+
+// GET /api/connection/machine: who the machine's own login (the SDK's default chain) signs in as, or why it can't.
+export interface MachineLogin {
+  identity?: { account: string; arn: string };
   error?: string;
 }
 
@@ -141,6 +147,43 @@ export const sameSignIn = (a: SignIn, b: SignIn) =>
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
+// What keeps `arn` from being a role to switch into, worded so a person can fix it; undefined when it is one. The usual
+// mistakes: the ARN of the user who would assume the role, and a session's ARN (what `aws sts get-caller-identity`
+// prints) instead of its role's.
+export function roleArnProblem(arn: string): string | undefined {
+  const a = arn.trim();
+  if (ROLE_ARN.test(a)) return undefined;
+  const user = /^arn:aws[a-z-]*:iam::\d{12}:user\/(?:[^/]+\/)*([^/]+)$/.exec(a)?.[1];
+  if (user) return `That's the ARN of the IAM user ${user}, and only a role can be assumed. Enter a role's ARN instead (arn:aws:iam::123456789012:role/name); to sign in as ${user} itself, use a saved profile or the machine's own login.`;
+  const session = /^arn:(aws[a-z-]*):sts::(\d{12}):assumed-role\/([^/]+)\//.exec(a);
+  if (session) return `That's the ARN of a session of the role ${session[3]}, not of the role itself: try arn:${session[1]}:iam::${session[2]}:role/${session[3]} (with the role's path, if it has one).`;
+  return "Enter a role's ARN, such as arn:aws:iam::123456789012:role/name.";
+}
+
+// Who an identity ARN (sts:GetCallerIdentity's) is, for people: "user ops-bot", "role console-readonly"; anything else as
+// it is.
+export function describeArn(arn: string): string {
+  const m = /^arn:aws[a-z-]*:(?:iam|sts)::\d{12}:(root|user|assumed-role|federated-user)(?:\/(.+))?$/.exec(arn);
+  const parts = m?.[2]?.split("/") ?? [];
+  if (m?.[1] === "root") return "the account's root user";
+  if (m?.[1] === "user" && parts.length) return `user ${parts.at(-1)}`;
+  if (m?.[1] === "assumed-role" && parts[0]) return `role ${parts[0]}`;
+  if (m?.[1] === "federated-user" && parts[0]) return `federated user ${parts[0]}`;
+  return arn;
+}
+
+// A sign-in that failed, for the page. When the SDK finds nothing at all to sign in with, the usual failure on a new
+// host, its message ("Could not load credentials from any providers") doesn't say what to do: this does. `detail` is
+// the error as the server words it (errText).
+export function signInFailure(s: SignIn, e: { name?: unknown; message?: unknown } | null | undefined, detail: string): string {
+  const none = e?.name === "CredentialsProviderError" && /could not load credentials from any providers/i.test(String(e.message ?? ""));
+  if (!none) return `Couldn't sign in to AWS: ${detail}`;
+  if (s.kind === "profile") return `The profile ${s.profile} gives this machine no AWS credentials. Check it where the console runs: aws sts get-caller-identity --profile ${s.profile}`;
+  if (s.kind === "role")
+    return "Switching into a role starts from this machine's own login, and it has none. On AWS, give the console an ECS task role or an EC2 instance profile allowed to assume the role; anywhere else, a saved profile can assume it (role_arn in ~/.aws/config).";
+  return "This machine has no AWS login of its own. On AWS, give the console an ECS task role or an EC2 instance profile; anywhere else, set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY where it runs, or use a saved profile.";
+}
+
 function parseSignIn(v: unknown, profiles?: readonly string[]): SignIn | string {
   if (!isObj(v)) return "signIn must be an object";
   if (v.kind === "chain") return { kind: "chain" };
@@ -151,10 +194,12 @@ function parseSignIn(v: unknown, profiles?: readonly string[]): SignIn | string 
     return { kind: "profile", profile: v.profile };
   }
   if (v.kind === "role") {
-    if (typeof v.roleArn !== "string" || !ROLE_ARN.test(v.roleArn.trim())) return "signIn.roleArn must be an IAM role ARN (arn:aws:iam::123456789012:role/name)";
+    const roleArn = typeof v.roleArn === "string" ? v.roleArn.trim() : "";
+    const problem = roleArnProblem(roleArn);
+    if (problem) return problem;
     const ext = typeof v.externalId === "string" ? v.externalId.trim() : undefined;
     if (ext && !EXTERNAL_ID.test(ext)) return "signIn.externalId must be 2-1224 letters, digits or +=,.@:/-";
-    return { kind: "role", roleArn: v.roleArn.trim(), ...(ext ? { externalId: ext } : {}) };
+    return { kind: "role", roleArn, ...(ext ? { externalId: ext } : {}) };
   }
   return 'signIn.kind must be "chain", "profile" or "role"';
 }
@@ -251,5 +296,5 @@ export function staleWrite(o: { method: string; path: string; sent: string | nul
 export function describeSignIn(s: SignIn): string {
   if (s.kind === "profile") return `profile ${s.profile}`;
   if (s.kind === "role") return `role ${s.roleArn}${s.externalId ? " (external ID set)" : ""}`;
-  return "default credentials";
+  return "the machine's own login";
 }

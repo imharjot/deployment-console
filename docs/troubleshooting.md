@@ -29,7 +29,8 @@ server log (your terminal, `docker compose logs console`, or the `/ecs/deploymen
 | `503 the console's database is unavailable, so its AWS connection isn't known yet` | the database couldn't be read at boot, and Settings holds the connection | bring the database back; the console reads the connection within 30 s (or pin it with `CONSOLE_SOURCE`) |
 | `CONSOLE_SOURCE must be "aws" or "mock"` | a typo in `CONSOLE_SOURCE` (the console never falls back to the demo) | fix it and restart |
 | "No environments found yet" | wrong home region, or no ECS clusters there | **Test connection** in Settings → AWS connection lists the clusters per region; pick that home region (or set `AWS_REGION`) |
-| `Could not load credentials`, `ExpiredToken` | no credentials, or an expired SSO session | pick a profile in Settings → AWS connection (or set `AWS_PROFILE`); run `aws sso login` |
+| "This machine has no AWS login of its own", `Could not load credentials`, `ExpiredToken` | the machine running the console has no AWS credentials, or an SSO session expired | on AWS, give the console an ECS task role or an EC2 instance profile; elsewhere pick a saved profile in Settings → AWS connection (or set `AWS_PROFILE`, or keys); run `aws sso login` |
+| "That's the ARN of the IAM user …" | a user's ARN in **Switch into a role**: only roles can be assumed | enter the role's ARN (`arn:aws:iam::<account>:role/<name>`), or pick **Machine's own login** or a saved profile to sign in as that user |
 | `AccessDeniedException` at the top of Settings | the role lacks a permission | attach [the policy](connect-aws.md#step-1-create-the-read-only-policy); the message names the missing action |
 | A button fails with `AccessDenied…` | the read-only policy, or a statement left out | add the feature's statements (see [Connect AWS](connect-aws.md#step-5-turn-on-more-one-feature-at-a-time)) |
 | A cluster is missing | it isn't `ACTIVE`, it's tagged `console:ignore=true`, it's in `ignoreClusters` / not listed with `discoverClusters: false`, or it's an AWS Batch cluster (`AWSBatch-…`, skipped unless the config names it) | see [How discovery works](discovery.md) |
@@ -132,5 +133,6 @@ server log (your terminal, `docker compose logs console`, or the `/ecs/deploymen
 - `GET /api/discovery` — the full discovery result as JSON (signed in), with `warnings` for what the config file names
   that the account doesn't have.
 - `GET /api/connection` — the AWS connection (admins): the account and identity AWS confirms, the sign-in, the home
-  region and regions, and which environment variable decides each part; `POST /api/connection/test` tries a candidate.
+  region and regions, and which environment variable decides each part; `POST /api/connection/test` tries a candidate;
+  `GET /api/connection/machine` says who the machine's own login is.
 - `GET /api/me` — who you are, your role and permissions (signed in, or with a token).

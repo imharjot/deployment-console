@@ -48,6 +48,11 @@ first. License: Apache-2.0 (LICENSE).
   (`CONSOLE_SOURCE`, `AWS_REGION`/`AWS_DEFAULT_REGION`, `AWS_PROFILE` or keys, `CONSOLE_REGIONS`; `inventory.regions`
   too). The choice is settings key `connection` (with a `rev`), loaded by `instrumentation.ts` before anything reads AWS;
   other consoles on the same database pick up a new `rev` in the sampler's tick. No keys are ever stored.
+  - The page calls the sign-ins **Saved profile**, **Machine's own login** (the default chain) and **Switch into a
+    role**, and shows who the machine's own login is (`GET /api/connection/machine`, refused with 409 when the
+    environment pins the account or the sign-in). `roleArnProblem()` catches the usual mistake, a user's or a session's
+    ARN; `signInFailure()` turns the SDK's "Could not load credentials from any providers" (a host with no AWS login)
+    into what to do. Region names come from `regionName()` in `src/lib/client/region.tsx`.
 - A switch retires a *generation* instead of hunting down state (`connection-state.ts`):
   - `bumpGeneration()` aborts every AWS call in flight (`ctrl`), drops the stores read through globalThis (its
     `DROPPED` list), and runs each module's `onConnectionChange` hook. A hook clears, in place, a store the module

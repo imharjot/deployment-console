@@ -67,8 +67,9 @@ Also used:
 
 ### The AWS connection: environment or Settings
 
-**Settings → AWS connection** (admins) chooses the account, the sign-in (a profile from `~/.aws`, the default
-credentials, or a role to assume), the home region and the regions to read, and switches without a restart. An
+**Settings → AWS connection** (admins) chooses the account, the sign-in (a saved profile from `~/.aws`, the machine's
+own login, which is the SDK's default credentials, or a role to switch into), the home region and the regions to read,
+and switches without a restart. An
 environment variable that is set always decides its part: `CONSOLE_SOURCE`; `AWS_REGION` or `AWS_DEFAULT_REGION`;
 `AWS_PROFILE` or keys in the environment; `CONSOLE_REGIONS`. `CONSOLE_SOURCE=aws` pins the sign-in too: the console
 signs in as its environment says (a task role, IRSA) and an admin can't pick another identity the machine can reach.

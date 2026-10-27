@@ -1,9 +1,9 @@
 "use client";
 // Settings → AWS connection: which account the console reads (the simulated one or yours), how it signs in to AWS,
 // its home region and the other regions it reads. Admins only. A part an environment variable (or console.config.json)
-// decides is shown, not editable. "Test connection" asks AWS who the sign-in is and where its ECS clusters are; saving
-// switches at once (src/lib/server/connection.ts), then the app reloads so nothing of the previous account stays on
-// screen.
+// decides is shown, not editable. Each choice says what it means, and the machine's own login says who it is here.
+// "Test connection" asks AWS who the sign-in is and where its ECS clusters are; saving switches at once
+// (src/lib/server/connection.ts), then the app reloads so nothing of the previous account stays on screen.
 import { CircleCheck, Cloud, FlaskConical, KeyRound, Loader2, Lock, MapPin, ShieldCheck, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
@@ -11,10 +11,11 @@ import useSWR from "swr";
 import { useConfirm } from "@/components/confirm";
 import { hue } from "@/components/hue";
 import { useToast } from "@/components/toast";
-import { Button, Chip, Empty, Segmented, Skeleton, TimeAgo, cx } from "@/components/ui";
+import { Button, Empty, Segmented, Skeleton, TimeAgo, cx } from "@/components/ui";
 import { ROLE_INFO, useMe } from "@/components/user-menu";
 import { ApiError, postJson, putJson } from "@/lib/client/api";
-import { describeSignIn, type ConnectionTest, type ConnectionView, type SignIn } from "@/lib/connection-rules";
+import { regionName } from "@/lib/client/region";
+import { describeArn, describeSignIn, roleArnProblem, type ConnectionTest, type ConnectionView, type MachineLogin, type SignIn } from "@/lib/connection-rules";
 
 type Kind = SignIn["kind"];
 type RegionsMode = "home" | "all" | "pick";
@@ -31,6 +32,7 @@ interface Form {
 
 const inputCls = "h-9 w-full rounded-lg border border-line bg-panel-2 px-3 text-[14px] outline-none transition-colors placeholder:text-fg-3 focus:border-accent pointer-coarse:h-10";
 const account = (id: string) => id.replace(/^(\d{4})(\d{4})(\d{4})$/, "$1-$2-$3");
+const withName = (r: string) => (regionName(r) ? `${r} (${regionName(r)})` : r); // "ap-south-1 (Mumbai)"
 
 function formOf(v: ConnectionView): Form {
   const s = v.signIn;
@@ -95,7 +97,10 @@ function Editor({ view }: { view: ConnectionView }) {
   const result = tested?.body === testKey ? tested.result : undefined;
   const sameAsNow = bodyKey === JSON.stringify(bodyOf(formOf(view), locked));
   const awsReady = form.source === "mock" || !!result?.ok;
-  const signInIncomplete = form.source === "aws" && !locked.signIn && ((form.kind === "profile" && !form.profile) || (form.kind === "role" && !form.roleArn.trim()));
+  const arnProblem = form.kind === "role" ? roleArnProblem(form.roleArn) : undefined;
+  const signInIncomplete = form.source === "aws" && !locked.signIn && ((form.kind === "profile" && !form.profile) || !!arnProblem);
+  // Who the machine's own login is, asked only when the page offers that choice.
+  const machine = useSWR<MachineLogin>(form.source === "aws" && !locked.source && !locked.signIn ? "/api/connection/machine" : null, { revalidateOnFocus: false });
   const regionList = useMemo(() => {
     const all = new Set([form.home, ...view.regions.list, ...(tested?.result.regions ?? []).map((r) => r.region)]);
     return [...all].filter(Boolean).sort();
@@ -107,7 +112,7 @@ function Editor({ view }: { view: ConnectionView }) {
     try {
       const r = await postJson<ConnectionTest>("/api/connection/test", body);
       setTested({ body: testKey, result: r });
-      if (r.ok && r.suggestedHome && r.suggestedHome !== form.home && !locked.home) toast.push({ tone: "info", title: `Your ECS clusters are in ${r.suggestedHome}`, body: "Make it the home region below." });
+      if (r.ok && r.suggestedHome && r.suggestedHome !== form.home && !locked.home) toast.push({ tone: "info", title: `Your ECS clusters are in ${withName(r.suggestedHome)}`, body: "Make it the home region below." });
     } catch (e) {
       toast.push({ tone: "error", title: "Couldn't test the connection", body: e instanceof ApiError ? e.message : String(e) });
     } finally {
@@ -142,42 +147,46 @@ function Editor({ view }: { view: ConnectionView }) {
     <div className="stagger max-w-3xl space-y-4">
       <Current view={view} />
 
-      <Row icon={<Cloud className="size-[18px]" />} tone="hue-blue" title="Account" hint={lockHint(locked.source, "The simulated account is a demo shop (Acme): nothing there touches AWS.")}>
+      <section className="rounded-2xl border border-line bg-panel p-5 shadow-card">
+        <Head icon={<Cloud className="size-[18px]" />} tone="hue-blue" title="Account">
+          {lockHint(locked.source, "What the console shows and acts on.")}
+        </Head>
         {locked.source ? (
-          <Chip>{view.source === "aws" ? "Your AWS account" : "Simulated"}</Chip>
+          <p className="mt-3 text-[14px] text-fg-2">{view.source === "aws" ? "Your AWS account" : "Simulated demo"}</p>
         ) : (
-          <Segmented<"mock" | "aws">
-            id="conn-source"
-            value={form.source}
-            onChange={(v) => set({ source: v })}
-            options={[
-              { value: "mock", label: "Simulated" },
-              { value: "aws", label: "Your AWS account" },
-            ]}
-          />
+          <div className="mt-4 grid gap-1.5 sm:grid-cols-2">
+            <Choice name="conn-source" value="mock" picked={form.source} onPick={(v) => set({ source: v })} title="Simulated demo">
+              A demo shop (Acme): every screen works and nothing touches AWS.
+            </Choice>
+            <Choice name="conn-source" value="aws" picked={form.source} onPick={(v) => set({ source: v })} title="Your AWS account">
+              What really runs in your account, read with the sign-in below.
+            </Choice>
+          </div>
         )}
-      </Row>
+      </section>
 
       {form.source === "aws" && (
         <>
           <section className="rounded-2xl border border-line bg-panel p-5 shadow-card">
             <Head icon={<KeyRound className="size-[18px]" />} tone="hue-indigo" title="Sign-in">
-              {lockHint(locked.signIn, <>How the console signs in to AWS. It stores no keys: give it a profile from this machine&apos;s AWS config, the role of the task or instance it runs on, or a role to assume. <Link href="/docs/connect-aws" className="text-accent hover:underline">Connect AWS</Link> shows how to make a read-only one.</>)}
+              {lockHint(locked.signIn, <>Who the console is when it calls AWS. It never stores keys: each way starts from a login the machine running it already has. <Link href="/docs/connect-aws" className="text-accent hover:underline">Connect AWS</Link> shows how to make a read-only one.</>)}
             </Head>
             {locked.signIn ? (
-              <p className="mt-3 text-[14px] text-fg-2">{describeSignIn(view.signIn)}</p>
+              <p className="mt-3 text-[14px] text-fg-2 first-letter:uppercase">{describeSignIn(view.signIn)}</p>
             ) : (
               <div className="mt-4 space-y-3">
-                <Segmented<Kind>
-                  id="conn-signin"
-                  value={form.kind}
-                  onChange={(v) => set({ kind: v })}
-                  options={[
-                    { value: "profile", label: "Profile" },
-                    { value: "chain", label: "Default credentials" },
-                    { value: "role", label: "Assume a role" },
-                  ]}
-                />
+                <div className="grid gap-1.5">
+                  <Choice name="conn-signin" value="profile" picked={form.kind} onPick={(v) => set({ kind: v })} title="Saved profile">
+                    A profile in ~/.aws/config on the machine running the console. Best on a laptop.
+                  </Choice>
+                  <Choice name="conn-signin" value="chain" picked={form.kind} onPick={(v) => set({ kind: v })} title="Machine's own login">
+                    What the machine already signs in as (AWS&apos;s default credentials): its ECS task role or EC2 instance profile, or a laptop&apos;s default profile. Best when the console runs on AWS.
+                    <MachineWho machine={machine} />
+                  </Choice>
+                  <Choice name="conn-signin" value="role" picked={form.kind} onPick={(v) => set({ kind: v })} title="Switch into a role">
+                    The machine&apos;s own login assumes the IAM role you name: a read-only one, or one in another account.
+                  </Choice>
+                </div>
                 {form.kind === "profile" &&
                   (view.profiles.length ? (
                     <label className="block max-w-sm">
@@ -191,20 +200,27 @@ function Editor({ view }: { view: ConnectionView }) {
                       </select>
                     </label>
                   ) : (
-                    <p className="text-[13.5px] text-fg-3">No profiles in this machine&apos;s AWS config files. Add one with <code className="font-mono">aws configure</code>, or use default credentials or a role.</p>
+                    <p className="text-[13.5px] text-fg-3">No profiles in this machine&apos;s AWS config files. Add one with <code className="font-mono">aws configure</code>, or use the machine&apos;s own login.</p>
                   ))}
-                {form.kind === "chain" && <p className="text-[13.5px] text-fg-3">The AWS SDK&apos;s usual order: the ECS task role or EC2 instance profile the console runs with, or this machine&apos;s default profile.</p>}
                 {form.kind === "role" && (
                   <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
                     <label className="block">
                       <span className="eyebrow mb-1 block">Role ARN</span>
-                      <input className={cx(inputCls, "font-mono text-[13px]")} value={form.roleArn} onChange={(e) => set({ roleArn: e.target.value })} placeholder="arn:aws:iam::123456789012:role/console-readonly" spellCheck={false} autoComplete="off" />
+                      <input className={cx(inputCls, "font-mono text-[13px]")} value={form.roleArn} onChange={(e) => set({ roleArn: e.target.value })} placeholder="arn:aws:iam::123456789012:role/console-readonly" spellCheck={false} autoComplete="off" aria-invalid={!!form.roleArn.trim() && !!arnProblem} />
                     </label>
                     <label className="block">
                       <span className="eyebrow mb-1 block">External ID (optional)</span>
                       <input className={inputCls} value={form.externalId} onChange={(e) => set({ externalId: e.target.value })} spellCheck={false} autoComplete="off" />
                     </label>
-                    <p className="text-[13px] text-fg-3 sm:col-span-2">Assumed with the default credentials, which need sts:AssumeRole on it; the role must trust them.</p>
+                    {form.roleArn.trim() && arnProblem && (
+                      <p className="flex items-start gap-1.5 text-[13px] text-down sm:col-span-2">
+                        <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
+                        {arnProblem}
+                      </p>
+                    )}
+                    <p className="text-[13px] text-fg-3 sm:col-span-2">
+                      The machine&apos;s own login{machine.data?.identity ? ` (${describeArn(machine.data.identity.arn)})` : ""} asks for the role, so it needs sts:AssumeRole on it, and the role&apos;s trust policy must name it. The external ID is only for a role whose trust policy asks for one.
+                    </p>
                   </div>
                 )}
               </div>
@@ -220,7 +236,7 @@ function Editor({ view }: { view: ConnectionView }) {
                 <span className="eyebrow mb-1 block">Home region</span>
                 {locked.home ? (
                   <p className="text-[14px] text-fg-2">
-                    {view.awsHome} <span className="text-fg-3">· {locked.home} decides it</span>
+                    {withName(view.awsHome)} <span className="text-fg-3">· {locked.home} decides it</span>
                   </p>
                 ) : (
                   <select className={inputCls} value={form.home} onChange={(e) => set({ home: e.target.value })}>
@@ -228,7 +244,7 @@ function Editor({ view }: { view: ConnectionView }) {
                       const c = clustersIn(r);
                       return (
                         <option key={r} value={r}>
-                          {r}
+                          {withName(r)}
                           {c?.clusters ? ` · ${c.clusters}${c.more ? "+" : ""} cluster${c.clusters === 1 ? "" : "s"}` : ""}
                         </option>
                       );
@@ -240,7 +256,7 @@ function Editor({ view }: { view: ConnectionView }) {
                 <span className="eyebrow mb-1 block">Also read</span>
                 {locked.regions ? (
                   <p className="text-[14px] text-fg-2">
-                    {view.regions.list.join(", ")} <span className="text-fg-3">· {locked.regions} decides it</span>
+                    {view.regions.list.map(withName).join(", ")} <span className="text-fg-3">· {locked.regions} decides it</span>
                   </p>
                 ) : (
                   <Segmented<RegionsMode>
@@ -264,7 +280,10 @@ function Editor({ view }: { view: ConnectionView }) {
                   .map((r) => (
                     <label key={r} className="flex items-center gap-2 text-[13.5px]">
                       <input type="checkbox" className="accent-[var(--accent)]" checked={form.picked.includes(r)} onChange={(e) => set({ picked: e.target.checked ? [...form.picked, r] : form.picked.filter((x) => x !== r) })} />
-                      <span className="font-mono text-[13px]">{r}</span>
+                      <span>
+                        <span className="font-mono text-[13px]">{r}</span>
+                        {regionName(r) && <span className="text-fg-3"> {regionName(r)}</span>}
+                      </span>
                       {clustersIn(r)?.clusters ? <span className="text-fg-3">· {clustersIn(r)!.clusters}</span> : null}
                     </label>
                   ))}
@@ -305,14 +324,14 @@ function Current({ view }: { view: ConnectionView }) {
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="text-[16px] font-semibold">{aws ? (view.identity ? `AWS account ${account(view.identity.account)}` : "Your AWS account") : "Simulated account (Acme)"}</h3>
-          <p className="mt-1 truncate text-[13.5px] text-fg-3" title={view.identity?.arn}>
-            {aws ? `${describeSignIn(view.signIn)} · home ${view.home} · reads ${view.regions.allEnabled ? "every enabled region" : view.regions.list.join(", ")}` : "A demo shop: every screen works and nothing touches AWS."}
+          <p className="mt-1 truncate text-[13.5px] text-fg-3 first-letter:uppercase" title={view.identity?.arn}>
+            {aws ? `${describeSignIn(view.signIn)} · home ${withName(view.home)} · reads ${view.regions.allEnabled ? "every enabled region" : view.regions.list.map(withName).join(", ")}` : "A demo shop: every screen works and nothing touches AWS."}
           </p>
           {aws && view.identity?.arn && <p className="mt-0.5 truncate font-mono text-[12px] text-fg-3">{view.identity.arn}</p>}
           {view.identityError && (
             <p className="mt-2 flex items-start gap-1.5 text-[13px] text-degraded">
               <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
-              AWS didn&apos;t confirm this sign-in: {view.identityError}
+              {view.identityError}
             </p>
           )}
           <p className="mt-2 text-[12.5px] text-fg-3">
@@ -338,7 +357,7 @@ function TestResult({ result, stale }: { result?: ConnectionTest; stale: boolean
     return (
       <p className="flex items-start gap-2 text-[13.5px] text-down">
         <TriangleAlert className="mt-0.5 size-4 flex-none" />
-        AWS didn&apos;t accept this sign-in: {result.error}
+        {result.error}
       </p>
     );
   const withClusters = (result.regions ?? []).filter((r) => r.clusters);
@@ -347,11 +366,12 @@ function TestResult({ result, stale }: { result?: ConnectionTest; stale: boolean
       <p className="flex items-center gap-2 text-up">
         <CircleCheck className="size-4" />
         Signed in to account {account(result.identity?.account ?? "")}
+        {result.identity?.arn ? ` as ${describeArn(result.identity.arn)}` : ""}
       </p>
       <p className="truncate font-mono text-[12px] text-fg-3">{result.identity?.arn}</p>
       <p className="text-fg-2">
         {withClusters.length
-          ? `ECS clusters in ${withClusters.map((r) => `${r.region} (${r.clusters}${r.more ? "+" : ""})`).join(", ")}`
+          ? `ECS clusters in ${withClusters.map((r) => `${withName(r.region)}: ${r.clusters}${r.more ? "+" : ""}`).join(", ")}`
           : "No ECS clusters in the regions checked: environments come from ECS clusters, everything else shows on the cloud map."}
       </p>
       {result.problems?.map((p) => (
@@ -387,13 +407,34 @@ function Head({ icon, tone, title, children }: { icon: ReactNode; tone: string; 
   );
 }
 
-function Row({ icon, tone, title, hint, children }: { icon: ReactNode; tone: string; title: string; hint: ReactNode; children: ReactNode }) {
+// One option, with the line that says what it means (as in the agents' connection form).
+function Choice<T extends string>({ name, value, picked, onPick, title, children }: { name: string; value: T; picked: T; onPick: (v: T) => void; title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-4 rounded-2xl border border-line bg-panel p-5 shadow-card sm:flex-row sm:items-center sm:justify-between sm:gap-8">
-      <Head icon={icon} tone={tone} title={title}>
-        {hint}
-      </Head>
-      <div className="flex-none">{children}</div>
-    </section>
+    <label className={cx("press flex cursor-pointer gap-2.5 rounded-xl border p-2.5 transition-colors [--press-scale:0.985]", picked === value ? "border-accent/60 bg-accent-soft" : "border-line hover:border-line-strong hover:bg-panel-2")}>
+      <input type="radio" name={name} value={value} checked={picked === value} onChange={() => onPick(value)} className="mt-0.5 accent-[var(--accent)]" />
+      <span className="min-w-0">
+        <span className="block text-[14px] font-medium">{title}</span>
+        <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-3">{children}</span>
+      </span>
+    </label>
   );
+}
+
+// Who the machine's own login is here, or why there is none.
+function MachineWho({ machine }: { machine: { data?: MachineLogin; error?: unknown } }) {
+  const { data, error } = machine;
+  if (error) return <span className="mt-1 block text-degraded">Couldn&apos;t check who that is here: {(error as Error).message}</span>;
+  if (!data)
+    return (
+      <span className="mt-1 flex items-center gap-1.5">
+        <Loader2 className="size-3 animate-spin" /> Checking who that is here…
+      </span>
+    );
+  if (data.identity)
+    return (
+      <span className="mt-1 block text-fg-2" title={data.identity.arn}>
+        Here: <span className="font-medium">{describeArn(data.identity.arn)}</span> in account {account(data.identity.account)}
+      </span>
+    );
+  return <span className="mt-1 block text-degraded">{data.error}</span>;
 }

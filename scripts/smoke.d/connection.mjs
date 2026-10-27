@@ -5,6 +5,12 @@
 export default async function connectionSmoke({ get, post, call, check, BASE }) {
   const v = (await get("/api/connection")).json;
   check("connection: GET reports the simulated account and the profiles it can see", v?.source === "mock" && Array.isArray(v?.profiles), JSON.stringify(v?.from ?? v));
+  // Who the machine's own login is takes an AWS call, so it's only asked here when the environment pins the account
+  // (CI and the demo run do): then the console refuses to ask at all.
+  if (v?.locked?.source) {
+    const m = await get("/api/connection/machine");
+    check("connection: with the account pinned, the console doesn't ask who the machine's own login is", m.status === 409, `${m.status} ${JSON.stringify(m.json)}`);
+  }
   const t = await post("/api/connection/test", { source: "mock" });
   check("connection: testing the simulated account passes without AWS", t.status === 200 && t.json?.ok === true && t.json?.identity?.account === "123456789012", JSON.stringify(t.json));
   const keys = await post("/api/connection/test", { source: "aws", signIn: { kind: "keys", accessKeyId: "AKIAIOSFODNN7EXAMPLE" } });

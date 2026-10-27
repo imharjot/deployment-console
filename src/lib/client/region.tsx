@@ -105,9 +105,12 @@ const NAMES: Record<string, string> = {
   "us-gov-west-1": "GovCloud West", "us-gov-east-1": "GovCloud East",
 };
 
+// "Ireland" for eu-west-1; undefined for a code the list doesn't know.
+export const regionName = (r: string): string | undefined => (Object.hasOwn(NAMES, r) ? NAMES[r] : undefined);
+
 // "eu-west-1 · Ireland"; "All regions" for the filter's "all"; unknown codes as they are.
 export function regionLabel(r: RegionFilter): string {
   if (r === "all") return "All regions";
-  const name = Object.hasOwn(NAMES, r) ? NAMES[r] : undefined;
+  const name = regionName(r);
   return name ? `${r} · ${name}` : r;
 }
