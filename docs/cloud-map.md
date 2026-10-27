@@ -19,7 +19,10 @@ Open **Cloud map** in the sidebar (or press `g`), the **Cloud map** link on an e
   Network, Security & identity, Monitoring & logs, Build & delivery, Other services — are switched on in **Layers**
   (counts per layer; your choice is remembered in this browser, and a link carries it). Other services is on by
   default: generic resources the console has no dedicated reader for, grouped per lane and AWS service. Hidden rows
-  (AWS-managed keys, service roles, table-only types) are never drawn; they are listed in All resources.
+  (AWS-managed keys, service roles, table-only types) are never drawn; they are listed in All resources. So is an
+  untouched default VPC — the one AWS creates in every region — with its subnets, internet gateway and default security
+  group, as long as nothing else is in it and no network interface uses that group: with every region read, each empty
+  region would otherwise add one to the map.
 - **Lanes.** Lanes group the map by environment (default; production first, **Shared** last), by VPC, by region (with
   several regions) or not at all. More than 12 resources of one kind in a lane show as one group: click it to expand,
   use the chip at the top left to collapse.
@@ -240,7 +243,9 @@ be declared by name under `externals` in [`console.config.json`](configuration.m
 
 An `ip` target of a load balancer lands on the ECS service whose running task holds that address (or an EC2 instance
 with it); a public one nothing answers to becomes an external node. A forward rule's host header is a hostname of the
-service behind it, so `https://api.example.com` in a variable finds that service.
+service behind it, so `https://api.example.com` in a variable finds that service. Several listener rules into one
+service are one line, labelled with the first rule's hosts and paths and `+N` for the others (`api.example.com +2`);
+each rule, with its hosts, is in the line's evidence.
 
 ## Health across resources
 
@@ -268,7 +273,7 @@ Every resource gets at most one environment, and the panel says why (`reported b
 | 1. What the provider knows | an ECS service's cluster environment, the environment the ECS discovery attributed an RDS instance to, a declared workload's `env` |
 | 2. Tag `console:env` | `console:env=payments` → **payments** |
 | 3. Tag `Environment`, `environment`, `Env`, `env`, `Stage` or `stage` | `Environment=prd` → **production**; `Environment=shared` → shared on purpose |
-| 4. A stage word in the name, when exactly one environment matches | `acme-staging-orders` → **staging**; `prod-to-staging-sync` → nothing |
+| 4. A stage word in the name, when exactly one environment matches — never in a name AWS gave something it created itself (`default…`) | `acme-staging-orders` → **staging**; `prod-to-staging-sync` → nothing; the parameter group `default.memorydb-redis7.search.preview` → nothing |
 | 5. The VPC, when everything placed by rules 1–4 in that VPC agrees — the VPC itself too; one whose workloads disagree is shared | a Lambda in the production VPC → **production**; a VPC holding the staging box and staging database stays **staging** even when production's database allows its CIDR |
 | 6. Its connections, when every connected resource with an environment agrees (up to three hops) — and still agrees once every hop is placed | a queue only production services write to → **production**; a resource between a staging and a production one stays shared |
 

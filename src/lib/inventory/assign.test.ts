@@ -246,6 +246,16 @@ test("F69: name hints come from ids, never display names, and yield to an author
   assert.equal(by["arn:aws:s3:::acme-media"].env, "production", "so does a variable inside an env file that names the bucket");
 });
 
+test("AWS's own defaults never place a resource by name, nor make an environment of their own", () => {
+  const preview = "arn:aws:memorydb:us-east-1:123456789012:parametergroup/default.memorydb-redis7.search.preview";
+  const bus = "arn:aws:events:us-east-1:123456789012:event-bus/default";
+  const alone = assignEnvs([R(preview, { kind: "aws-resource", name: "default.memorydb-redis7.search.preview", hidden: true }), R(bus, { kind: "aws-resource", name: "default" })], [], KNOWN);
+  assert.deepEqual(alone.resources.map((r) => [r.env, r.protectedBy]), [[undefined, undefined], [undefined, undefined]]);
+  assert.deepEqual(alone.envs.map((e) => e.id), ["staging", "production"], "no sandbox from a default parameter group in us-east-1");
+  const mine = assignEnvs([R("arn:aws:lambda:us-east-1:123456789012:function:acme-preview-thumbs", { name: "Thumbs" })], [], KNOWN);
+  assert.equal(mine.resources[0].env, "sandbox", "a name you chose still counts");
+});
+
 // The real account's 23 resources (anonymised: names, ids and account replaced), as assigned before this change. Two
 // differences are intended: the ops bucket was placed in production only because three services read env files from
 // it (now unassigned, F69), and the staging "Live Orders" workload was protected as production because of its display

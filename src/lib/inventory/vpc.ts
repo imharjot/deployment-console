@@ -7,7 +7,8 @@
 //   a default route (0.0.0.0/0 or ::/0) to igw- → public; 0.0.0.0/0 to nat- → private (NAT); to tgw-, vgw-, eni-, i-,
 //   pcx- or a Gateway Load Balancer vpce- → private (routed); ::/0 to eigw- → IPv6 egress-only; none → isolated.
 // - Facts on subnets (R4): routesToIgw, and naclOpen — the inbound ports its network ACL lets in from 0.0.0.0/0 (or
-//   ::/0), evaluated in rule-number order ("all" when everything is). VPCs carry their CIDRs as facts.cidrs.
+//   ::/0), evaluated in rule-number order ("all" when everything is). VPCs carry their CIDRs as facts.cidrs, and
+//   facts.isDefault when AWS created them (one per region; the untouched ones are hidden, R10).
 // - States are compared lower-cased (the API says "available" where the model says "Available", CC-4).
 // - An Elastic IP is a node only when it is associated with nothing and no AWS service manages it ("not attached —
 //   billed hourly"); one a NAT gateway uses is an alias of that gateway; the rest are hidden table rows.
@@ -432,7 +433,7 @@ export function vpcResults(raw: VpcRaw, o: VpcOptions): ProviderResult {
       key, kind: "vpc", provider: "vpc", name: nameOf(tags, id), region, tags, ...h(problems.length ? "warning" : "ok", problems.join(" · ") || undefined), props: p,
       // Route tables and network ACLs aren't nodes: Resource Explorer's rows for them fold into their VPC.
       aliases: uniq([id, ...rtbs.flatMap((t) => [t.RouteTableId, arnOf.routeTable(region, acct(t.OwnerId), t.RouteTableId!)]), ...acls.flatMap((x) => [x.NetworkAclId, arnOf.networkAcl(region, acct(x.OwnerId), x.NetworkAclId!)])]),
-      consoleUrl: consoleUrl(region, `VpcDetails:VpcId=${id}`), facts: { cidrs }, ...foreign(v.OwnerId), ...stamp,
+      consoleUrl: consoleUrl(region, `VpcDetails:VpcId=${id}`), facts: { cidrs, ...(v.IsDefault ? { isDefault: true } : {}) }, ...foreign(v.OwnerId), ...stamp,
     });
   }
 

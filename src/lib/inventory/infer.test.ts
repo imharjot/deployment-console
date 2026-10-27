@@ -557,6 +557,7 @@ test("B.4: a Systems Manager managed instance folds into its EC2 instance (tags 
   const box = resources.find((r) => r.key === inst.key)!;
   assert.deepEqual(box.tags, { Name: "acme-box", patch: "weekly" });
   assert.ok(box.props.some((p) => p.label === "Systems Manager" && p.value === "managed instance"));
+  assert.equal(box.aliases?.at(-1), `arn:aws:ssm:us-east-1:${ACCT}:managed-instance/i-0abc`, "its ARN finds the instance, after the instance's own");
   assert.deepEqual(notes, []);
 });
 

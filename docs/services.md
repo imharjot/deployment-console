@@ -197,7 +197,9 @@ Live reads were checked on 5 October 2026 against one account (ap-south-1 and us
 
 To check your own account: `node scripts/parity.mjs --base <console URL> --profile <read-only profile> --regions
 <a,b> [--expect expectations.json]` (header of the script for the expectations format). It exits non-zero on any
-mismatch and prints each one.
+mismatch and prints each one. Where the map and Resource Explorer disagree, the service's own list call settles it:
+Resource Explorer doesn't index everything (AWS-managed KMS keys, private hosted zones…) and keeps some released
+resources for a while (Elastic IPs), so a disagreement the list call confirms is printed as information, not a mismatch.
 
 ## IAM actions by provider
 

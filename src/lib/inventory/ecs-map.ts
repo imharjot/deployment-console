@@ -226,11 +226,26 @@ export const groupsOf = (lb: ElbLoadBalancer, all: ElbTargetGroup[]): ElbTargetG
 // when the group has none — F72), else → each registered target (instance → EC2, ip → the ECS task that holds it or
 // the address itself, lambda → the function, alb → that load balancer). Groups no rule names (rules unread, NLB
 // default actions) are linked by name. `at`: the load balancer's region and the home region, for instance keys outside
-// home (ec2:<id>@<region>).
+// home (ec2:<id>@<region>). Several rules into one group are one connection on the map: every link gets the first
+// rule's label plus "+N" for the other hosts and paths, and each rule's evidence names its own.
 export function lbLinks(from: string, lb: ElbLoadBalancer, groups: ElbTargetGroup[], join?: EcsJoin, at?: { region: string; home: string }): Link[] {
   const out: Link[] = [];
   const byArn = new Map(groups.map((g) => [g.arn, g]));
   const done = new Set<string>();
+  const conds = (r: ElbRule) => [...r.hosts, ...r.paths];
+  const reach = new Map<string, { label: string; first: Set<string>; all: Set<string> }>(); // target group → its rules
+  for (const l of lb.listeners ?? [])
+    for (const r of l.rules)
+      for (const arn of r.targetGroupArns) {
+        const g = reach.get(arn) ?? { label: ruleWhat(r), first: new Set(conds(r)), all: new Set<string>() };
+        for (const c of conds(r)) g.all.add(c);
+        reach.set(arn, g);
+      }
+  const labelOf = (arn: string) => {
+    const g = reach.get(arn)!;
+    const more = [...g.all].filter((c) => !g.first.has(c)).length;
+    return more ? `${g.label} +${more}` : g.label;
+  };
   const to = (arn: string, label: string, evidence: string) => {
     const g = byArn.get(arn);
     const name = g?.name ?? TG_NAME(arn);
@@ -254,7 +269,8 @@ export function lbLinks(from: string, lb: ElbLoadBalancer, groups: ElbTargetGrou
     for (const r of l.rules)
       for (const arn of r.targetGroupArns) {
         done.add(arn);
-        to(arn, ruleWhat(r), `listener ${l.protocol}:${l.port} rule ${r.priority} → ${byArn.get(arn)?.name ?? TG_NAME(arn)}`);
+        const what = conds(r).join(" ");
+        to(arn, labelOf(arn), `listener ${l.protocol}:${l.port} rule ${r.priority}${what ? ` (${what})` : ""} → ${byArn.get(arn)?.name ?? TG_NAME(arn)}`);
       }
   for (const g of groups) if (!done.has(g.arn)) to(g.arn, g.name, `target group ${g.name}`);
   return out;

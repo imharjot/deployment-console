@@ -107,6 +107,21 @@ const LISTENERS = [
   },
 ];
 
+test("several rules into one group: one label with +N for the other hosts and paths, each rule in its evidence", () => {
+  const rule = (priority: string, hosts: string[], paths: string[] = []) => ({ priority, hosts, paths, action: "forward", targetGroupArns: [TG("prod-api")] });
+  const listeners = [
+    { protocol: "HTTPS", port: 443, rules: [rule("10", ["api.acme.dev"]), rule("100", ["api.acme.com", "legacy.acme.dev"]), rule("110", [], ["/v2/*"])] },
+    { protocol: "HTTP", port: 80, rules: [rule("10", ["api.acme.dev"])] },
+  ];
+  const j = join([[TG("prod-api"), [{ key: "ecs:service/acme-production/api", env: "production", desired: 2 }]]]);
+  const links = lbLinks("elb:acme-production", lb({ listeners }), [tg("prod-api", { targets: [healthy("10.0.3.20")] })], j);
+  assert.deepEqual([...new Set(links.map((l) => l.label))], ["api.acme.dev +3"], "api.acme.com, legacy.acme.dev and /v2/*; the HTTP copy of rule 10 adds nothing");
+  assert.deepEqual(links.map((l) => l.evidence), [
+    "listener HTTPS:443 rule 10 (api.acme.dev) → prod-api", "listener HTTPS:443 rule 100 (api.acme.com legacy.acme.dev) → prod-api",
+    "listener HTTPS:443 rule 110 (/v2/*) → prod-api", "listener HTTP:80 rule 10 (api.acme.dev) → prod-api",
+  ]);
+});
+
 test("F72: rule hostnames per target group (forward rules only, no wildcards)", () => {
   const m = ruleHosts(LISTENERS);
   assert.deepEqual(m.get(TG("prod-api")), ["api.acme.dev"]);
@@ -129,7 +144,7 @@ test("F72 + R17: route edges — to services (' · no targets' on an empty group
   );
   const links = lbLinks("elb:acme-production", lb({ listeners: LISTENERS }), groups, j);
   const by = (to: string) => links.filter((l) => l.to === to);
-  assert.deepEqual(by("ecs:service/acme-production/api").map((l) => [l.kind, l.label, l.evidence]), [["route", "api.acme.dev", "listener HTTPS:443 rule 10 → prod-api"]]);
+  assert.deepEqual(by("ecs:service/acme-production/api").map((l) => [l.kind, l.label, l.evidence]), [["route", "api.acme.dev", "listener HTTPS:443 rule 10 (api.acme.dev) → prod-api"]]);
   assert.deepEqual(by("ecs:service/acme-production/billing").map((l) => l.label), ["*.acme.dev billing.acme.dev /billing/* · no targets"]);
   assert.deepEqual(by("ec2:i-0abc").map((l) => [l.kind, l.label, l.evidence]), [["route", "legacy → :80", "target group legacy: unhealthy"]]);
   assert.deepEqual(by("10.0.9.9").map((l) => l.label), ["partner → :8443"], "an IP no task holds stays an address (infer makes public ones external hosts)");

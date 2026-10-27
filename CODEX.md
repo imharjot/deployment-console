@@ -278,7 +278,8 @@ first. License: Apache-2.0 (LICENSE).
   encoding in `src/lib/inventory/snapshot.ts`, mentions sealed) and after a restart serves the persisted map, labelled
   stale, read from the same AWS account only. It runs them,
   `src/lib/inventory/{infer,assign,idle,propagate}.ts` merge, link, place, apply the cross-resource health rules
-  (R1–R9) and mark idle (pure, tested), the UI is `/map` (`src/components/map/*`, layout in
+  (R1–R9; R10 hides an untouched default VPC with its subnets, internet gateway and default security group — nothing
+  else in it, no network interface on that group) and mark idle (pure, tested), the UI is `/map` (`src/components/map/*`, layout in
   `src/lib/inventory/layout.ts`); `/resources` is the All-resources table (`components/map/table.tsx`, rules in
   `table-rules.ts`). Pan and zoom live outside React in `components/map/viewport.ts` (frames move the plane through
   refs; React renders when a gesture ends); filters, pass-through edges and the URL are pure in
@@ -301,7 +302,10 @@ first. License: Apache-2.0 (LICENSE).
   alias their task-definition family ARN, which EventBridge Scheduler and Pipes targets name. A catch-all row of a type
   its provider covers that matched nothing is a stale Resource Explorer entry when other rows of that type and region
   did match (left out with a note); when none matched it stays hidden and flagged as a key-format bug (`foldGenerics`
-  in `infer.ts`). Systems Manager managed-instance rows fold into their EC2 instance. Generic resources take labels, categories
+  in `infer.ts`). Systems Manager managed-instance rows fold into their EC2 instance (their ARN becomes one of its
+  aliases). Rule 4 of `assign.ts` (stage words in an id) never reads a `default…` name: AWS gives those to what it creates
+  in every region (`default.memorydb-redis7.search.preview` made a "sandbox" environment). Several listener rules into
+  one target group share one label, the first rule's hosts plus `+N` (`lbLinks`). Generic resources take labels, categories
   and map visibility from `src/lib/inventory/aws-services.ts` (UI code uses `categoryOf` / `kindLabelOf` / `serviceOf`
   and `iconOf` / `shortOf`, never `KIND_INFO[r.kind]` for a resource). Mock names for every provider live in
   `mock-names.ts` (frozen). Registered-but-unbuilt providers answer `NOT_IMPLEMENTED` (`src/lib/permissions.ts`) and
@@ -313,7 +317,7 @@ first. License: Apache-2.0 (LICENSE).
   role `SimulateOwnPermissions` may simulate (`--principal`; the Policy builder's ROLE field).
   `src/lib/inventory/covers.test.ts` checks provider covers against the snapshot. `npm run parity`
   (`scripts/parity.mjs`) compares a running console's inventory with Resource Explorer and an expectations file
-  (read-only AWS CLI calls).
+  (read-only AWS CLI calls); where the two disagree, either way, the service's own list call settles it.
 - Docs: `docs/*.md`, rendered in-app at `/docs`.
 
 **Boundaries:** reads every service a provider declares (`read` lists; the read-only policy grants exactly those),
