@@ -2,11 +2,12 @@
 #
 #   docker compose up --build            → http://localhost:3000
 #
-# Defaults to the simulated "Acme" account (CONSOLE_SOURCE=mock), so nothing in AWS is touched. On first start the
-# log prints a one-time setup token: open /setup and paste it to create the first admin (or set CONSOLE_ADMIN_EMAIL/PASSWORD below).
+# Starts on the simulated "Acme" account, so nothing in AWS is touched. On first start the log prints a one-time setup
+# token: open /setup and paste it to create the first admin (or set CONSOLE_ADMIN_EMAIL/PASSWORD below).
 #
-# Your own AWS account: set CONSOLE_SOURCE=aws and AWS_REGION, and uncomment the ~/.aws mount + AWS_PROFILE
-# (or pass AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN from your shell). See docs/quickstart.md.
+# Your own AWS account: uncomment the ~/.aws mount, then choose a profile in Settings → AWS connection (no restart).
+# Or pin it here: CONSOLE_SOURCE=aws, AWS_REGION and AWS_PROFILE (or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
+# AWS_SESSION_TOKEN from your shell); what is set here decides, and Settings shows it read-only. See docs/connect-aws.md.
 #
 # Postgres instead of SQLite: `docker compose --profile postgres up --build` and set DATABASE_URL (below) — plus a
 # CONSOLE_SECRET_KEY, which is required with Postgres.
@@ -19,8 +20,9 @@ services:
       # proxy in front and publish through it (and set CONSOLE_PUBLIC_URL, CONSOLE_TRUSTED_PROXIES).
       - "127.0.0.1:3000:3000"
     environment:
-      CONSOLE_SOURCE: ${CONSOLE_SOURCE:-mock}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
+      # Empty = unset: Settings → AWS connection decides (the simulated account until an admin connects one).
+      CONSOLE_SOURCE: ${CONSOLE_SOURCE:-}
+      AWS_REGION: ${AWS_REGION:-}
       AUTH_MODE: session
       CONSOLE_PUBLIC_URL: ${CONSOLE_PUBLIC_URL:-http://localhost:3000}
       # Nothing sits in front of this container, so X-Forwarded-For comes from the client: don't trust it.
@@ -31,7 +33,7 @@ services:
       GITHUB_OWNER: ${GITHUB_OWNER:-}
       # DATABASE_URL: postgres://console:console@postgres:5432/console
       # CONSOLE_SECRET_KEY: ${CONSOLE_SECRET_KEY}
-      # AWS_PROFILE: ${AWS_PROFILE:-default}
+      # AWS_PROFILE: ${AWS_PROFILE:-}
     volumes:
       - console-data:/app/data
       # - ~/.aws:/home/node/.aws:ro

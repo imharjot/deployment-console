@@ -25,6 +25,7 @@ import type {
   CiJob, CiRun, CommitInfo, InsightsResult, ProbeResult, RawBox, RawCache, RawDb, RawDeployment, RawEvent, RawLbTarget, RawRevision, RawSecurityGroup, RawTask,
   RawService, RawTaskDef,
 } from "../types.ts";
+import { retire } from "./connection-state.ts";
 import { HttpError } from "./errors.ts";
 import type { Ci, Cloud, MetricSpec } from "./sources.ts";
 
@@ -1114,8 +1115,13 @@ function runInsights(E: Estate, groups: string[], query: string, start: number, 
 }
 
 // ---------- exports ----------
-// The simulated account in one region (default: us-east-1, the Acme shop).
-export function mockCloud(region: string = REGION): Cloud {
+// The simulated account in one region (default: us-east-1, the Acme shop). Retired when the AWS connection changes
+// (connection-state.ts), like awsCloud.
+export function mockCloud(region: string = REGION, born?: number): Cloud {
+  return retire(simulatedCloud(region), born);
+}
+
+function simulatedCloud(region: string): Cloud {
   const E = estate(region);
   const ALB = E.alb ?? "";
   return {
@@ -1565,7 +1571,11 @@ export function mockCloud(region: string = REGION): Cloud {
   };
 }
 
-export function mockCi(): Ci {
+export function mockCi(born?: number): Ci {
+  return retire(simulatedCi(), born);
+}
+
+function simulatedCi(): Ci {
   return {
     kind: "mock",
     async runs(repo, branch, limit) {

@@ -76,10 +76,11 @@ for f in ./policy/*.json; do
   aws iam create-policy --policy-name "$(basename "$f" .json)" --policy-document "file://$f"
 done
 
-# 2. Attach the parts to a role or user, then run the console with those credentials
-#    (from the Node.js setup above: .env.local signs you in on your own machine).
-CONSOLE_SOURCE=aws AWS_PROFILE=deployment-console AWS_REGION=eu-west-1 npm run dev
+# 2. Attach the parts to a role or user, and add a profile for it to ~/.aws/config.
 ```
+
+3. Open **Settings → AWS connection**, pick that profile, choose **Test connection**, then **Save and switch**. The
+   console switches without a restart. (Or pin it in the environment: `CONSOLE_SOURCE=aws AWS_PROFILE=… AWS_REGION=…`.)
 
 Or start the console first and open **Settings → AWS permissions**: its policy builder generates the same policy and the
 AWS CLI commands for exactly the services you want. [Connect AWS](docs/connect-aws.md) walks through every step, and

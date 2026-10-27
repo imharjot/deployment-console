@@ -11,6 +11,7 @@ import { simulationTargets, type SampleRow } from "../capability-rules.ts";
 import { regionalIds } from "../regions.ts";
 import type { EdgeKind, EnvInfo, RawBox, RawCache, RawCluster, RawDb, RawService, TopoEdge, TopoNode } from "../types.ts";
 import { cached } from "./cache.ts";
+import { generation, isConnectionChanged } from "./connection-state.ts";
 import { consoleConfig } from "./config-check.ts";
 import { HttpError, errText } from "./errors.ts";
 import { consoleRegions } from "./regions.ts";
@@ -47,12 +48,14 @@ async function clustersByRegion(): Promise<{ home: string; byRegion: [string, Ra
       if (region === home) return [region, await read()];
       const down = regionErrors().get(region);
       if (down && down.until > Date.now()) return [region, []];
+      const born = generation();
       try {
         const clusters = await read();
         regionErrors().delete(region);
         return [region, clusters];
       } catch (e) {
-        regionErrors().set(region, { until: Date.now() + RETRY_REGION_MS, error: errText(e) });
+        // Cut off by a switch of the AWS connection: not this region's failure (the new connection reads it afresh).
+        if (generation() === born && !isConnectionChanged(e)) regionErrors().set(region, { until: Date.now() + RETRY_REGION_MS, error: errText(e) });
         return [region, []];
       }
     }),

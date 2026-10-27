@@ -302,7 +302,7 @@ for (const f of (await readdir(new URL("./smoke.d/", import.meta.url)).catch(() 
 
 // --- pages render
 // /map?view=table answers 200 too: it redirects to /resources in the browser, after hydration.
-for (const p of ["/", "/metrics", "/logs", "/ci", "/activity", "/releases", "/costs", "/audit", "/automation", "/assistant", "/resources", "/map?view=table", "/settings", "/settings/interface", "/settings/account", "/settings/environments", "/settings/permissions", "/settings/users", "/settings/integrations"]) {
+for (const p of ["/", "/metrics", "/logs", "/ci", "/activity", "/releases", "/costs", "/audit", "/automation", "/assistant", "/resources", "/map?view=table", "/settings", "/settings/aws", "/settings/interface", "/settings/account", "/settings/environments", "/settings/permissions", "/settings/users", "/settings/integrations"]) {
   const r = await fetch(BASE + p);
   check(`page ${p}`, r.status === 200);
 }

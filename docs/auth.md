@@ -135,7 +135,7 @@ Each role includes everything the roles above it in this table can do.
 | **viewer** | see the overview, the cloud map, logs, metrics, CI, releases, activity, the audit log and [notes](notes.md), and the names (not values) of environment variables |
 | **developer** | + restart, stop/start and switch revision, reveal and edit environment variables, and run one-off tasks on **non-protected** environments; re-run CI (except deploys to protected environments); create tickets; write [notes](notes.md); refresh the cloud map (a full re-discovery) |
 | **operator** | + the same on **protected** environments; re-run deploys to protected environments; start/stop hosts and databases (never on protected environments); see [costs](costs.md); [create & scale](provisioning.md) on non-protected environments |
-| **admin** | + users, integrations, discovery re-scan, everyone's API tokens, and create & scale on protected environments |
+| **admin** | + users, integrations, the AWS connection, discovery re-scan, everyone's API tokens, and create & scale on protected environments |
 
 In detail:
 
@@ -152,7 +152,7 @@ In detail:
 | Start/stop hosts and databases (never on protected environments) | | | ✓ | ✓ |
 | Costs page and cost operations | | | ✓ | ✓ |
 | Copy, scale, add hosts, delete what the console created | | | non-protected | ✓ |
-| Users, integrations, discovery re-scan, everyone's API tokens | | | | ✓ |
+| Users, integrations, the AWS connection, discovery re-scan, everyone's API tokens | | | | ✓ |
 
 Anyone can create [API tokens](automation.md) for themselves, never with more than their own role. Approving an
 agent's request needs the permission the request itself needs (and, with `CONSOLE_APPROVALS_TWO_PERSON=true`, someone

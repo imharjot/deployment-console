@@ -40,17 +40,20 @@ import {
   type LbConfig, type SdkRule, type SdkScalableTarget, type SdkScalingPolicy, type TargetHealthDetail,
 } from "../aws-mapping.ts";
 import { combineTargets, roleArnFromCaller, type SimDecision } from "../capability-rules.ts";
-import { LIMITS, REGION } from "../config.ts";
+import { LIMITS } from "../config.ts";
 import { jsonKeyValue, parseSecretRef, withJsonKey } from "../envvars.ts";
 import { periodFor } from "../metric-specs.ts";
 import type { InsightsResult, RawBox, RawDb, RawRevision, RawService } from "../types.ts";
 import { limitedClient } from "./aws-limiter.ts";
 import { cached, memo } from "./cache.ts";
-import { accessDeniedOf, HttpError, isOutcomeUnknown, OutcomeUnknownError } from "./errors.ts";
+import { connectionCredentials, type CredentialsProvider } from "./connection-credentials.ts";
+import { retire } from "./connection-state.ts";
+import { accessDeniedOf, errText, HttpError, isOutcomeUnknown, OutcomeUnknownError } from "./errors.ts";
 import type { Cloud, HostSpec, Placement } from "./sources.ts";
 
-const cfg = (region: string) => ({ region, retryMode: "adaptive" as const, maxAttempts: 3 });
-const once = (region: string) => ({ region, maxAttempts: 1 }); // writes: never retried by the SDK (see the header)
+// connectionCredentials: the sign-in Settings → AWS connection (or the environment) chose, for this generation's clients.
+const cfg = (region: string) => ({ region, retryMode: "adaptive" as const, maxAttempts: 3, credentials: connectionCredentials });
+const once = (region: string) => ({ region, maxAttempts: 1, credentials: connectionCredentials }); // writes: never retried by the SDK (see the header)
 // The clients of one region, each bounded by the SDK-call limiter under its service and this region. The write clients
 // share their service's slots with the readers.
 function clientsFor(region: string) {
@@ -218,7 +221,12 @@ async function ssmParam(k: Clients, name: string) {
   return d.Parameters?.[0];
 }
 
-export function awsCloud(region: string = REGION): Cloud {
+// Retired when the AWS connection changes (connection-state.ts): a caller still holding it gets ConnectionChangedError.
+export function awsCloud(region: string, born?: number): Cloud {
+  return retire(cloudOf(region), born);
+}
+
+function cloudOf(region: string): Cloud {
   const k = clientsFor(region);
 
   // ECR clients of other regions, for images whose registry is elsewhere (the image says where).
@@ -269,7 +277,8 @@ export function awsCloud(region: string = REGION): Cloud {
     return out;
   };
 
-  // The identity's role (not the session), for the policy simulation. Fixed for the process's lifetime.
+  // The identity's role (not the session), for the policy simulation. Fixed for the connection's lifetime (a switch
+  // drops the cache).
   const principal = () =>
     memo(`aws:principal:${region}`, async () => {
       const r = await k.sts.send(new GetCallerIdentityCommand({}), t());
@@ -910,4 +919,45 @@ export function awsCloud(region: string = REGION): Cloud {
       }
     },
   };
+}
+
+// ---------- Settings → AWS connection ----------
+
+export interface ConnectionProbe {
+  account: string;
+  arn: string;
+  regions?: { region: string; clusters?: number; more?: boolean; error?: string }[];
+  problems?: string[];
+}
+
+// Who `credentials` sign in as and, with `regions`, how many ECS clusters each enabled region has: Settings → AWS
+// connection's test and save (connection.ts). Its own clients, since the candidate may not be the connection in use.
+// Reads only: sts:GetCallerIdentity (needs no permission), ec2:DescribeRegions, ecs:ListClusters.
+export async function probeConnection(credentials: CredentialsProvider, home: string, o: { regions?: boolean } = {}): Promise<ConnectionProbe> {
+  const sts = limitedClient(new STSClient({ region: home, credentials, maxAttempts: 2 }), "sts", home);
+  const who = await sts.send(new GetCallerIdentityCommand({}), t());
+  if (!who.Account || !who.Arn) throw new Error("sts:GetCallerIdentity returned no account");
+  const out: ConnectionProbe = { account: who.Account, arn: who.Arn };
+  if (!o.regions) return out;
+  let regions = [home];
+  try {
+    const ec2 = limitedClient(new EC2Client({ region: home, credentials, maxAttempts: 2 }), "ec2", home);
+    const r = await ec2.send(new DescribeRegionsCommand({ AllRegions: false }), t());
+    const names = (r.Regions ?? []).map((x) => x.RegionName).filter((x): x is string => !!x).sort();
+    if (names.length) regions = [home, ...names.filter((n) => n !== home)];
+  } catch (e) {
+    out.problems = [`couldn't list the account's enabled regions (${errText(e)}): only ${home} was checked`];
+  }
+  out.regions = await Promise.all(
+    regions.map(async (region) => {
+      try {
+        const ecs = limitedClient(new ECSClient({ region, credentials, maxAttempts: 1 }), "ecs", region);
+        const r = await ecs.send(new ListClustersCommand({ maxResults: 100 }), t());
+        return { region, clusters: r.clusterArns?.length ?? 0, ...(r.nextToken ? { more: true } : {}) };
+      } catch (e) {
+        return { region, error: errText(e) };
+      }
+    }),
+  );
+  return out;
 }

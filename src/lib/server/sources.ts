@@ -228,16 +228,28 @@ export interface Ci {
 // The home region's Cloud keeps its single-region slot (__consoleCloud); other regions are in __consoleClouds.
 const g = globalThis as { __consoleCloud?: Promise<Cloud>; __consoleClouds?: Map<string, Promise<Cloud>>; __consoleCi?: Promise<Ci> };
 
-// A typo must not silently run the demo against nothing: only aws, mock or unset (= mock) are accepted.
+// The connection Settings → AWS connection chose, once loaded (connection-state.ts; read inline here, so this module's
+// imports stay as they are). It already gives every environment variable that is set its say.
+type Live = { gen: number; effective?: { source: "aws" | "mock"; home: string }; unloaded?: boolean };
+const conn = () => (globalThis as { __consoleConnection?: Live }).__consoleConnection;
+const live = () => conn()?.effective;
+
+// A typo must not silently run the demo against nothing: only aws, mock or unset are accepted. Unset: Settings decides,
+// else the simulated account.
 export const sourceKind = (): "aws" | "mock" => {
   const v = process.env.CONSOLE_SOURCE?.trim().toLowerCase();
   if (v === "aws") return "aws";
-  if (!v || v === "mock") return "mock";
-  throw new Error(`CONSOLE_SOURCE must be "aws" or "mock" (got "${process.env.CONSOLE_SOURCE}")`);
+  if (v === "mock") return "mock";
+  if (v) throw new Error(`CONSOLE_SOURCE must be "aws" or "mock" (got "${process.env.CONSOLE_SOURCE}")`);
+  // The database holding Settings' choice couldn't be read at boot: answering the simulated account would show (and
+  // record) the demo on a console meant to read AWS.
+  if (conn()?.unloaded) throw Object.assign(new Error("the console's database is unavailable, so its AWS connection isn't known yet"), { status: 503 });
+  return live()?.source ?? "mock";
 };
 
-// The console's home region: AWS_REGION, or with the simulated account its home (us-east-1), whatever AWS_REGION says.
-export const homeRegion = (): string => (sourceKind() === "mock" ? MOCK_REGIONS[0] : REGION);
+// The console's home region: AWS_REGION (or AWS_DEFAULT_REGION), else Settings' choice, else us-east-1. The simulated
+// account's home is us-east-1 whatever they say.
+export const homeRegion = (): string => (sourceKind() === "mock" ? MOCK_REGIONS[0] : (live()?.home ?? REGION));
 
 // src/lib/regions.ts REGION_CODE, repeated: importing it (or errors.ts) here broke the dev server's hot reload of
 // discovery.ts's dependents ("inRegion is not a function") — keep this module's imports as they are.
@@ -250,7 +262,9 @@ export function getCloud(region?: string): Promise<Cloud> {
   const home = homeRegion();
   const r = !region || region === "global" ? home : region;
   if (r !== home && !REGION_CODE.test(r)) return Promise.reject(Object.assign(new Error(`"${r.slice(0, 40)}" is not an AWS region`), { status: 400 }));
-  const load = () => (sourceKind() === "aws" ? import("./aws.ts").then((m) => m.awsCloud(r)) : import("./mock.ts").then((m) => m.mockCloud(r)));
+  // Stamped with the generation it was asked for, not the one its import resolves in: decided for this connection.
+  const born = conn()?.gen ?? 0;
+  const load = () => (sourceKind() === "aws" ? import("./aws.ts").then((m) => m.awsCloud(r, born)) : import("./mock.ts").then((m) => m.mockCloud(r, born)));
   if (r === home) return (g.__consoleCloud ??= load());
   const clouds = (g.__consoleClouds ??= new Map());
   let c = clouds.get(r);
@@ -265,6 +279,7 @@ export function getCloud(region?: string): Promise<Cloud> {
 export const cloudFor = (env: { region: string }): Promise<Cloud> => getCloud(env.region);
 
 export function getCi(): Promise<Ci> {
-  g.__consoleCi ??= sourceKind() === "aws" ? import("./github.ts").then((m) => m.githubCi()) : import("./mock.ts").then((m) => m.mockCi());
+  const born = conn()?.gen ?? 0;
+  g.__consoleCi ??= sourceKind() === "aws" ? import("./github.ts").then((m) => m.githubCi(born)) : import("./mock.ts").then((m) => m.mockCi(born));
   return g.__consoleCi;
 }

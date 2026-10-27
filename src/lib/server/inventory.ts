@@ -49,6 +49,7 @@ import { categoryOf, isSupport, type Edge, type InventoryCompleteness, type Inve
 import { contributed, coverageFreshness, etagOf, isSlimRow, knownOf, reconcile, shortHash, slimRow, unresolvedOf, type Known, type Unresolved } from "../inventory/vanish.ts";
 import { outsideCallSignal, withCallSignal } from "./aws-limiter.ts";
 import { invalidate } from "./cache.ts";
+import { generation } from "./connection-state.ts";
 import { consoleConfig, inventory, listEnvs } from "./discovery.ts";
 import { HttpError, errText } from "./errors.ts";
 import { loadRuns, saveRun } from "./inventory-store.ts";
@@ -98,6 +99,7 @@ interface Run {
 }
 
 interface Plan {
+  gen: number; // the AWS connection's generation it was made for: its runs and views are dropped once that is over
   home: string;
   regions: string[]; // home first
   mock: boolean;
@@ -124,6 +126,7 @@ interface Built {
   unresolved: { total: number; list: Unresolved[] };
   slim?: Resource[]; // the resources as GET /api/inventory sends them (made on first request)
   at: number;
+  gen: number; // its plan's (publish() keeps only the current connection's)
 }
 
 interface ActivityEntry {
@@ -212,6 +215,7 @@ async function accountId(mock: boolean): Promise<string | undefined> {
 }
 
 async function makePlan(): Promise<Plan> {
+  const gen = generation();
   const mock = sourceKind() === "mock";
   const { home, regions, problems } = await regionsNow();
   const notes: string[] = [...problems];
@@ -224,7 +228,7 @@ async function makePlan(): Promise<Plan> {
   }
   const unknown = [...(cfg?.include ?? []), ...(cfg?.exclude ?? [])].filter((id) => !providerById(id));
   if (unknown.length) notes.push(`inventory.providers: no provider called ${unknown.map((x) => `"${x}"`).join(", ")} (Settings → AWS permissions lists the ids)`);
-  return { home, regions, mock, account: await accountId(mock), runs: planRuns(PROVIDERS, regions, home, mock), excluded, notes };
+  return { gen, home, regions, mock, account: await accountId(mock), runs: planRuns(PROVIDERS, regions, home, mock), excluded, notes };
 }
 
 // ---------- one run ----------
@@ -314,6 +318,7 @@ async function runAll(list: PlannedRun[], plan: Plan, force: boolean, deadline?:
         const at = Date.now();
         r = { key: pr.key, id: p.id, region: pr.region, result: EMPTY, notes: [], at, startedAt: at, ranAt: at, rerun: true, status: { region: pr.region, state: "error", count: 0, at, error: `not read yet: ${errText(e)}` } };
       }
+      if (plan.gen !== generation()) return; // read for an AWS connection that has since been switched away from
       r.known = knownAfter(s.runs.get(pr.key) ?? prev, r);
       if ((s.invalidatedAt.get(p.id) ?? 0) > r.startedAt) r.rerun = true; // an action changed it while it ran
       s.runs.set(pr.key, r);
@@ -514,12 +519,14 @@ async function assemble(plan: Plan, pending: string[], quick = false): Promise<B
     completeness: c,
     activity: { metricsLastHour: spent, estMonthlyUsd: estMonthlyUsd(spent) },
   };
-  return { view, byKey: new Map(final.map((r) => [r.key, r])), sources, activity, vanishing: [...vanishing.values()], unresolved, at: now };
+  return { view, byKey: new Map(final.map((r) => [r.key, r])), sources, activity, vanishing: [...vanishing.values()], unresolved, at: now, gen: plan.gen };
 }
 
-// A newer view never loses to an older one finishing later (phase 2 publishes on its own).
+// A newer view never loses to an older one finishing later (phase 2 publishes on its own), and a view of an AWS
+// connection that has since been switched away from is handed to whoever waited for it but never kept.
 function publish(b: Built): Built {
   const s = state();
+  if (b.gen !== generation()) return b;
   if (!s.built || b.at >= s.built.at) s.built = b;
   return s.built;
 }
@@ -739,6 +746,7 @@ export async function rediscover(providerId: string, key: string, region: string
   const s = state();
   const prev = s.runs.get(pr.key);
   const r = await outsideCallSignal(() => runOne(p, pr, plan, prev));
+  if (plan.gen !== generation()) return { state: "error", partial: false, why: "the AWS connection changed while it was read" };
   const read = r.status.state === "ok" && !r.from;
   if (read) {
     r.known = knownAfter(s.runs.get(pr.key) ?? prev, r);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import useSWR from "swr";
+import { installConnectionHeader, pinPageConnection } from "@/lib/client/connection";
 import { loadedAt, overviewKey, trackedJson, useCachedOverview, useCapability, useEnv, useEnvList, useSavedViews, type EnvListItem } from "@/lib/client/env";
 import { effectiveOverview, groupByRegion } from "@/lib/client/format";
 import { REGION_EVENT, readRegionFilter, regionLabel, useRegionFilter, useRegions, type RegionFilter } from "@/lib/client/region";
@@ -525,7 +526,10 @@ export function Shell({ children }: { children: ReactNode }) {
   const envs = envList ?? [];
   const envsLoaded = Array.isArray(envList);
   const { theme, toggle } = useTheme();
-  const me = useSWR<{ email: string; source: string }>("/api/me", { revalidateOnFocus: false }).data;
+  const me = useSWR<{ email: string; source: string; connection?: string }>("/api/me", { revalidateOnFocus: false }).data;
+  // Every write from this page carries the AWS connection it loaded with (src/lib/client/connection.ts).
+  useEffect(() => installConnectionHeader(), []);
+  useEffect(() => pinPageConnection(me?.connection), [me?.connection]);
   const { opts, current } = useEnvStates(env, envs);
   const w = current?.w;
   const issues = useIssues();

@@ -12,6 +12,7 @@ import {
 import { cleanPaths, distributionResource, invalidationPathsError, type CloudFrontApi, type RawBehavior, type RawDistribution } from "../../inventory/edge-cloudfront.ts";
 import type { EnrichState, Link, Resource, ResourceDetail } from "../../inventory/types.ts";
 import { limitedClient } from "../aws-limiter.ts";
+import { perGeneration } from "../connection-state.ts";
 import { abortOf, errMsg, fmtTime, field, idOf, ioOf, once, retry, writeOpts } from "./edge-util.ts";
 import { mockCloudFront } from "./mock/cloudfront.ts";
 import { budget, enrich } from "./serverless-util.ts";
@@ -21,8 +22,9 @@ const EXTRA_CAP = 300; // distributions whose tags and logging config discovery 
 
 // ---- real source ----
 
-const cf = limitedClient(new CloudFrontClient({ region: "us-east-1", ...retry }), "cloudfront", "us-east-1");
-const cfWrite = limitedClient(new CloudFrontClient({ region: "us-east-1", ...once }), "cloudfront", "us-east-1"); // sent once (F31)
+// One pair per AWS connection (connection-state.ts).
+const cf = perGeneration(() => limitedClient(new CloudFrontClient({ region: "us-east-1", ...retry }), "cloudfront", "us-east-1"));
+const cfWrite = perGeneration(() => limitedClient(new CloudFrontClient({ region: "us-east-1", ...once }), "cloudfront", "us-east-1")); // sent once (F31)
 
 const behavior = (pattern: string, b: CacheBehavior | DefaultCacheBehavior): RawBehavior => ({
   pattern,
@@ -65,7 +67,7 @@ const realCloudFront: CloudFrontApi = {
     const items: RawDistribution[] = [];
     let marker: string | undefined, truncated = false;
     do {
-      const r = await io.limit(() => cf.send(new ListDistributionsCommand({ Marker: marker, MaxItems: 100 }), abortOf(io)));
+      const r = await io.limit(() => cf().send(new ListDistributionsCommand({ Marker: marker, MaxItems: 100 }), abortOf(io)));
       for (const s of r.DistributionList?.Items ?? []) {
         if (items.length >= cap) {
           truncated = true;
@@ -79,34 +81,34 @@ const realCloudFront: CloudFrontApi = {
   },
 
   async tags(arn, io) {
-    const r = await cf.send(new ListTagsForResourceCommand({ Resource: arn }), abortOf(io));
+    const r = await cf().send(new ListTagsForResourceCommand({ Resource: arn }), abortOf(io));
     return Object.fromEntries((r.Tags?.Items ?? []).map((t) => [t.Key ?? "", t.Value ?? ""]).filter(([k]) => k));
   },
 
   // The summary has no logging settings: they come with the full configuration.
   async logging(id, io) {
-    const log = (await cf.send(new GetDistributionConfigCommand({ Id: id }), abortOf(io))).DistributionConfig?.Logging;
+    const log = (await cf().send(new GetDistributionConfigCommand({ Id: id }), abortOf(io))).DistributionConfig?.Logging;
     return log?.Enabled && log.Bucket ? { bucket: log.Bucket, prefix: log.Prefix ?? "" } : null;
   },
 
   async config(id, io) {
-    const r = await io.limit(() => cf.send(new GetDistributionConfigCommand({ Id: id }), abortOf(io)));
+    const r = await io.limit(() => cf().send(new GetDistributionConfigCommand({ Id: id }), abortOf(io)));
     return r.DistributionConfig ? toDistribution({ ...r.DistributionConfig, Id: id }) : undefined;
   },
 
   async invalidations(id, io) {
-    const r = await io.limit(() => cf.send(new ListInvalidationsCommand({ DistributionId: id, MaxItems: 10 }), abortOf(io)));
+    const r = await io.limit(() => cf().send(new ListInvalidationsCommand({ DistributionId: id, MaxItems: 10 }), abortOf(io)));
     const list = (r.InvalidationList?.Items ?? []).map((i) => ({ id: i.Id ?? "", status: i.Status ?? "", createdAt: i.CreateTime?.getTime(), paths: undefined as string[] | undefined }));
     // Paths need one call each: only for the newest five.
     await Promise.all(list.slice(0, 5).map(async (i) => {
-      const g = await io.limit(() => cf.send(new GetInvalidationCommand({ DistributionId: id, Id: i.id }), abortOf(io))).catch(() => undefined);
+      const g = await io.limit(() => cf().send(new GetInvalidationCommand({ DistributionId: id, Id: i.id }), abortOf(io))).catch(() => undefined);
       i.paths = g?.Invalidation?.InvalidationBatch?.Paths?.Items;
     }));
     return list;
   },
 
   async invalidate(id, paths, callerReference) {
-    const r = await cfWrite.send(
+    const r = await cfWrite().send(
       new CreateInvalidationCommand({ DistributionId: id, InvalidationBatch: { CallerReference: callerReference, Paths: { Quantity: paths.length, Items: paths } } }),
       writeOpts(),
     );

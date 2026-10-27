@@ -33,6 +33,8 @@ import { keys, type EnrichState, type Link, type Mention, type Prop, type Resour
 import { elasticacheSpecs, rdsSpecs, type ChartMetricSpec } from "../../metric-specs.ts";
 import type { RawLb, RawService } from "../../types.ts";
 import { limitedClient } from "../aws-limiter.ts";
+import { connectionCredentials } from "../connection-credentials.ts";
+import { perGeneration } from "../connection-state.ts";
 import { cached } from "../cache.ts";
 import { latestOverview } from "../console.ts";
 import { inRegion, inventory, servicesOf, type Inventory } from "../discovery.ts";
@@ -857,10 +859,10 @@ export const providers: Provider[] = [ecsProvider, elbProvider, rdsProvider, ela
 
 // ---------- inventory core helpers (real AWS only; the inventory never calls these in the simulated account) ----------
 
-let stsClient: STSClient | undefined;
+// One per AWS connection (connection-state.ts), like the CloudWatch clients below.
+const stsClient = perGeneration(() => limitedClient(new STSClient({ region: homeRegion(), maxAttempts: 2, credentials: connectionCredentials })));
 export async function callerAccount(): Promise<string | undefined> {
-  stsClient ??= limitedClient(new STSClient({ region: homeRegion(), maxAttempts: 2 }));
-  return (await stsClient.send(new GetCallerIdentityCommand({}), { abortSignal: AbortSignal.timeout(5_000) })).Account;
+  return (await stsClient().send(new GetCallerIdentityCommand({}), { abortSignal: AbortSignal.timeout(5_000) })).Account;
 }
 
 export interface ActivityQuery {
@@ -871,8 +873,8 @@ export interface ActivityQuery {
   stat: "Sum" | "Average" | "Maximum";
 }
 
-const cw = new Map<string, CloudWatchClient>();
-const cwFor = (region: string) => cw.get(region) ?? cw.set(region, limitedClient(new CloudWatchClient({ region, retryMode: "adaptive", maxAttempts: 3 }))).get(region)!;
+const cw = perGeneration(() => new Map<string, CloudWatchClient>());
+const cwFor = (region: string) => cw().get(region) ?? cw().set(region, limitedClient(new CloudWatchClient({ region, retryMode: "adaptive", maxAttempts: 3, credentials: connectionCredentials }))).get(region)!;
 
 // Daily datapoints over the last `days` days for each query, batched ≤ 500 per GetMetricData call and grouped by
 // region (CloudFront and Route 53 publish in us-east-1). A query whose result isn't Complete is left out: no evidence.

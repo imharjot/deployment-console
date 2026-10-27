@@ -16,18 +16,17 @@ import {
 import { Hash } from "@smithy/hash-node";
 import { HttpRequest } from "@smithy/protocol-http";
 import { SignatureV4 } from "@smithy/signature-v4";
-import { REGION } from "../../config.ts";
 import { rfc3986, s3ObjectUrl } from "../../inventory/edge-hosts.ts";
 import {
   bucketResource, contentTypeError, decodeUpload, humanBytes, locationRegion, MAX_UPLOAD_BASE64, objectKeyError, prefixError,
   publicState, type BucketNotification, type BucketSettings, type RawBucket, type S3Api,
 } from "../../inventory/edge-s3.ts";
 import { keys, type Link, type Prop, type Resource, type ResourceDetail } from "../../inventory/types.ts";
-import { limitedClient } from "../aws-limiter.ts";
+import { homeRegion } from "../sources.ts";
 import { abortOf, errMsg, errName, field, fmtTime, ioOf, once, propOf, retry, writeOpts } from "./edge-util.ts";
 import { EXISTING, S3 } from "./mock-names.ts";
 import { mockS3 } from "./mock/s3.ts";
-import { budget, enrich } from "./serverless-util.ts";
+import { budget, enrich, perRegion } from "./serverless-util.ts";
 import type { Provider, ProviderAction, ProviderContext } from "./types.ts";
 
 const DEEP_CAP = 300; // buckets whose settings discovery reads (9 calls each); the rest load when their panel opens
@@ -36,22 +35,13 @@ const PAGE = 100; // objects per panel page
 
 // ---- real source ----
 
-const clients = new Map<string, S3Client>();
-const regionFor = (region: string) => (region && region !== "unknown" && region !== "global" ? region : REGION);
-function client(region: string): S3Client {
-  const r = regionFor(region);
-  let c = clients.get(r);
-  if (!c) clients.set(r, (c = limitedClient(new S3Client({ region: r, followRegionRedirects: true, ...retry }), "s3", r)));
-  return c;
-}
+// Per region and AWS connection (perRegion starts a new set after a switch); "global" or unknown: the home region.
+const regionFor = (region: string) => (region && region !== "unknown" && region !== "global" ? region : homeRegion());
+const readers = perRegion((r) => new S3Client({ region: r, followRegionRedirects: true, ...retry }), "s3");
+const client = (region: string): S3Client => readers(regionFor(region));
 // Uploads and deletes: sent once (F31).
-const writers = new Map<string, S3Client>();
-function writer(region: string): S3Client {
-  const r = regionFor(region);
-  let c = writers.get(r);
-  if (!c) writers.set(r, (c = limitedClient(new S3Client({ region: r, followRegionRedirects: true, ...once }), "s3", r)));
-  return c;
-}
+const writers = perRegion((r) => new S3Client({ region: r, followRegionRedirects: true, ...once }), "s3");
+const writer = (region: string): S3Client => writers(regionFor(region));
 
 function notifications(n: NotificationConfiguration): BucketNotification[] {
   const filter = (f?: { Key?: { FilterRules?: { Name?: string; Value?: string }[] } }) => {
@@ -71,7 +61,7 @@ const realS3: S3Api = {
     const out: RawBucket[] = [];
     let token: string | undefined, truncated = false;
     do {
-      const r = await io.limit(() => client(REGION).send(new ListBucketsCommand({ MaxBuckets: 1000, ContinuationToken: token }), abortOf(io)));
+      const r = await io.limit(() => client(homeRegion()).send(new ListBucketsCommand({ MaxBuckets: 1000, ContinuationToken: token }), abortOf(io)));
       for (const b of r.Buckets ?? []) {
         if (!b.Name) continue;
         if (out.length >= cap) {
@@ -85,7 +75,7 @@ const realS3: S3Api = {
     // Endpoints that don't return BucketRegion: ask per bucket (a missing region beats a failed provider).
     await Promise.all(out.filter((b) => !b.region).map(async (b) => {
       try {
-        const r = await io.limit(() => client(REGION).send(new GetBucketLocationCommand({ Bucket: b.name }), abortOf(io)));
+        const r = await io.limit(() => client(homeRegion()).send(new GetBucketLocationCommand({ Bucket: b.name }), abortOf(io)));
         b.region = locationRegion(r.LocationConstraint);
       } catch {
         b.region = "unknown";

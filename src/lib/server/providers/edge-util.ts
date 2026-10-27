@@ -6,15 +6,17 @@ import { LIMITS } from "../../config.ts";
 import type { Io } from "../../inventory/edge-s3.ts";
 import type { Resource } from "../../inventory/types.ts";
 import type { JsonSchema } from "../ops/types.ts";
+import { connectionCredentials } from "../connection-credentials.ts";
 import type { ProviderContext } from "./types.ts";
 
 export const ioOf = (ctx: ProviderContext): Io => ({ limit: ctx.limit, signal: ctx.signal });
 
-// SDK retry settings: back off on throttling instead of failing (Route 53 allows 5 requests/s per account).
-export const retry = { retryMode: "adaptive" as const, maxAttempts: 3 };
+// SDK retry settings: back off on throttling instead of failing (Route 53 allows 5 requests/s per account). Both carry
+// the AWS connection's credentials, which ask the current generation's provider.
+export const retry = { retryMode: "adaptive" as const, maxAttempts: 3, credentials: connectionCredentials };
 // Writes are sent once (F31): a retry after a lost answer could act twice. A write cut off after it was sent is
 // "outcome unknown" (the SDK-call limiter flags it for the mutation coordinator), never retried blindly.
-export const once = { retryMode: "standard" as const, maxAttempts: 1 };
+export const once = { retryMode: "standard" as const, maxAttempts: 1, credentials: connectionCredentials };
 export const writeOpts = (ms: number = LIMITS.awsWriteTimeoutMs) => ({ abortSignal: AbortSignal.timeout(ms) });
 
 // An input-schema property with the label people see on the form (F42); `description` stays the hint for agents.

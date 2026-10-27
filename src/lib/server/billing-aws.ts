@@ -8,10 +8,13 @@ import "server-only";
 import { CostExplorerClient, GetAnomaliesCommand, GetCostAndUsageCommand, GetCostForecastCommand, type Expression } from "@aws-sdk/client-cost-explorer";
 import type { RawAnomaly } from "../spend.ts";
 import { limitedClient } from "./aws-limiter.ts";
+import { connectionCredentials } from "./connection-credentials.ts";
+import { perGeneration } from "./connection-state.ts";
 import type { Billing, CostRow } from "./billing.ts";
 
-// Few retries: a retried request may be billed again, and a throttled snapshot can simply be retried later.
-const ce = limitedClient(new CostExplorerClient({ region: "us-east-1", retryMode: "adaptive", maxAttempts: 2 }), "ce", "us-east-1");
+// Few retries: a retried request may be billed again, and a throttled snapshot can simply be retried later. One client
+// per AWS connection (connection-state.ts).
+const ce = perGeneration(() => limitedClient(new CostExplorerClient({ region: "us-east-1", retryMode: "adaptive", maxAttempts: 2, credentials: connectionCredentials }), "ce", "us-east-1"));
 const t = () => ({ abortSignal: AbortSignal.timeout(15_000) }); // Cost Explorer is slower than the regional APIs
 const MAX_PAGES = 10; // bounds what one snapshot can cost even for accounts with very many services
 const NO_CREDITS: Expression = { Not: { Dimensions: { Key: "RECORD_TYPE", Values: ["Credit", "Refund"] } } };
@@ -29,7 +32,7 @@ export function awsBilling(): Billing {
       let pages = 0;
       do {
         count++;
-        const r = await ce.send(
+        const r = await ce().send(
           new GetCostAndUsageCommand({
             TimePeriod: { Start: q.start, End: q.end }, Granularity: q.granularity, Metrics: ["UnblendedCost"], Filter: NO_CREDITS,
             GroupBy: q.groupBy.length ? q.groupBy.map((x) => ({ Type: x.type, Key: x.key })) : undefined, NextPageToken,
@@ -54,7 +57,7 @@ export function awsBilling(): Billing {
     async forecast(start, end) {
       count++;
       try {
-        const r = await ce.send(new GetCostForecastCommand({ TimePeriod: { Start: start, End: end }, Metric: "UNBLENDED_COST", Granularity: "MONTHLY", Filter: NO_CREDITS }), t());
+        const r = await ce().send(new GetCostForecastCommand({ TimePeriod: { Start: start, End: end }, Metric: "UNBLENDED_COST", Granularity: "MONTHLY", Filter: NO_CREDITS }), t());
         return Number(r.Total?.Amount ?? 0) || 0;
       } catch (e) {
         // New accounts (or ones with a gap in spend) don't have the history AWS needs to forecast.
@@ -69,7 +72,7 @@ export function awsBilling(): Billing {
       let pages = 0;
       do {
         count++;
-        const r = await ce.send(new GetAnomaliesCommand({ DateInterval: { StartDate: start, EndDate: end }, MaxResults: 50, NextPageToken }), t());
+        const r = await ce().send(new GetAnomaliesCommand({ DateInterval: { StartDate: start, EndDate: end }, MaxResults: 50, NextPageToken }), t());
         for (const a of r.Anomalies ?? []) {
           const cause = a.RootCauses?.[0];
           out.push({

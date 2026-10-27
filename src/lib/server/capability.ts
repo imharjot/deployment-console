@@ -15,6 +15,7 @@ import { ALL_WRITE_ACTIONS, combine, decide, ECS_WRITE_ACTIONS, OBSERVED_TTL_MS,
 import type { InventoryView } from "../inventory/types.ts";
 import type { CapabilityView, CapState } from "../types.ts";
 import { observeCalls } from "./aws-limiter.ts";
+import { generation, onConnectionChange } from "./connection-state.ts";
 import { accessDeniedOf, errText } from "./errors.ts";
 import { getCloud, sourceKind } from "./sources.ts";
 
@@ -37,6 +38,19 @@ interface Store {
 const S: Store = ((globalThis as { __consoleCapability?: Store }).__consoleCapability ??= { observed: new Map() });
 S.watched ??= new Set();
 const watched = () => (S.watched ??= new Set());
+
+// A new AWS connection is a new identity: nothing simulated or observed for the previous one applies (the watched
+// action list is the console's own and stays).
+onConnectionChange("capability", () => {
+  S.simulated = undefined;
+  S.simulatedFor = undefined;
+  S.checkedAt = undefined;
+  S.attemptedAt = undefined;
+  S.note = undefined;
+  S.withoutInventory = undefined;
+  S.refreshing = undefined;
+  S.observed.clear();
+});
 
 const IAM_ACTION = /^[a-z0-9-]+:[A-Za-z0-9]+$/;
 
@@ -118,6 +132,7 @@ export function refreshCapability(force = false): Promise<void> {
   if (!force && !grown && !inventoryArrived && S.attemptedAt !== undefined && now - S.attemptedAt < REFRESH_MS) return Promise.resolve();
   S.attemptedAt = now;
   S.simulatedFor = forList; // a failed attempt waits REFRESH_MS like a good one, unless the list changes again
+  const born = generation();
   const run = (async () => {
     try {
       if (sourceKind() === "mock") {
@@ -128,7 +143,7 @@ export function refreshCapability(force = false): Promise<void> {
       }
       const cloud = await getCloud();
       if (!cloud.simulate) {
-        S.note = "not verified: this AWS source can't simulate IAM policies";
+        if (generation() === born) S.note = "not verified: this AWS source can't simulate IAM policies";
         return;
       }
       // Real resources to simulate against; never fatal — without them every action is simulated against "*". Outside
@@ -139,9 +154,11 @@ export function refreshCapability(force = false): Promise<void> {
           return m.cachedInventory();
         })
         .catch(() => undefined);
+      if (generation() !== born) return;
       S.withoutInventory = !inventory;
       const targets = await import("./discovery.ts").then((d) => d.simulationTargetsNow(inventory?.resources)).catch(() => ({}));
       const result = await cloud.simulate(list, targets);
+      if (generation() !== born) return; // simulated for an identity the console has since switched away from
       const clean: Record<string, SimDecision> = {};
       for (const a of list) {
         const d = Object.hasOwn(result, a) ? result[a] : undefined;
@@ -156,7 +173,7 @@ export function refreshCapability(force = false): Promise<void> {
       S.checkedAt = Date.now();
       S.note = undefined;
     } catch (e) {
-      S.note = simulationFailureNote(e as { name?: unknown; message?: unknown }, errText(e));
+      if (generation() === born) S.note = simulationFailureNote(e as { name?: unknown; message?: unknown }, errText(e));
     }
   })();
   S.refreshing = run;

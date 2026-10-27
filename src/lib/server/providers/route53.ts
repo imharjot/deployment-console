@@ -17,6 +17,8 @@ import {
 } from "../../inventory/edge-dns.ts";
 import type { EnrichState, Link, Resource, ResourceDetail } from "../../inventory/types.ts";
 import { limitedClient } from "../aws-limiter.ts";
+import { connectionCredentials } from "../connection-credentials.ts";
+import { perGeneration } from "../connection-state.ts";
 import { abortOf, errMsg, errName, idOf, ioOf, propOf } from "./edge-util.ts";
 import { mockRoute53 } from "./mock/route53.ts";
 import { budget, enrich } from "./serverless-util.ts";
@@ -30,7 +32,8 @@ const PANEL_RECORDS = 300;
 
 // ---- real source ----
 
-const r53 = limitedClient(new Route53Client({ region: "us-east-1", retryMode: "adaptive", maxAttempts: 6 }), "route53", "us-east-1");
+// One client per AWS connection (connection-state.ts).
+const r53 = perGeneration(() => limitedClient(new Route53Client({ region: "us-east-1", retryMode: "adaptive", maxAttempts: 6, credentials: connectionCredentials }), "route53", "us-east-1"));
 
 const toRecord = (r: ResourceRecordSet): RawRecord => ({
   name: decodeDnsName(r.Name ?? ""),
@@ -65,7 +68,7 @@ const realRoute53: Route53Api = {
     const zones: RawZone[] = [];
     let marker: string | undefined, truncated = false;
     do {
-      const r = await io.limit(() => r53.send(new ListHostedZonesCommand({ Marker: marker, MaxItems: 100 }), abortOf(io)));
+      const r = await io.limit(() => r53().send(new ListHostedZonesCommand({ Marker: marker, MaxItems: 100 }), abortOf(io)));
       for (const z of r.HostedZones ?? []) {
         if (zones.length >= cap) {
           truncated = true;
@@ -84,12 +87,12 @@ const realRoute53: Route53Api = {
   },
 
   async zoneVpcs(zoneId, io) {
-    const r = await r53.send(new GetHostedZoneCommand({ Id: zoneId }), abortOf(io));
+    const r = await r53().send(new GetHostedZoneCommand({ Id: zoneId }), abortOf(io));
     return (r.VPCs ?? []).flatMap((v) => (v.VPCId ? [{ id: v.VPCId, region: v.VPCRegion ?? "" }] : []));
   },
 
   async tags(type, ids, io) {
-    const r = await r53.send(new ListTagsForResourcesCommand({ ResourceType: type, ResourceIds: ids }), abortOf(io));
+    const r = await r53().send(new ListTagsForResourcesCommand({ ResourceType: type, ResourceIds: ids }), abortOf(io));
     const out: Record<string, Record<string, string>> = {};
     for (const set of r.ResourceTagSets ?? []) {
       if (set.ResourceId) out[set.ResourceId] = Object.fromEntries((set.Tags ?? []).map((t) => [t.Key ?? "", t.Value ?? ""]).filter(([k]) => k));
@@ -103,7 +106,7 @@ const realRoute53: Route53Api = {
     while (start && records.length < cap) {
       const s: { name?: string; type?: string; id?: string } = start;
       const r = await io.limit(() =>
-        r53.send(new ListResourceRecordSetsCommand({
+        r53().send(new ListResourceRecordSetsCommand({
           HostedZoneId: zoneId, StartRecordName: s.name, StartRecordType: s.type as ResourceRecordSet["Type"], StartRecordIdentifier: s.id, MaxItems: 300,
         }), abortOf(io)));
       records.push(...(r.ResourceRecordSets ?? []).map(toRecord));
@@ -113,7 +116,7 @@ const realRoute53: Route53Api = {
   },
 
   async nameServers(zoneId, io) {
-    const r = await io.limit(() => r53.send(new GetHostedZoneCommand({ Id: zoneId }), abortOf(io)));
+    const r = await io.limit(() => r53().send(new GetHostedZoneCommand({ Id: zoneId }), abortOf(io)));
     return r.DelegationSet?.NameServers ?? [];
   },
 
@@ -121,7 +124,7 @@ const realRoute53: Route53Api = {
     const checks: RawHealthCheck[] = [];
     let marker: string | undefined, truncated = false;
     do {
-      const r = await io.limit(() => r53.send(new ListHealthChecksCommand({ Marker: marker, MaxItems: 1000 }), abortOf(io)));
+      const r = await io.limit(() => r53().send(new ListHealthChecksCommand({ Marker: marker, MaxItems: 1000 }), abortOf(io)));
       for (const h of r.HealthChecks ?? []) {
         if (checks.length >= cap) {
           truncated = true;
@@ -135,7 +138,7 @@ const realRoute53: Route53Api = {
   },
 
   async healthStatus(id, io) {
-    const r = await r53.send(new GetHealthCheckStatusCommand({ HealthCheckId: id }), abortOf(io));
+    const r = await r53().send(new GetHealthCheckStatusCommand({ HealthCheckId: id }), abortOf(io));
     return (r.HealthCheckObservations ?? []).flatMap((o) => (o.StatusReport?.Status ? [o.StatusReport.Status] : []));
   },
 };

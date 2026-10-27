@@ -40,7 +40,41 @@ first. License: Apache-2.0 (LICENSE).
   walks the schema to keep it so).
 - `Cloud` and `Ci` (`src/lib/server/sources.ts`) are the only doors to the outside: `aws.ts` / `github.ts` are the
   real implementations, `mock.ts` a complete simulated account for a fictional shop ("Acme": clusters, tags, security
-  groups, connection strings, rollouts, logs, CI) so discovery runs for real in the demo. `CONSOLE_SOURCE` picks one.
+  groups, connection strings, rollouts, logs, CI) so discovery runs for real in the demo. `CONSOLE_SOURCE` picks one,
+  else Settings → AWS connection (below), else the simulated account.
+- The AWS connection switches at runtime (`src/lib/server/connection.ts`, rules in `src/lib/connection-rules.ts`): an
+  admin picks the account, the sign-in (a profile from `~/.aws`, the default chain, or a role assumed from it:
+  `connection-credentials.ts`), the home region and the regions. Every env var that is set decides its part
+  (`CONSOLE_SOURCE`, `AWS_REGION`/`AWS_DEFAULT_REGION`, `AWS_PROFILE` or keys, `CONSOLE_REGIONS`; `inventory.regions`
+  too). The choice is settings key `connection` (with a `rev`), loaded by `instrumentation.ts` before anything reads AWS;
+  other consoles on the same database pick up a new `rev` in the sampler's tick. No keys are ever stored.
+- A switch retires a *generation* instead of hunting down state (`connection-state.ts`):
+  - `bumpGeneration()` aborts every AWS call in flight (`ctrl`), drops the stores read through globalThis (its
+    `DROPPED` list), and runs each module's `onConnectionChange` hook. A hook clears, in place, a store the module
+    holds in a constant; the other bundle's copy holds the same object.
+  - Old SDK clients refuse to send (`limitedClient` stamps a generation), and old Clouds and CIs refuse calls
+    (`retire()`).
+  - A cache fill started earlier is never stored (`cache.ts`).
+  - Background writers compare the generation they started with: the sampler, overview history, the inventory's
+    plan and `publish()`, the capability refresh, the costs snapshot.
+  - Module-level clients are `perGeneration()` and `perRegion()` maps start over. Every client config carries
+    `connectionCredentials`, which asks the current generation's provider.
+  - The barrier: `mutate()` refuses while a switch runs (`switching`), and counts the changes in flight (`writes`)
+    before its first await. The switch waits for them, then refuses while any console has an operation `running` or an
+    agent run unfinished. It writes the connection row compare-and-swap, together with the scope and the forget, in one
+    audited transaction. `mutate()` also refuses (409) when the database holds a newer `rev` than this console applied.
+  - Stale pages: `GET /api/me` gives each page a token of the scope it shows (`connectionToken()`). The page pins it
+    once per load (`src/lib/client/connection.ts`, which wraps `fetch`), and every same-origin write sends it as
+    `x-console-connection`. `handle()` (`http.ts`) answers `409 connection_changed` before the route runs when it
+    differs (`staleWrite()` in `connection-rules.ts`). Reads, `/api/auth/*` and `/api/me/*` are never refused, nor are
+    callers that send no token.
+  - The switch signal is never put in `AbortSignal.any` (Node keeps a composite per call alive on a long-lived source):
+    `limitedClient` follows it with a per-call controller and removes its listener when the call settles.
+  - New account or home region (`ensureScope`, settings key `connection:scope`): `forgetAccountData()` drops what would
+    act on or describe the new account's same-named services. That is `desired:*`, `observed:*`, `state_changes`,
+    `costs:snapshot`, pending host reservations (→ `released`), pending approvals (→ `expired`) and unused grants. The
+    first scope ever recorded keeps what is there. Operation verification, recent operations and host issues ignore rows
+    from before the scope, and the sampler re-checks the scope with AWS until it is confirmed for the generation.
 - Look and feel: tokens, type scale and motion utilities in `src/app/globals.css` (Manrope / JetBrains Mono / Bricolage
   Grotesque via next/font in `layout.tsx`; body 14px, `text-xs` = 13px, nothing under 11px; `stagger` and `lift` for
   arrivals and hover). Effects level `<html data-perf>` is set before paint (`layout.tsx`: saved choice, else lite on
@@ -437,7 +471,12 @@ real-account agent run has been made.
   Cloud keeps the `globalThis.__consoleCloud` slot, other regions are in `__consoleClouds`.
 - Don't add imports to `src/lib/server/sources.ts` lightly: importing `../regions.ts` plus `./errors.ts` there broke
   turbopack hot reload of `discovery.ts`'s dependents ("inRegion is not a function"); `getCloud` repeats
-  `REGION_CODE` locally for that reason.
+  `REGION_CODE` locally for that reason. The same goes for `aws-limiter.ts` and `cache.ts`: all three read the AWS
+  connection's generation from `globalThis.__consoleConnection` inline rather than importing `connection-state.ts`.
+- A new module that keeps AWS-derived state must reset on a connection switch. Keep it on globalThis and add its key to
+  `DROPPED` in `connection-state.ts`, or register an `onConnectionChange` hook. A new SDK client goes through
+  `perRegion`, `perGeneration` or a Cloud (with `connectionCredentials` in its config), or it keeps signing in as the
+  previous connection.
 - Per-item enrichment in providers goes through `enrich()` (`providers/serverless-util.ts`): the time budget is checked
   when an item starts, and the list so far is kept. `ctx.limit` is a deadline guard, not a slot (the SDK-call limiter
   owns the slots): never hold anything around a provider.

@@ -4,9 +4,11 @@ import { authMode, loginMethods } from "@/lib/server/auth/config";
 import { userById } from "@/lib/server/auth/users";
 import { handle, json, userOf } from "@/lib/server/http";
 import { agentCallerOf } from "@/lib/server/ops/caller";
+import { connectionToken } from "@/lib/server/connection-state";
 import { sourceKind } from "@/lib/server/sources";
 
-// `email` and `source` (the data source: aws | mock) are read by the shell; the rest drives the user menu and gates.
+// `email` and `source` (the data source: aws | mock) are read by the shell, and `connection`, the token of whose data the
+// page shows, which it sends with every write (src/lib/client/connection.ts); the rest drives the user menu and gates.
 export const GET = handle(async (req) => {
   const user = userOf(req);
   const row = await userById(user.id);
@@ -16,6 +18,7 @@ export const GET = handle(async (req) => {
     user: { id: user.id, email: user.email, name: row?.name ?? null, role: user.role },
     perms: permsOf(user.role),
     source: sourceKind(),
+    connection: connectionToken(),
     authMode: mode.ok ? mode.mode : null,
     loginMethods: loginMethods(),
     via: req.headers.get("x-console-auth-via"), // session | alb | dev | token | agent
