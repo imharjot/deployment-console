@@ -57,6 +57,16 @@ First public version (0.1.0). What the console can do today:
     environment's word, so `acme-production-pg` and `acme-staging-pg` both read `acme-pg`.
   - Dashboards and the Incident view read `/api/envs` and `/api/issues` from the shell's polls instead of fetching
     each a second time in the same second.
+- **Fixed after reading every region of a real account** (`CONSOLE_REGIONS=all-enabled`, caches cleared):
+  - A name AWS gave something it created itself (`default.memorydb-redis7.search.preview`, a parameter group in every
+    region) no longer places it in an environment by its stage word, so it can't make an environment ("sandbox") of its
+    own.
+  - An untouched default VPC is hidden with its subnets, internet gateway and default security group (listed in All
+    resources, not drawn), so every empty region doesn't add one to the map.
+  - Several listener rules into one service are one line labelled with the first rule's hosts and `+N` for the
+    others; each rule's evidence now names its hosts.
+  - `npm run parity` settles a disagreement either way with the service's own list call (Resource Explorer keeps
+    released Elastic IPs for a while), and counts a Systems Manager record as its EC2 instance's alias.
 
 ### Cloud map — the whole account
 - **Cloud map** (`/map`): every resource the console can find, with the connections between them, grouped by

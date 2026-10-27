@@ -708,12 +708,14 @@ function foldGenerics(ix: Index, generics: Resource[], input: InferInput, notes:
       if (r) for (const [k, v] of Object.entries(g.tags ?? {})) if (!Object.hasOwn(r.tags, k)) r.tags[k] = v;
       continue;
     }
-    // Systems Manager's record of an instance is that instance, not a second resource.
+    // Systems Manager's record of an instance is that instance, not a second resource. Its ARN becomes one of the
+    // instance's aliases (after the instance's own), so a reference to it, and a count by ARN type, finds the instance.
     if (type === "ssm:managed-instance" && p?.id) {
       const inst = ix.byKey.get(`ec2:${p.id}`) ?? ix.byKey.get(`ec2:${p.id}@${region}`);
       if (inst?.kind === "ec2-instance") {
         for (const [k, v] of Object.entries(g.tags ?? {})) if (!Object.hasOwn(inst.tags, k)) inst.tags[k] = v;
         if (!inst.props.some((x) => x.label === "Systems Manager")) inst.props.push({ label: "Systems Manager", value: "managed instance" });
+        if (!inst.aliases?.includes(g.key)) inst.aliases = [...(inst.aliases ?? []), g.key];
         continue;
       }
     }

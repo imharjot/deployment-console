@@ -160,6 +160,21 @@ test("R6/R7/R8: vpcId from subnets, unused things marked idle, Cloud Map without
   assert.equal(by(cmOld.key).health, "stopped", "nothing wants tasks there");
 });
 
+test("R10: an untouched default VPC is hidden with its subnets, gateway and default group; anything in it keeps it drawn", () => {
+  const vpc = (id: string, facts: Resource["facts"]) => R(arn("ec2", `vpc/${id}`), "vpc", id, { facts });
+  const part = (id: string, kind: "subnet" | "internet-gateway" | "security-group", vpcId: string, facts?: Resource["facts"]) =>
+    R(arn("ec2", `${kind}/${id}`), kind, id, { vpcId, aliases: [id], ...(facts ? { facts } : {}) });
+  const dflt = (attachments?: number) => ({ isDefault: true, ...(attachments === undefined ? {} : { attachments, referencedBy: 0 }) });
+  const untouched = [vpc("vpc-1a2b3c4d", { cidrs: ["172.31.0.0/16"], isDefault: true }), part("subnet-1a2b3c4d", "subnet", "vpc-1a2b3c4d"), part("igw-1a2b3c4d", "internet-gateway", "vpc-1a2b3c4d"), part("sg-1a2b3c4d", "security-group", "vpc-1a2b3c4d", dflt(0))];
+  const withBox = [vpc("vpc-2b3c4d5e", { isDefault: true }), part("sg-2b3c4d5e", "security-group", "vpc-2b3c4d5e", dflt(0)), R("ec2:i-0123456789abcdef0", "ec2-instance", "box", { vpcId: "vpc-2b3c4d5e" })];
+  const inUse = [vpc("vpc-3c4d5e6f", { isDefault: true }), part("sg-3c4d5e6f", "security-group", "vpc-3c4d5e6f", dflt(2))];
+  const unread = [vpc("vpc-4d5e6f7a", { isDefault: true }), part("sg-4d5e6f7a", "security-group", "vpc-4d5e6f7a", dflt())];
+  const custom = [vpc("vpc-5e6f7a8b", { cidrs: ["10.0.0.0/16"] }), part("sg-5e6f7a8b", "security-group", "vpc-5e6f7a8b", dflt(0))];
+  const { by } = run([...untouched, ...withBox, ...inUse, ...unread, ...custom]);
+  assert.deepEqual(untouched.map((r) => by(r.key).hidden), [true, true, true, true]);
+  for (const r of [...withBox, ...inUse, ...unread, ...custom]) assert.equal(by(r.key).hidden, undefined, `${r.name}: drawn`);
+});
+
 test("R9: the latest recovery point per resource, from plans and vaults — failed or older than 2 days warns", () => {
   const t = (d: number) => new Date(NOW - d * DAY).toISOString();
   const db = R("rds:acme-production-pg", "rds", "acme-production-pg");

@@ -192,6 +192,7 @@ export type EnrichState = "ok" | "skipped" | "denied" | "error" | "capped";
 //   security groups: openIngress ["5432/tcp", "all"], cidrIngress ["5432/tcp<-10.1.0.0/16"], attachments (ENI count),
 //     referencedBy (rules in other groups naming this one), peerGroups (groups this one's rules admit), isDefault
 //   subnets: routesToIgw, naclOpen (inbound port ranges the NACL allows from 0.0.0.0/0, ["all"] for default NACLs)
+//   VPCs: cidrs, isDefault (the one AWS created in the region)
 //   KMS: state, deletionDate · ACM: notAfter, inUse, autoRenew · alarms: alarmState, scaling
 //   IAM: neverUsed · backup: lastBackupAt, lastBackups ["<arn>|<iso>|<state>"] · ECR: tagDigests ["<tag>|<digest>"]
 export type Facts = Record<string, string | number | boolean | string[]>;

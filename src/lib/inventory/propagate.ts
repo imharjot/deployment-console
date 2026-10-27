@@ -5,7 +5,8 @@
 // `external:internet` edge). They read `facts`, which only a resource's own provider sets (types.ts lists the names).
 //
 // R1 alarms (scaling alarms excluded) · R2 KMS keys · R3 certificates · R4 exposure · R5 secrets scheduled for deletion
-// · R6 vpcId from subnets · R7 unused (idle) · R8 Cloud Map without instances · R9 backups.
+// · R6 vpcId from subnets · R7 unused (idle) · R8 Cloud Map without instances · R9 backups · R10 untouched default VPCs
+// (hidden: the one rule that changes what is drawn rather than health).
 import { arnCandidates } from "./infer.ts";
 import { parseArn } from "./arn.ts";
 import { categoryOf, isSupport, keys, type Edge, type EdgeKind, type Health, type Resource } from "./types.ts";
@@ -328,6 +329,20 @@ export function propagate(input: PropagateInput): Propagated {
     else if (r.kind === "waf-acl" && !out(r.key, "protects").length) why = "protects nothing";
     else if (r.kind === "iam-role" && r.facts?.neverUsed === true) why = "never used";
     if (why) r.idle = { why };
+  }
+
+  // R10 — an untouched default VPC: AWS creates one in every region, with a subnet per zone, an internet gateway and a
+  // default security group. When nothing else sits in it and no network interface uses its default group, it and they
+  // are hidden (listed, not drawn): reading every enabled region would otherwise add one to the map per empty region.
+  // A default group whose network interfaces weren't read keeps the VPC drawn.
+  const inVpc = new Map<string, Resource[]>();
+  for (const r of resources) if (r.vpcId && r.kind !== "vpc") inVpc.set(r.vpcId, [...(inVpc.get(r.vpcId) ?? []), r]);
+  const scaffolding = (r: Resource) =>
+    r.kind === "subnet" || r.kind === "internet-gateway" || (r.kind === "security-group" && r.facts?.isDefault === true && zero(r.facts?.attachments));
+  for (const v of ofKind("vpc")) {
+    const inside = inVpc.get(idOf(v)) ?? [];
+    if (v.facts?.isDefault !== true || !inside.some((r) => r.kind === "security-group") || !inside.every(scaffolding)) continue;
+    for (const r of [v, ...inside]) r.hidden = true;
   }
 
   // R8 — a Cloud Map service with no instances while its ECS service wants tasks: discovery can't find them.

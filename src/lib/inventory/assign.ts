@@ -6,7 +6,8 @@
 //   3. tags Environment / environment / Env / env / Stage / stage — stage words normalised (prd, live → production;
 //      stg, preprod → staging; the words of src/lib/discover.ts), "shared" / "global" / "all" → explicitly shared
 //   4. stage words in the resource's id or key ("acme-staging-orders" → staging), only when exactly one environment
-//      matches — never its display name (a Name tag, a declared label: F69)
+//      matches — never its display name (a Name tag, a declared label: F69), nor a name AWS chose for an object it
+//      creates itself ("default.memorydb-redis7.search.preview")
 //   then: a child (subnet, NAT, Aurora member…) takes its parent's environment
 //   5. the VPC, when every resource placed by rules 1–4 in that VPC agrees on one environment — the VPC itself too; a
 //      VPC whose workloads disagree is shared
@@ -62,6 +63,14 @@ export function envFromName(name: string, known: Pick<KnownEnv, "id">[]): { env:
 
 type Why = { env: string | null; why: string; source: "tags" | "names" };
 
+// Rule 4 for one resource. AWS names the objects it creates in every region "default…" (parameter groups such as
+// default.memorydb-redis7.search.preview, the default event bus): a stage word there was AWS's choice, and reading every
+// enabled region would turn it into an environment of its own.
+const fromName = (r: Pick<Resource, "key">, known: Pick<KnownEnv, "id">[]) => {
+  const name = idName(r);
+  return /^default($|[.:/_-])/i.test(name) ? undefined : envFromName(name, known);
+};
+
 // Environment ids are unique across regions: an environment whose name repeats outside the home region is renamed
 // "<id>-<region>" (src/lib/regions.ts regionalIds). A resource in that region whose tag or id names the plain id
 // ("production" on a bucket in eu-west-1) belongs to the region's environment ("production-eu-west-1").
@@ -88,7 +97,7 @@ function direct(r: Resource, known: KnownEnv[]): Why | undefined {
     const v = r.tags?.[k];
     if (v?.trim()) return { env: norm(v), why: `tag ${k}=${v}`, source: "tags" };
   }
-  const n = envFromName(idName(r), known);
+  const n = fromName(r, known);
   if (n) return { env: regionalEnv(n.env, r.region, known), why: `name contains "${n.token}"`, source: "names" };
   return undefined;
 }
@@ -242,7 +251,7 @@ export function assignEnvs(input: Resource[], edges: Edge[], known: KnownEnv[]):
   for (const r of resources) {
     if (r.kind === "external") continue;
     const hinted = r.envHint ? normalizeEnv(r.envHint, known) : undefined;
-    const fromId = envFromName(idName(r), known)?.env;
+    const fromId = fromName(r, known)?.env;
     const parent = r.parent ? byKey.get(r.parent) : undefined;
     const hints: [string | null | undefined, string][] = [
       [r.env, r.envWhy ?? "its environment"],
