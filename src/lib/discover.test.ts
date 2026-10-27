@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseConfig } from "./console-config.ts";
-import { MAX_ALLOWED_PER_TARGET, attribute, envsFromClusters, hostsFromEnv, inferConnections, inferEdges, parseImageRef, placement, ruleReaches, shaFromTag, stageWordsOf, workloadGraph, type NodeRef } from "./discover.ts";
+import { MAX_ALLOWED_PER_TARGET, aliasTarget, attribute, envsFromClusters, hostsFromEnv, inferConnections, inferEdges, parseImageRef, placement, ruleReaches, shaFromTag, stageWordsOf, workloadGraph, type NodeRef } from "./discover.ts";
 
 test("clusters become environments: stage words, uniqueness, tags win", () => {
   const e = envsFromClusters([
@@ -187,6 +187,16 @@ test("attribution: config, tags, connections, names, vpc", () => {
   assert.equal(attribute({ id: "acme-prod-cache", tags: { Environment: "Shared" }, vpcId: "vpc-2" }, envs, none, {}), undefined);
   // A value that names no stage is no verdict: the other rules still apply.
   assert.equal(attribute({ id: "x", tags: { Environment: "team-data" }, vpcId: "vpc-2" }, envs, none, {}), "production");
+});
+
+test("db and cache aliases: the first configured one that was found, else the first attributed", () => {
+  // The account's order: the stopped old database, still production's by its name, comes before its replacement.
+  const found = [{ id: "acme-production-pg" }, { id: "acme-production-pg2" }];
+  assert.equal(aliasTarget(found, ["acme-production-pg2"]), "acme-production-pg2");
+  assert.equal(aliasTarget(found, ["acme-production-pg3", "acme-production-pg2"]), "acme-production-pg2", "config order, past one not found");
+  assert.equal(aliasTarget(found, ["acme-production-pg3"]), "acme-production-pg", "none found: the first attributed, as without config");
+  assert.equal(aliasTarget(found), "acme-production-pg");
+  assert.equal(aliasTarget([], ["acme-production-pg2"]), undefined);
 });
 
 test("config parser keeps valid parts and names every problem", () => {

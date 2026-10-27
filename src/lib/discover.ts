@@ -388,4 +388,10 @@ export function attribute(r: Attributable, envs: { id: string; stageWords: strin
   return sameVpc.length === 1 ? sameVpc[0].id : undefined;
 }
 
+// What a connection's `db` or `cache` alias means: the first of the environment's configured `databases` / `caches`
+// that was found, in config order, else its first attributed one. Attribution keeps the account's order, so a stopped
+// old database still placed here by its name would otherwise win over the one the config names.
+export const aliasTarget = (found: { id: string }[], configured: string[] = []): string | undefined =>
+  configured.find((id) => found.some((x) => x.id === id)) ?? found[0]?.id;
+
 export const stageWordsOf = (envId: string, cluster: string) => [envId, ...(STAGES.find((s) => s.id === envId || s.words.includes(envId))?.words ?? []), ...(stageOf(cluster)?.words ?? [])];

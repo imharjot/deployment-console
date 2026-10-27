@@ -5,7 +5,7 @@
 // and everything about it (services, hosts, databases, caches, security groups) is read in that region only.
 import "server-only";
 import type { ConsoleConfig } from "../console-config.ts";
-import { PROXY_IMAGE, attribute, envTagDecides, envTagOf, envsFromClusters, inferEdges, parseImageRef, placement, stageWordsOf, workloadGraph, type HostRef, type NodeRef, type SgRule } from "../discover.ts";
+import { PROXY_IMAGE, aliasTarget, attribute, envTagDecides, envTagOf, envsFromClusters, inferEdges, parseImageRef, placement, stageWordsOf, workloadGraph, type HostRef, type NodeRef, type SgRule } from "../discover.ts";
 import { clusterSkip, configWarnings, healthcheckProblem, unassignedOf, type DiscoveryWarning } from "../discovery-rules.ts";
 import { simulationTargets, type SampleRow } from "../capability-rules.ts";
 import { regionalIds } from "../regions.ts";
@@ -377,8 +377,10 @@ async function buildInventory(region: string, home: string): Promise<Inventory> 
     for (const e of wg?.edges ?? []) edges.push({ id: `${e.from}>${e.to}`, ...e, source: "console.config.json workloads" });
     if (lb) for (const s of d.services.filter((x) => x.targetGroupArns.length)) edges.push({ id: `lb:alb>service:${s.name}`, from: "lb:alb", to: `service:${s.name}`, label: "target group", kind: "http", source: "load balancer target group" });
     const externals = Object.entries(config.externals ?? {}).map(([id, x]) => ({ id: `ext:${id}`, label: x.label, sub: x.sub ?? "external", kind: "external" as const, lane: (x.side === "destination" ? 4 : 0) as 0 | 4, note: x.note ?? "External system — not monitored here." }));
+    const pinned = config.environments && Object.hasOwn(config.environments, d.env.id) ? config.environments[d.env.id] : undefined;
+    const dbAlias = aliasTarget(mine.databases, pinned?.databases), cacheAlias = aliasTarget(mine.caches, pinned?.caches);
     const resolve = (ref: string) =>
-      ref === "ingress" ? ingress : ref === "db" ? (mine.databases[0] ? `database:${mine.databases[0].id}` : undefined) : ref === "cache" ? (mine.caches[0] ? `cache:${mine.caches[0].id}` : [...d.meta.values()].find((m) => /redis|valkey|memcached/.test(m.id)) ? `service:${[...d.meta.values()].find((m) => /redis|valkey|memcached/.test(m.id))!.id}` : undefined) : ref;
+      ref === "ingress" ? ingress : ref === "db" ? (dbAlias ? `database:${dbAlias}` : undefined) : ref === "cache" ? (cacheAlias ? `cache:${cacheAlias}` : [...d.meta.values()].find((m) => /redis|valkey|memcached/.test(m.id)) ? `service:${[...d.meta.values()].find((m) => /redis|valkey|memcached/.test(m.id))!.id}` : undefined) : ref;
     const known = new Set([...nodeIds, ...externals.map((x) => x.id), ...(lb ? ["lb:alb"] : [])]);
     for (const c of config.connections ?? []) {
       if (c.envs && !c.envs.includes(d.env.id)) continue;
@@ -398,7 +400,6 @@ async function buildInventory(region: string, home: string): Promise<Inventory> 
       if (!m.logs) warnings.push(`${name}: no awslogs log configuration on its main container — logs unavailable`);
       if (!m.infra && !m.repo) warnings.push(`${name}: no GitHub repo — tag the service console:repo=owner/name (or set services.${name}.repo)`);
     }
-    const pinned = config.environments && Object.hasOwn(config.environments, d.env.id) ? config.environments[d.env.id] : undefined;
     catalogs.set(d.env.id, { env: d.env, meta: d.meta, hosts: d.hosts, ...mine, edges, externals, routes: pinned?.routes ?? [], ingress, warnings });
   }
   const ids = new Set(catalogs.keys());

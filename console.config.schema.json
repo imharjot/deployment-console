@@ -21,8 +21,8 @@
           "protected": { "type": "boolean", "description": "Production-like: typed confirmations, reasons, operator role" },
           "branch": { "type": "string", "description": "Git branch that deploys to this environment" },
           "order": { "type": "number", "description": "Promotion order (lower deploys first)" },
-          "databases": { "type": "array", "items": { "type": "string" }, "description": "RDS instance ids that belong here" },
-          "caches": { "type": "array", "items": { "type": "string" }, "description": "ElastiCache ids that belong here" },
+          "databases": { "type": "array", "items": { "type": "string" }, "description": "RDS instance ids that belong here; the first one found is what `db` means in connections" },
+          "caches": { "type": "array", "items": { "type": "string" }, "description": "ElastiCache ids that belong here; the first one found is what `cache` means in connections" },
           "routes": {
             "type": "array",
             "description": "Ingress host → service when there is no load balancer (reverse proxy)",

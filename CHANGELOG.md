@@ -67,6 +67,10 @@ First public version (0.1.0). What the console can do today:
     others; each rule's evidence now names its hosts.
   - `npm run parity` settles a disagreement either way with the service's own list call (Resource Explorer keeps
     released Elastic IPs for a while), and counts a Systems Manager record as its EC2 instance's alias.
+- **Fixed after loading a real config file** (an environment that had moved to a new database):
+  - A connection to `db` ends at the first of the environment's `databases` that was found, in config order, and
+    `cache` likewise with `caches`; before, it was the first one attributed in the account's order. A stopped old
+    database, still production's by its name, kept every declared SQL arrow after the config listed its replacement.
 
 ### Cloud map — the whole account
 - **Cloud map** (`/map`): every resource the console can find, with the connections between them, grouped by
