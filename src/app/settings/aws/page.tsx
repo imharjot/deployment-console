@@ -250,7 +250,7 @@ function Editor({ view }: { view: ConnectionView }) {
                       )}
                       {form.roleSetup === "existing" && (
                         <p className="text-[13px] text-fg-3 sm:col-span-2">
-                          The machine&apos;s own login{machine.data?.identity ? ` (${describeArn(machine.data.identity.arn)})` : ""} asks for the role, so it needs sts:AssumeRole on it, and the role&apos;s trust policy must name it. The external ID is only for a role whose trust policy asks for one.
+                          The machine&apos;s own login{machine.data?.identity ? ` (detected: ${describeArn(machine.data.identity.arn)})` : ""} asks for the role, so it needs sts:AssumeRole on it, and the role&apos;s trust policy must name it. The external ID is only for a role whose trust policy asks for one.
                         </p>
                       )}
                     </div>
@@ -486,8 +486,8 @@ function TemplateSteps({ home, externalId, machine }: { home: string; externalId
     <ol className="space-y-3 rounded-xl border border-line bg-panel-2 p-4 text-[13.5px] leading-relaxed">
       <li className="space-y-2">
         <p>
-          <span className="font-medium">1. Download the template.</span> It creates a read-only role that only this console can switch into: the role trusts{" "}
-          {who ? `${describeArn(who.arn)} in account ${account(who.account)}` : "this console's own login"}, and only with this console&apos;s external ID.
+          <span className="font-medium">1. Download the template.</span> It creates a read-only role that only this console can switch into: the role trusts this
+          machine&apos;s AWS login{who ? ` (detected: ${describeArn(who.arn)} in account ${account(who.account)})` : ""}, and only with this console&apos;s external ID.
         </p>
         {machine.data?.error && <p className="text-degraded">{machine.data.error}</p>}
         <div className="flex flex-wrap items-center gap-2">
@@ -522,20 +522,21 @@ function TemplateSteps({ home, externalId, machine }: { home: string; externalId
   );
 }
 
-// Who the machine's own login is here, or why there is none.
+// Who the machine's own login is, as AWS answers for this machine's credentials (never a fixed name), or why there is
+// none.
 function MachineWho({ machine }: { machine: { data?: MachineLogin; error?: unknown } }) {
   const { data, error } = machine;
-  if (error) return <span className="mt-1 block text-degraded">Couldn&apos;t check who that is here: {(error as Error).message}</span>;
+  if (error) return <span className="mt-1 block text-degraded">Couldn&apos;t ask AWS who this machine&apos;s login is: {(error as Error).message}</span>;
   if (!data)
     return (
       <span className="mt-1 flex items-center gap-1.5">
-        <Loader2 className="size-3 animate-spin" /> Checking who that is here…
+        <Loader2 className="size-3 animate-spin" /> Asking AWS who this machine&apos;s login is…
       </span>
     );
   if (data.identity)
     return (
       <span className="mt-1 block text-fg-2" title={data.identity.arn}>
-        Here: <span className="font-medium">{describeArn(data.identity.arn)}</span> in account {account(data.identity.account)}
+        Detected from this machine&apos;s AWS credentials: <span className="font-medium">{describeArn(data.identity.arn)}</span> in account {account(data.identity.account)}
       </span>
     );
   return <span className="mt-1 block text-degraded">{data.error}</span>;

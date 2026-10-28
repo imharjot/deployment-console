@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Settings → AWS connection** says the login it names was detected from the machine's AWS credentials ("Detected
+  from this machine's AWS credentials: user …"), so it doesn't read as a fixed name.
 - **ARM64 or x86, your pick**: Deploy the console builds one image for both CPUs (`linux/arm64` and `linux/amd64`),
   so the task definition can name either, and switching needs no rebuild; a single-CPU build is still one command.
   `infra/task-definition.json` now asks for `ARM64` (Graviton), about 20 % cheaper than x86 for the same size, and the
