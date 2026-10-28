@@ -36,13 +36,14 @@ people ──HTTPS──▶ Application Load Balancer (your certificate)
 
 The examples use account `123456789012`, region `eu-west-1`, cluster `acme-tools` and host `console.example.com`.
 
-## Three decisions first
+## Four decisions first
 
 | Decision | Options | Recommendation |
 |---|---|---|
 | Database | **Postgres** (`DATABASE_URL`), or **SQLite** on a persistent local disk | Postgres on Fargate: tasks have no persistent disk. SQLite suits a single container on a VM (see [Docker on any host](#docker-on-any-host)). |
 | Sign-in | **The console signs people in** (`AUTH_MODE=session`: passwords and/or OIDC SSO), or **the load balancer does** (`AUTH_MODE=alb` with an `authenticate-oidc` action) | `session` with OIDC, unless you already use ALB authentication. |
 | IAM policy | **Read-only** or **full** (or the statements you pick) | Read-only first; add features later. See [Connect AWS](connect-aws.md#step-5-turn-on-more-one-feature-at-a-time). |
+| CPU | **ARM64** (Graviton) or **x86_64**: the image from step 1 runs on both | ARM64, about 20 % cheaper than x86 for the same size; the template asks for it (`cpuArchitecture`, step 6). |
 
 ## Step 1: Build and push the image
 
@@ -52,14 +53,17 @@ export REPO=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/deployment-console TAG
 
 aws ecr create-repository --repository-name deployment-console
 aws ecr get-login-password | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-docker build --platform linux/arm64 --build-arg VERSION=$TAG -t $REPO:$TAG .
-docker push $REPO:$TAG
+docker buildx create --use --name multiarch   # once per machine: a builder that makes images for both CPUs
+docker buildx build --platform linux/arm64,linux/amd64 --build-arg VERSION=$TAG -t $REPO:$TAG --push .
 ```
 
-- `--platform linux/arm64` matches the task definition's `ARM64`: Fargate on Graviton costs about 20 % less than x86
-  for the same size. Apple Silicon Macs and Graviton machines build it natively; an x86 machine builds the same image
-  through emulation, which is slower (Docker Desktop includes it; on Linux, install QEMU's binfmt handlers). To run on
-  x86 instead, build `linux/amd64` and set `cpuArchitecture` to `X86_64`.
+- **One tag, both CPUs.** The image holds an `arm64` and an `amd64` build, so the task definition can ask for `ARM64`
+  (Graviton) or `X86_64` (step 6), and switching later needs no rebuild. The machine builds its own CPU natively and
+  the other through emulation (Docker Desktop includes it; on Linux, install QEMU's binfmt handlers), so the build
+  takes longer than a single one.
+- **Only one CPU?** Build just that one, and name the same one in the task definition:
+  `docker build --platform linux/arm64 --build-arg VERSION=$TAG -t $REPO:$TAG .` (or `linux/amd64`), then
+  `docker push $REPO:$TAG`.
 - `VERSION` is shown in the sidebar, so you can tell which build is running.
 
 ## Step 2: Prepare the database
@@ -156,6 +160,7 @@ Start from `infra/task-definition.json` and change:
 |---|---|
 | `ACCOUNT_ID`, `REGION` | your account id and region (roles, image, secrets, logs) |
 | `image` | `…/deployment-console:<TAG>` from step 1 instead of `:latest` |
+| `cpuArchitecture` (in `runtimePlatform`) | `ARM64` as shipped (Graviton), or `X86_64`; the image from step 1 runs on either |
 | `CONSOLE_PUBLIC_URL` | your console's URL, for example `https://console.example.com` |
 | `GITHUB_OWNER` | your GitHub organisation or user, or remove it |
 | `CONSOLE_CONFIG` (not in the template) | add it only if you ship a `console.config.json` in the image or on a volume (see below). If it points at a missing file, **Settings → Environments** shows an error. |
