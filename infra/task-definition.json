@@ -8,7 +8,7 @@
   "memory": "512",
   "runtimePlatform": {
     "operatingSystemFamily": "LINUX",
-    "cpuArchitecture": "X86_64"
+    "cpuArchitecture": "ARM64"
   },
   "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/deployment-console-task",
   "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/deployment-console-exec",

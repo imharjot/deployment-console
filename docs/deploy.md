@@ -52,12 +52,14 @@ export REPO=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/deployment-console TAG
 
 aws ecr create-repository --repository-name deployment-console
 aws ecr get-login-password | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-docker build --platform linux/amd64 --build-arg VERSION=$TAG -t $REPO:$TAG .
+docker build --platform linux/arm64 --build-arg VERSION=$TAG -t $REPO:$TAG .
 docker push $REPO:$TAG
 ```
 
-- `--platform linux/amd64` matches the task definition's `X86_64` (it matters on Apple Silicon Macs). To run on
-  Graviton instead, build `linux/arm64` and set `cpuArchitecture` to `ARM64`.
+- `--platform linux/arm64` matches the task definition's `ARM64`: Fargate on Graviton costs about 20 % less than x86
+  for the same size. Apple Silicon Macs and Graviton machines build it natively; an x86 machine builds the same image
+  through emulation, which is slower (Docker Desktop includes it; on Linux, install QEMU's binfmt handlers). To run on
+  x86 instead, build `linux/amd64` and set `cpuArchitecture` to `X86_64`.
 - `VERSION` is shown in the sidebar, so you can tell which build is running.
 
 ## Step 2: Prepare the database
