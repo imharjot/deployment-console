@@ -123,6 +123,7 @@ function Editor({ view }: { view: ConnectionView }) {
   const awsReady = form.source === "mock" || !!result?.ok;
   const arnProblem = form.kind === "role" ? roleArnProblem(form.roleArn) : undefined;
   const signInIncomplete = form.source === "aws" && !locked.signIn && ((form.kind === "profile" && !form.profile) || !!arnProblem);
+  const incompleteWhy = !signInIncomplete ? undefined : form.kind === "profile" ? "Choose a profile first" : form.roleArn.trim() ? "Fix the role ARN first" : "Paste the role ARN first";
   // Who the machine's own login is, asked only when the page offers that choice.
   const machine = useSWR<MachineLogin>(form.source === "aws" && !locked.source && !locked.signIn ? "/api/connection/machine" : null, { revalidateOnFocus: false });
   const regionList = useMemo(() => {
@@ -332,7 +333,7 @@ function Editor({ view }: { view: ConnectionView }) {
                   .filter((r) => r !== form.home)
                   .map((r) => (
                     <label key={r} className="flex items-center gap-2 text-[13.5px]">
-                      <input type="checkbox" className="accent-[var(--accent)]" checked={form.picked.includes(r)} onChange={(e) => set({ picked: e.target.checked ? [...form.picked, r] : form.picked.filter((x) => x !== r) })} />
+                      <input type="checkbox" checked={form.picked.includes(r)} onChange={(e) => set({ picked: e.target.checked ? [...form.picked, r] : form.picked.filter((x) => x !== r) })} />
                       <span>
                         <span className="font-mono text-[13px]">{r}</span>
                         {regionName(r) && <span className="text-fg-3"> {regionName(r)}</span>}
@@ -351,12 +352,12 @@ function Editor({ view }: { view: ConnectionView }) {
         {form.source === "aws" && <TestResult result={result} stale={!!tested && !result} />}
         <div className="flex flex-wrap items-center gap-2">
           {form.source === "aws" && (
-            <Button onClick={test} disabled={testing || signInIncomplete}>
+            <Button onClick={test} disabled={testing || signInIncomplete} tip={incompleteWhy}>
               {testing ? <Loader2 className="size-4 animate-spin" /> : <FlaskConical className="size-4" />}
               Test connection
             </Button>
           )}
-          <Button variant="primary" onClick={save} disabled={!awsReady || sameAsNow || signInIncomplete} title={!awsReady ? "Test the connection first" : sameAsNow ? "Nothing changed" : undefined}>
+          <Button variant="primary" onClick={save} disabled={!awsReady || sameAsNow || signInIncomplete} tip={incompleteWhy ?? (!awsReady ? "Test the connection first" : sameAsNow ? "Nothing changed" : undefined)}>
             <ShieldCheck className="size-4" />
             {form.source === "mock" ? "Use the simulated account" : "Save and switch"}
           </Button>
@@ -464,7 +465,7 @@ function Head({ icon, tone, title, children }: { icon: ReactNode; tone: string; 
 function Choice<T extends string>({ name, value, picked, onPick, title, children }: { name: string; value: T; picked: T; onPick: (v: T) => void; title: string; children: ReactNode }) {
   return (
     <label className={cx("press flex cursor-pointer gap-2.5 rounded-xl border p-2.5 transition-colors [--press-scale:0.985]", picked === value ? "border-accent/60 bg-accent-soft" : "border-line hover:border-line-strong hover:bg-panel-2")}>
-      <input type="radio" name={name} value={value} checked={picked === value} onChange={() => onPick(value)} className="mt-0.5 accent-[var(--accent)]" />
+      <input type="radio" name={name} value={value} checked={picked === value} onChange={() => onPick(value)} className="mt-0.5" />
       <span className="min-w-0">
         <span className="block text-[14px] font-medium">{title}</span>
         <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-3">{children}</span>

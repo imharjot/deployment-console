@@ -278,11 +278,11 @@ function RunDrawer({ repo, run, onClose }: { repo: string; run: CiRun; onClose()
         {/* Actions sit under the title on phones, beside it from sm. */}
         <div className="flex basis-full flex-wrap gap-2 pl-8 sm:basis-auto sm:pl-0">
           {r.conclusion === "failure" && (
-            <Button size="sm" onClick={() => rerun("tests")} disabled={!!busy || !!denied || !!deploy?.testsRefused} title={busy ?? denied ?? deploy?.testsRefused ?? "Re-run only the jobs that failed"}>
+            <Button size="sm" onClick={() => rerun("tests")} disabled={!!busy || !!denied || !!deploy?.testsRefused} tip={busy ?? denied ?? deploy?.testsRefused ?? "Re-run only the jobs that failed"}>
               <RotateCw className="size-3.5" /> Re-run failed tests
             </Button>
           )}
-          <Button size="sm" onClick={() => rerun("redeploy")} disabled={!!busy || !!denied} title={busy ?? denied ?? (deploy ? `Re-runs every job: ${scopeText(deploy)}` : undefined)} className={cx(prot && "enabled:hover:!border-down/50 enabled:hover:!text-down")}>
+          <Button size="sm" onClick={() => rerun("redeploy")} disabled={!!busy || !!denied} tip={busy ?? denied ?? (deploy ? `Re-runs every job: ${scopeText(deploy)}` : undefined)} className={cx(prot && "enabled:hover:!border-down/50 enabled:hover:!text-down")}>
             {deploy?.scope === "none" ? <RotateCw className="size-3.5" /> : <Rocket className="size-3.5" />} {deploy?.scope === "none" ? "Re-run all" : "Redeploy"}
           </Button>
           {(r.conclusion === "failure" || r.conclusion === "timed_out") && <CreateTicketButton {...ciTicket(r, jobs, data?.tests)} target={`${repo}#${r.id}`} />}

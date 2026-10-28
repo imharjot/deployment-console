@@ -59,7 +59,7 @@ function Checks({ options, value, onChange, label }: { options: { value: string;
         const on = value.includes(o.value);
         return (
           <label key={o.value} className={cx("press inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13.5px] pointer-coarse:py-2.5", on ? "border-accent/60 bg-accent-soft text-fg" : "border-line text-fg-2 hover:border-line-strong")}>
-            <input type="checkbox" className="accent-[var(--accent)]" checked={on} onChange={() => onChange(on ? value.filter((v) => v !== o.value) : [...value, o.value])} />
+            <input type="checkbox" checked={on} onChange={() => onChange(on ? value.filter((v) => v !== o.value) : [...value, o.value])} />
             {o.label}
           </label>
         );
@@ -267,7 +267,7 @@ function ConfigStep({ initial, isNew, onBack, onSave }: { initial: Widget; isNew
           <div role="radiogroup" aria-label="Query" className="flex gap-1.5">
             {(["saved", "inline"] as const).map((m) => (
               <label key={m} className={cx("press flex flex-1 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-[14px]", mode === m ? "border-accent/60 bg-accent-soft" : "border-line hover:border-line-strong")}>
-                <input type="radio" name="lq-mode" checked={mode === m} onChange={() => setMode(m)} className="accent-[var(--accent)]" />
+                <input type="radio" name="lq-mode" checked={mode === m} onChange={() => setMode(m)} />
                 {m === "saved" ? "A saved query" : "A query of its own"}
               </label>
             ))}

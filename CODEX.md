@@ -104,6 +104,13 @@ first. License: Apache-2.0 (LICENSE).
   at the active option (`aria-activedescendant`); keys as a native select. `base` keeps a caller's own field style
   (classes can't be merged reliably), `children` draws a pill trigger, and `optionsFrom()` reads `<option>` children
   for wrappers that still write them (the dashboards form).
+- Controls: checkboxes and radios are plain `<input>`s drawn by `globals.css` in the accent (`--check` tints one;
+  forced-colors mode gets the native ones back); on/off settings use `Switch` (`ui.tsx`). Number fields have no spin
+  buttons (provisioning's count draws −/+), and filters use `SearchField` (its own clear button). Why a button is
+  disabled goes in its `tip`, and an explanation on a chip in `Tip`, never only a `title`: a Tip shows on hover,
+  keyboard focus (it is a tab stop) and a tap, the disabled button inside lets the tap through, and the text stays in
+  the accessibility tree. On an enabled button `tip` is a plain title, so the button stays its layout's own element.
+  Nothing calls `window.prompt`: ask in the page (the log query bar's name field).
 - Views, guarded actions and the background sampler: `src/lib/server/console.ts`; the guards themselves are pure
   (`src/lib/actions.ts`, `src/lib/status.ts`, view rules in `src/lib/overview-rules.ts`) and shared with the UI so
   buttons and server never disagree. Console actions answer "AWS accepted" with an operation id; the sampler marks ECS

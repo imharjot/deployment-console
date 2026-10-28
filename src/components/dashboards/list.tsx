@@ -94,7 +94,7 @@ function NewDialog({ templates, initial, onClose }: { templates: TemplateInfo[];
           setFrom(id);
           if (!name.trim() || templates.some((t) => t.name === name) || name === "") setName(id === "blank" ? "" : (templates.find((t) => t.id === id)?.name ?? ""));
         }}
-        className="mt-1 accent-[var(--accent)]"
+        className="mt-1"
       />
       <span className="grid size-8 flex-none place-items-center rounded-lg border border-line bg-panel-2 text-fg-2">{icon}</span>
       <span className="min-w-0">

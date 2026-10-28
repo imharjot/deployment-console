@@ -6,7 +6,7 @@ import useSWR, { useSWRConfig } from "swr";
 import { Modal } from "@/components/motion";
 import { IntegrationIcon, type IntegrationList } from "@/components/ticket-button";
 import { useToast } from "@/components/toast";
-import { Button, Chip, Empty, IconButton, Segmented, Skeleton, TimeAgo, cx } from "@/components/ui";
+import { Button, Chip, Empty, IconButton, Segmented, Skeleton, Switch, TimeAgo, cx } from "@/components/ui";
 import { ApiError } from "@/lib/client/api";
 import type { EnvFilter } from "@/lib/plugins/events";
 import type { IntegrationView } from "@/lib/plugins/types";
@@ -141,17 +141,6 @@ function Card({ it, index, admin, onConfigure }: { it: IntegrationView; index: n
 // ---------- configure dialog ----------
 
 type SecretState = { mode: "saved" | "edit" | "clear"; value: string };
-
-function Switch({ checked, onChange, label }: { checked: boolean; onChange(v: boolean): void; label: string }) {
-  return (
-    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="inline-flex items-center gap-2 text-[14px] font-medium pointer-coarse:min-h-10">
-      <span className={cx("relative h-5 w-9 rounded-full border transition-colors duration-200", checked ? "border-accent bg-accent" : "border-line-strong bg-panel-3")}>
-        <motion.span className="absolute left-0.5 top-0.5 size-3.5 rounded-full bg-white shadow" initial={false} animate={{ x: checked ? 16 : 0 }} transition={{ duration: 0.18, ease: "easeOut" }} />
-      </span>
-      {label}
-    </button>
-  );
-}
 
 const inputCls = "h-9 w-full rounded-lg border border-line bg-panel-2 px-3 text-[14px] outline-none transition-colors placeholder:text-fg-3 focus:border-accent pointer-coarse:h-10";
 
@@ -300,7 +289,7 @@ function ConfigDialog({ it, list, onClose }: { it: IntegrationView; list: Integr
                 <div className="grid gap-1.5 sm:grid-cols-2">
                   {list.eventTypes.map((t) => (
                     <label key={t.value} className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-[14px] hover:bg-panel-3 pointer-coarse:py-2">
-                      <input type="checkbox" className="accent-[var(--accent)]" checked={types.includes(t.value)} onChange={(e) => setTypes((xs) => (e.target.checked ? [...xs, t.value] : xs.filter((x) => x !== t.value)))} />
+                      <input type="checkbox" checked={types.includes(t.value)} onChange={(e) => setTypes((xs) => (e.target.checked ? [...xs, t.value] : xs.filter((x) => x !== t.value)))} />
                       {t.label}
                     </label>
                   ))}
@@ -369,11 +358,11 @@ function ConfigDialog({ it, list, onClose }: { it: IntegrationView; list: Integr
             )}
           </div>
           <div className="flex gap-2">
-            <Button type="button" onClick={test} disabled={!!busy || missing.length > 0} title={missing.length ? `Fill in ${missing.join(", ")}` : notify ? "Send a test notification" : "Check credentials without creating a ticket"}>
+            <Button type="button" onClick={test} disabled={!!busy || missing.length > 0} tip={missing.length ? `Fill in ${missing.join(", ")}` : notify ? "Send a test notification" : "Check credentials without creating a ticket"}>
               {busy === "test" ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
               {notify ? "Send test" : "Test connection"}
             </Button>
-            <Button type="submit" variant="primary" disabled={!!busy || missing.length > 0} title={missing.length ? `Fill in ${missing.join(", ")}` : undefined}>
+            <Button type="submit" variant="primary" disabled={!!busy || missing.length > 0} tip={missing.length ? `Fill in ${missing.join(", ")}` : undefined}>
               {busy === "save" ? "Saving…" : "Save"}
             </Button>
           </div>

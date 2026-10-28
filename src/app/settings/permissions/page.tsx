@@ -21,6 +21,7 @@ import {
   type PermissionsCatalog, type Placeholder, type PolicyMode, type PolicyResponse, type ProviderPermissions,
 } from "@/lib/permissions";
 import type { CapabilityView, CapState } from "@/lib/types";
+import { SearchField } from "../../_components/fields";
 import { SectionTitle, TAP } from "../../_components/page-frame";
 
 // GET /api/permissions adds these to the catalog (src/app/api/permissions/route.ts).
@@ -165,14 +166,7 @@ function Permissions() {
               onChange={setFilter}
               options={(Object.keys(FILTER_LABEL) as Filter[]).map((f) => ({ value: f, label: <>{FILTER_LABEL[f]} <span className="text-fg-3 tabular-nums">{providers.filter(FILTERS[f]).length}</span></> }))}
             />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find a service…"
-              aria-label="Find a service"
-              className="h-8 w-full rounded-lg border border-line bg-panel-2 px-3 text-[14px] outline-none transition-colors placeholder:text-fg-3 focus:border-accent sm:ml-auto sm:w-56 pointer-coarse:h-10"
-            />
+            <SearchField value={query} onChange={setQuery} label="Find a service" placeholder="Find a service…" className="w-full sm:ml-auto sm:w-56" />
           </div>
           {providers.length ? (
             visible.length ? (

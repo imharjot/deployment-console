@@ -515,7 +515,7 @@ function SchemaField({ name, s, required, value, error, autoFocus, onChange, onB
   if (k === "boolean") {
     return (
       <label className="flex cursor-pointer items-start gap-2.5 text-[14px]">
-        <input type="checkbox" {...common} checked={!!value} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 accent-[var(--accent)]" />
+        <input type="checkbox" {...common} checked={!!value} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4" />
         <span>
           <span className="text-fg">{label}</span>
           {hint && <span id={describedBy} className="mt-0.5 block text-xs leading-relaxed text-fg-3">{hint}</span>}

@@ -1,21 +1,27 @@
 "use client";
 import { clsx } from "clsx";
 import { Check, Copy } from "lucide-react";
-import { motion } from "motion/react";
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { ago } from "@/lib/client/format";
 import { regionLabel } from "@/lib/client/region";
-import { spring } from "./motion";
+import { Portal, popover, spring } from "./motion";
 
 export const cx = clsx;
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
-export function Button({ variant = "secondary", size = "md", className, children, ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: "sm" | "md" }) {
-  return (
+// `tip` says what the button does, or why it's disabled. Disabled, it's a Tip (a tap or keyboard focus shows it too);
+// enabled, a title, so the button stays the layout's own element.
+export function Button({ variant = "secondary", size = "md", className, children, tip, ...p }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant; size?: "sm" | "md"; tip?: string }) {
+  const tipId = useId();
+  const off = !!tip && !!p.disabled;
+  const button = (
     <button
       {...p}
+      title={tip && !off ? tip : p.title}
+      aria-describedby={off ? tipId : p["aria-describedby"]}
       className={cx(
-        // No pointer-events-none when disabled: the title tooltip explains why.
+        // No pointer-events-none when disabled: a title still explains why on hover (Tip turns it off for its own).
         "press inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium tracking-[-0.005em]",
         // Touch screens get taller targets.
         size === "sm" ? "h-7 px-2.5 text-xs pointer-coarse:h-9 pointer-coarse:px-3" : "h-9 px-3.5 text-[14px] pointer-coarse:h-10",
@@ -28,6 +34,101 @@ export function Button({ variant = "secondary", size = "md", className, children
       )}
     >
       {children}
+    </button>
+  );
+  return off ? (
+    <Tip text={tip} id={tipId}>
+      {button}
+    </Tip>
+  ) : (
+    button
+  );
+}
+
+// A short explanation for something that can't take focus itself (a disabled button, a chip): shown on hover, on
+// keyboard focus (the wrapper is a tab stop) and on a tap, where a title never shows. Disabled controls inside let the
+// pointer through to the wrapper.
+export function Tip({ text, children, id, className }: { text?: ReactNode; children: ReactNode; id?: string; className?: string }) {
+  const own = useId();
+  const tipId = id ?? own;
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  const tip = useRef<HTMLSpanElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const touch = useRef(false);
+  // Above the trigger when there's room, else below; kept inside the window.
+  useLayoutEffect(() => {
+    const b = box.current?.getBoundingClientRect();
+    const t = tip.current;
+    if (!open || !b || !t) return;
+    const above = b.top - t.offsetHeight - 6;
+    t.style.left = `${Math.min(Math.max(8, b.left + b.width / 2 - t.offsetWidth / 2), innerWidth - 8 - t.offsetWidth)}px`;
+    t.style.top = `${above >= 8 ? above : b.bottom + 6}px`;
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const close = () => setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    addEventListener("pointerdown", away, true);
+    addEventListener("scroll", close, true);
+    addEventListener("keydown", esc);
+    return () => {
+      removeEventListener("pointerdown", away, true);
+      removeEventListener("scroll", close, true);
+      removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  if (!text) return children;
+  const show = (next: boolean, wait = 0) => {
+    clearTimeout(timer.current);
+    if (wait) timer.current = setTimeout(() => setOpen(next), wait);
+    else setOpen(next);
+  };
+  return (
+    <span
+      ref={box}
+      tabIndex={0}
+      aria-describedby={tipId}
+      onPointerDown={(e) => (touch.current = e.pointerType !== "mouse")}
+      onPointerEnter={(e) => e.pointerType === "mouse" && show(true, 300)}
+      onPointerLeave={(e) => e.pointerType === "mouse" && show(false)}
+      onClick={() => touch.current && setOpen((o) => !o)}
+      onFocus={(e) => e.target.matches(":focus-visible") && show(true)}
+      onBlur={() => show(false)}
+      className={cx("inline-flex rounded-lg [&_:disabled]:pointer-events-none has-[:disabled]:cursor-not-allowed", className)}
+    >
+      {children}
+      <span id={tipId} hidden>
+        {text}
+      </span>
+      <Portal>
+        <AnimatePresence>
+          {open && (
+            <motion.span
+              ref={tip}
+              aria-hidden
+              {...popover}
+              className="pointer-events-none fixed left-0 top-0 z-[110] w-max max-w-[min(20rem,calc(100vw-16px))] rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] leading-snug text-fg-2 shadow-float"
+            >
+              {text}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </Portal>
+    </span>
+  );
+}
+
+// An on/off setting that applies at once. Without a visible label, give it an aria-label.
+export function Switch({ checked, onChange, label, disabled, className, ...aria }: { checked: boolean; onChange(next: boolean): void; label?: ReactNode; disabled?: boolean; className?: string; "aria-label"?: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} {...aria} className={cx("inline-flex items-center gap-2 text-[14px] font-medium disabled:opacity-50 pointer-coarse:min-h-10", className)}>
+      <span className={cx("relative h-5 w-9 flex-none rounded-full border transition-colors duration-200", checked ? "border-accent bg-accent" : "border-line-strong bg-panel-3")}>
+        <motion.span className="absolute left-0.5 top-0.5 size-3.5 rounded-full bg-white shadow" initial={false} animate={{ x: checked ? 16 : 0 }} transition={{ duration: 0.18, ease: "easeOut" }} />
+      </span>
+      {label}
     </button>
   );
 }

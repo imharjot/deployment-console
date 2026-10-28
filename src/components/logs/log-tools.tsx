@@ -119,6 +119,9 @@ export function QueryBar({ value, onChange, error, inputRef, count, onNav, match
   const [recent, setRecent] = useState<string[]>([]);
   const server = useSavedQueries();
   const [saveErr, setSaveErr] = useState<string | null>(null);
+  // The name of the query being saved, asked in the menu itself.
+  const [naming, setNaming] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   // Focusing an empty query opens the presets as a hint; typing closes them again so they never cover the lines
   // (on a phone they fill most of the screen). Opened from the button, they stay until dismissed.
@@ -128,6 +131,7 @@ export function QueryBar({ value, onChange, error, inputRef, count, onNav, match
     if (next) {
       setSaved(read(SAVED, []));
       setRecent(read(RECENT, []));
+      setNaming(null);
     }
     setOpen(next);
   };
@@ -144,23 +148,62 @@ export function QueryBar({ value, onChange, error, inputRef, count, onNav, match
     inputRef.current?.focus();
   };
   const save = async () => {
-    const name = window.prompt("Name this query", value.slice(0, 40))?.trim();
-    if (!name) return;
+    const name = naming?.trim().slice(0, 80);
+    if (!name || saving) return;
     setSaveErr(null);
     if (server.available && saveContext) {
+      setSaving(true);
       try {
-        await postJson("/api/saved", { kind: "log-query", name: name.slice(0, 80), payload: { env: saveContext.env, services: saveContext.services, query: value, minutes: saveContext.minutes } });
+        await postJson("/api/saved", { kind: "log-query", name, payload: { env: saveContext.env, services: saveContext.services, query: value, minutes: saveContext.minutes } });
         await server.refresh();
-        return;
+        setNaming(null);
       } catch (e) {
         setSaveErr((e as Error).message);
-        return;
+      } finally {
+        setSaving(false);
       }
+      return;
     }
     const next = [{ name, q: value }, ...read<{ name: string; q: string }[]>(SAVED, []).filter((s) => s.name !== name)].slice(0, 30);
     write(SAVED, next);
     setSaved(next);
+    setNaming(null);
   };
+  const startSave = () => {
+    setSaveErr(null);
+    setNaming(value.slice(0, 40));
+  };
+  const nameField = naming !== null && (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+      className="mb-1.5 flex items-center gap-1.5 px-2"
+    >
+      <input
+        autoFocus
+        value={naming}
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => setNaming(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== "Escape") return;
+          e.stopPropagation();
+          setNaming(null);
+        }}
+        maxLength={80}
+        placeholder="Name this query"
+        aria-label="Name this query"
+        className="h-7 min-w-0 flex-1 rounded-md border border-line bg-panel-2 px-2 text-[13px] text-fg outline-none placeholder:text-fg-3 focus:border-accent pointer-coarse:h-9"
+      />
+      <Button type="submit" size="sm" variant="primary" disabled={!naming.trim() || saving}>
+        {saving ? "Saving…" : "Save"}
+      </Button>
+      <Button type="button" size="sm" variant="ghost" onClick={() => setNaming(null)}>
+        Cancel
+      </Button>
+    </form>
+  );
   const remove = async (q: SavedLogQuery) => {
     setSaveErr(null);
     try {
@@ -238,7 +281,8 @@ export function QueryBar({ value, onChange, error, inputRef, count, onNav, match
             </div>
             <div className="min-w-0 space-y-3">
               {server.available && (
-                <Group title="Saved queries" icon={<Star className="size-3" />} action={value ? <button className="text-accent hover:underline pointer-coarse:py-1.5" onClick={save}>save query</button> : null}>
+                <Group title="Saved queries" icon={<Star className="size-3" />} action={value && naming === null ? <button className="text-accent hover:underline pointer-coarse:py-1.5" onClick={startSave}>save query</button> : null}>
+                  {nameField}
                   {server.list!.length ? (
                     server.list!.map((q) => (
                       <div key={q.id} className="group flex items-center">
@@ -266,7 +310,8 @@ export function QueryBar({ value, onChange, error, inputRef, count, onNav, match
               )}
               {/* With saved queries on the server, this browser's old list stays readable until it is emptied. */}
               {(!server.available || saved.length > 0) && (
-                <Group title={server.available ? "In this browser" : "Saved"} icon={<Star className="size-3" />} action={value && !server.available ? <button className="text-accent hover:underline" onClick={save}>save current</button> : null}>
+                <Group title={server.available ? "In this browser" : "Saved"} icon={<Star className="size-3" />} action={value && !server.available && naming === null ? <button className="text-accent hover:underline pointer-coarse:py-1.5" onClick={startSave}>save current</button> : null}>
+                  {!server.available && nameField}
                   {saved.length ? (
                     saved.map((s) => (
                       <div key={s.name} className="group flex items-center">
