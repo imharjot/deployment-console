@@ -9,6 +9,10 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **ARM64 or x86, your pick**: Deploy the console builds one image for both CPUs (`linux/arm64` and `linux/amd64`),
+  so the task definition can name either, and switching needs no rebuild; a single-CPU build is still one command.
+  `infra/task-definition.json` now asks for `ARM64` (Graviton), about 20 % cheaper than x86 for the same size, and the
+  guide's decisions table lists the choice.
 - **Connect an account with CloudFormation**: Settings → AWS connection → Switch into a role → Create it with
   CloudFormation downloads a template with the console's own login and its external ID filled in
   (`infra/connect-aws-role.json` is the generic one, kept in step with the read-only policy by `npm run iam:policy`).
