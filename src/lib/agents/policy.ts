@@ -344,7 +344,7 @@ const base = (o: Partial<AgentPolicy> & Pick<AgentPolicy, "mode" | "tools">): Ag
   billing: { connection: "", fallback: "none" },
   ...o,
 });
-const NEVER = ["variables.update", "tasks.run", "hosts.terminate", "services.delete", "services.clone", "hosts.add"];
+const NEVER = ["variables.update", "tasks.run", "hosts.terminate", "services.delete", "services.clone", "services.create", "services.deleteGroup", "hosts.add"];
 
 export type TemplateName = "incident-investigator" | "approved-remediation" | "nonproduction-schedule" | "daily-digest" | "cost-review" | "config-drift";
 

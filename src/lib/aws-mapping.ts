@@ -589,12 +589,13 @@ export interface SdkSecurityGroup {
     Ipv6Ranges?: { CidrIpv6?: string; Description?: string }[];
     PrefixListIds?: { PrefixListId?: string; Description?: string }[];
   }[];
+  Tags?: { Key?: string; Value?: string }[];
 }
 
 // Inbound rules with their sources: other groups, IPv4 and IPv6 ranges, prefix lists, and the first description.
 export function securityGroupOf(g: SdkSecurityGroup): RawSecurityGroup {
   return {
-    id: g.GroupId!, name: g.GroupName ?? "", vpcId: g.VpcId,
+    id: g.GroupId!, name: g.GroupName ?? "", vpcId: g.VpcId, ...(g.Tags?.length ? { tags: tagMap(g.Tags) } : {}),
     inbound: (g.IpPermissions ?? []).map((p) => {
       const cidrs = [...(p.IpRanges ?? []).map((r) => r.CidrIp), ...(p.Ipv6Ranges ?? []).map((r) => r.CidrIpv6)].filter((x): x is string => !!x);
       const prefixLists = (p.PrefixListIds ?? []).map((x) => x.PrefixListId).filter((x): x is string => !!x);

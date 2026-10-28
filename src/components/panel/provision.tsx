@@ -1,40 +1,46 @@
 "use client";
-// Create & scale in the UI: the overview's "New" menu (copy a service, add an EC2 host, jump to what the console
-// created) and the resource panel's Scale / Run task / Copy / Delete for services and Add like this / Terminate for
-// hosts. Every flow is form → plan (a dry run of the very server function that will act: changes, warnings, cost) →
+// Create & scale in the UI: the overview's "New" menu (a new service from an image or as a copy, add an EC2 host, jump
+// to what the console created, delete a security group a deleted service left) and the cloud map's "New service", and
+// the resource panel's Scale / Run task / Copy / Delete for services and Add like this / Terminate for hosts. Every flow is form → plan (a dry run of the very server function that will act: changes, warnings, cost) →
 // confirmation → toast. Buttons are drawn with the guards the server applies (src/lib/provision.ts) — Delete and
 // Terminate only appear for resources the console created — and the server checks everything again.
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, ArrowLeft, Check as CheckIcon, CopyPlus, Layers, Loader2, Lock, Minus, Plus, Server, ServerCog, SquareTerminal, Trash2, X, type LucideIcon } from "lucide-react";
+import {
+  AlertTriangle, ArrowLeft, Check as CheckIcon, CopyPlus, Layers, Loader2, Lock, Minus, PackagePlus, Plus, Server, ServerCog, Shield, SquareTerminal, Trash2, X, type LucideIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { postJson } from "@/lib/client/api";
-import { useEnvInfo } from "@/lib/client/env";
+import { useEnvInfo, useEnvList } from "@/lib/client/env";
 import { usd } from "@/lib/costs";
 import {
-  FARGATE_CPU, addHostCheck, cloneCheck, commandProblem, deleteServiceCheck, fargateMemoryFor, fargateSizeProblem, imageProblem, instanceTypeProblem, newNameProblem,
-  runTaskCheck, scaleCheck, serviceEstimate, splitCommand, terminateHostCheck, type Check, type ProvisionInfo, type ProvisionPlan, type ServiceFacts,
+  DEFAULT_SIZE, FARGATE_CPU, addHostCheck, cloneCheck, commandProblem, createCheck, deleteServiceCheck, fargateMemoryFor, fargateSizeProblem, imageProblem,
+  instanceTypeProblem, newNameProblem, portProblem, runTaskCheck, scaleCheck, serviceEstimate, splitCommand, terminateHostCheck, type Check, type ProvisionInfo,
+  type ProvisionPlan, type ServiceFacts,
 } from "@/lib/provision";
 import type { ResourceView } from "@/lib/types";
 import { Modal, Portal, enter, exit, popover, swap, usePhone } from "../motion";
 import { useToast } from "../toast";
-import { Button, Skeleton, cx } from "../ui";
+import { Button, Segmented, Skeleton, TimeAgo, cx } from "../ui";
 import { Select } from "@/components/select";
 
-type Kind = "clone" | "scale" | "run-task" | "add-host" | "delete-service" | "terminate-host";
+type Kind = "create" | "clone" | "scale" | "run-task" | "add-host" | "delete-service" | "delete-security-group" | "terminate-host";
 export interface Flow {
   kind: Kind;
   env: string;
   service?: string; // clone: preselected source (in env); scale / run-task / delete: the service
   host?: string; // add-host: preselected source host; terminate: the host
+  group?: string; // delete-security-group: the group
 }
 
 const KIND: Record<Kind, { title: string; verb: string; icon: LucideIcon; danger?: boolean; form: boolean }> = {
+  create: { title: "New service", verb: "Create service", icon: PackagePlus, form: true },
   clone: { title: "Copy a service", verb: "Create service", icon: CopyPlus, form: true },
   scale: { title: "Scale", verb: "Scale", icon: Layers, form: true },
   "run-task": { title: "Run a one-off task", verb: "Run task", icon: SquareTerminal, form: true },
   "add-host": { title: "Add EC2 host", verb: "Launch", icon: ServerCog, form: true },
   "delete-service": { title: "Delete service", verb: "Delete service", icon: Trash2, danger: true, form: false },
+  "delete-security-group": { title: "Delete security group", verb: "Delete security group", icon: Trash2, danger: true, form: false },
   "terminate-host": { title: "Terminate host", verb: "Terminate host", icon: Trash2, danger: true, form: false },
 };
 
@@ -45,9 +51,12 @@ const OK: Check = { ok: true };
 const INSTANCE_TYPES = ["t3a.small", "t3a.medium", "t3a.large", "t3.medium", "t4g.medium", "m7g.large", "m6i.large", "c7g.large", "r7g.large"];
 
 // `poll`: refresh every 15 s while shown (the panel's buttons). The overview's New menu loads once and refreshes
-// when it opens instead (F48): it sits on every overview, and a 15 s poll there was a request nobody looked at.
-export function useProvisionInfo(env: string, sources = false, poll = true) {
-  return useSWR<ProvisionInfo>(env ? `/api/provision?env=${env}${sources ? "&sources=1" : ""}` : null, { refreshInterval: poll ? 15_000 : 0, keepPreviousData: true, revalidateOnFocus: false });
+// when it opens instead (F48): it sits on every overview, and a 15 s poll there was a request nobody looked at. Only
+// the New menu asks for `groups` (security groups left behind), which costs two more AWS reads.
+export function useProvisionInfo(env: string, sources = false, poll = true, groups = false) {
+  return useSWR<ProvisionInfo>(env ? `/api/provision?env=${env}${sources ? "&sources=1" : ""}${groups ? "&groups=1" : ""}` : null, {
+    refreshInterval: poll ? 15_000 : 0, keepPreviousData: true, revalidateOnFocus: false,
+  });
 }
 
 const factsOf = (s: ProvisionInfo["services"][number]): ServiceFacts => ({ desired: s.desired, inProgress: s.inProgress, isSelf: s.self, created: s.created, hasTaskDef: s.hasTaskDef });
@@ -168,10 +177,11 @@ export function ProvisionActions({ r }: { r: ResourceView }) {
   );
 }
 
-// Overview header: "New" → copy a service / add an EC2 host, plus a list of what the console created here.
+// Overview header: "New" → a new service / copy a service / add an EC2 host, plus a list of what the console created
+// here (and security groups deleted services left behind, to delete).
 export function NewResourceMenu({ env }: { env: string }) {
   const phone = usePhone();
-  const { data: info, mutate: reload } = useProvisionInfo(env, false, false);
+  const { data: info, mutate: reload } = useProvisionInfo(env, false, false, true);
   const [pos, setPos] = useState<CSSProperties | null>(null);
   const [flow, setFlow] = useState<Flow | null>(null);
   const trigger = useRef<HTMLSpanElement>(null); // wraps the button: it is where the menu anchors
@@ -213,13 +223,17 @@ export function NewResourceMenu({ env }: { env: string }) {
   const ec2 = info.kind === "ec2" || info.kind === "mixed";
   const existing = hostTotal(info);
   const hostCheck = info.hosts.map((h) => addHostCheck(h, info.limits, existing, undefined, info.hostCountDetail)).find((c) => c.ok) ?? (info.hosts[0] ? addHostCheck(info.hosts[0], info.limits, existing, undefined, info.hostCountDetail) : { ok: false as const, status: 409, error: "no EC2 host to copy" });
+  const on = createCheck(info.limits);
   const items = [
-    item(info, "clone", "Copy a service", "provision", info.limits.enabled ? OK : { ok: false, status: 403, error: "provisioning is turned off (console.config.json → provisioning.enabled)" }, { hint: "From any environment's service, with its task definition" }),
+    item(info, "create", "New service", "provision", !on.ok ? on : info.donor.ok ? OK : { ok: false, status: 409, error: info.donor.error }, { hint: "From an image, on Fargate, with its own security group" }),
+    item(info, "clone", "Copy a service", "provision", on, { hint: "From any environment's service, with its task definition" }),
     ...(ec2 ? [item(info, "add-host", "Add EC2 host", "provision", hostCheck, { hint: "Like one of this environment's container instances" })] : []),
   ];
   const created = [
-    ...info.services.filter((s) => s.created).map((s) => ({ key: `service:${s.name}`, label: s.display, sub: `service · ${s.desired} task${s.desired === 1 ? "" : "s"}`, icon: Layers })),
-    ...info.hosts.filter((h) => h.created).map((h) => ({ key: `box:${h.id}`, label: h.name, sub: `${h.type} · ${h.state}`, icon: Server })),
+    ...info.services.filter((s) => s.created).map((s) => ({ key: `service:${s.name}`, label: s.display, sub: `service · ${s.desired} task${s.desired === 1 ? "" : "s"}`, icon: Layers, open: () => openResource(`service:${s.name}`) })),
+    ...info.hosts.filter((h) => h.created).map((h) => ({ key: `box:${h.id}`, label: h.name, sub: `${h.type} · ${h.state}`, icon: Server, open: () => openResource(`box:${h.id}`) })),
+    // Left by a deleted service: nothing opens them, so the row starts their delete.
+    ...(info.groups ?? []).map((g) => ({ key: `sg:${g.id}`, label: g.name, sub: "security group · not used", icon: Shield, open: () => setFlow({ kind: "delete-security-group", env, group: g.id }) })),
   ];
   const row = "press flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left text-[14px] text-fg-2 enabled:hover:bg-panel-3 enabled:hover:text-fg disabled:opacity-45 pointer-coarse:py-3";
   const body = (
@@ -256,7 +270,7 @@ export function NewResourceMenu({ env }: { env: string }) {
               role="menuitem"
               onClick={() => {
                 close();
-                openResource(c.key);
+                c.open();
               }}
               className={cx(row, "items-center")}
             >
@@ -272,13 +286,16 @@ export function NewResourceMenu({ env }: { env: string }) {
   const toggle = () => {
     if (pos) return close();
     void reload(); // fresh guards and "created by the console" each time the menu opens
+    // Right-aligned with the button, kept inside the window when the header wraps it to the left.
     const b = trigger.current!.getBoundingClientRect();
-    setPos({ top: b.bottom + 8, right: Math.max(8, window.innerWidth - b.right), width: 300 });
+    const width = Math.min(320, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(b.right, window.innerWidth - 8) - width);
+    setPos({ top: b.bottom + 8, left, width, transformOrigin: `${Math.round(Math.min(width, Math.max(0, b.right - left)))}px 0` });
   };
   return (
     <>
       <span ref={trigger} className="inline-flex">
-        <Button size="sm" onClick={toggle} aria-haspopup="menu" aria-expanded={!!pos} title="Copy a service or add capacity">
+        <Button size="sm" onClick={toggle} aria-haspopup="menu" aria-expanded={!!pos} title="Create a service or add capacity">
           <Plus className="size-3.5" /> New
         </Button>
       </span>
@@ -296,24 +313,45 @@ export function NewResourceMenu({ env }: { env: string }) {
         <Portal>
           <AnimatePresence>
             {pos && (
-              <motion.div ref={menu} {...popover} role="menu" aria-label="New" style={{ ...pos, transformOrigin: "top right" }} className="fixed z-[80] rounded-xl border border-line bg-panel p-1.5 text-left shadow-float">
+              <motion.div ref={menu} {...popover} role="menu" aria-label="New" style={pos} className="fixed z-[80] rounded-xl border border-line bg-panel p-1.5 text-left shadow-float">
                 {body}
               </motion.div>
             )}
           </AnimatePresence>
         </Portal>
       )}
-      <AnimatePresence>{flow && <ProvisionDialog key={flow.kind} flow={flow} onClose={() => setFlow(null)} />}</AnimatePresence>
+      <AnimatePresence>{flow && <ProvisionDialog key={`${flow.kind}:${flow.group ?? ""}`} flow={flow} onClose={() => setFlow(null)} />}</AnimatePresence>
+    </>
+  );
+}
+
+// The cloud map's "New service": the same dialog, in the environment the map shows (or the console's own choice).
+// `onCreated` lets the map pick the new service up and open it.
+export function NewServiceButton({ env, onCreated, compact }: { env: string; onCreated?: (env: string, name: string) => void; compact?: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button size={compact ? "md" : "sm"} onClick={() => setOpen(true)} aria-haspopup="dialog" aria-label={compact ? "New service" : undefined} className={compact ? "h-10 flex-none px-3" : undefined}>
+        <Plus className={compact ? "size-4" : "size-3.5"} />
+        {!compact && "New service"}
+      </Button>
+      <AnimatePresence>{open && env && <ProvisionDialog flow={{ kind: "create", env }} onClose={() => setOpen(false)} onCreated={onCreated} />}</AnimatePresence>
     </>
   );
 }
 
 // ---------- the dialog: form → plan → confirm ----------
 
-function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
-  const k = KIND[flow.kind];
-  const { data: info, error } = useProvisionInfo(flow.env, flow.kind === "clone");
-  const envInfo = useEnvInfo(flow.env);
+function ProvisionDialog({ flow: opened, onClose, onCreated }: { flow: Flow; onClose(): void; onCreated?: (env: string, name: string) => void }) {
+  // A new service and a copy are one dialog with two modes, in any environment; a service panel's Copy keeps its source.
+  const fold = (opened.kind === "create" || opened.kind === "clone") && !opened.service;
+  const [kind, setKind] = useState<Kind>(opened.kind);
+  const [env, setEnv] = useState(opened.env);
+  const flow: Flow = { ...opened, kind, env };
+  const k = KIND[kind];
+  const { data: info, error } = useProvisionInfo(env, kind === "clone" || kind === "create");
+  const ready = info?.env === env ? info : undefined; // keepPreviousData: the last environment's until this one loads
+  const envInfo = useEnvInfo(env);
   const toast = useToast();
   const { mutate } = useSWRConfig();
   const [step, setStep] = useState<"form" | "review">(k.form ? "form" : "review");
@@ -322,10 +360,11 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Capture phase: Esc closes only this dialog, not the panel underneath.
+  // Capture phase: Esc closes only this dialog, not the panel underneath — but an open dropdown (its trigger keeps
+  // focus; on phones its sheet's list) closes first and keeps the form.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || (e.target instanceof Element && e.target.closest('[aria-expanded="true"], [role="listbox"]'))) return;
       e.stopImmediatePropagation();
       if (!busy) onClose();
     };
@@ -338,7 +377,7 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
       setBusy(true);
       setErr(null);
       try {
-        const p = await postJson<ProvisionPlan>(`/api/provision/${flow.kind}?dryRun=1`, b);
+        const p = await postJson<ProvisionPlan>(`/api/provision/${kind}?dryRun=1`, b);
         setBody(b);
         setPlan(p);
         setStep("review");
@@ -348,7 +387,7 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
         setBusy(false);
       }
     },
-    [flow.kind],
+    [kind],
   );
 
   // Deletes have nothing to fill in: go straight to the plan.
@@ -356,17 +395,19 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
   useEffect(() => {
     if (k.form || started.current) return;
     started.current = true;
-    void review(flow.kind === "terminate-host" ? { env: flow.env, id: flow.host } : { env: flow.env, service: flow.service });
-  }, [k.form, flow, review]);
+    void review(
+      opened.kind === "terminate-host" ? { env: opened.env, id: opened.host } : opened.kind === "delete-security-group" ? { env: opened.env, id: opened.group } : { env: opened.env, service: opened.service },
+    );
+  }, [k.form, opened, review]);
 
   const confirm = async (input: { confirm: string; reason?: string }) => {
     if (!body || !plan) return;
     setBusy(true);
     setErr(null);
     try {
-      const res = await postJson<Record<string, unknown>>(`/api/provision/${flow.kind}`, { ...body, ...input });
+      const res = await postJson<Record<string, unknown>>(`/api/provision/${kind}`, { ...body, ...input });
       done(flow, body, res);
-      void mutate((key) => typeof key === "string" && (key.startsWith(`/api/overview?env=${flow.env}`) || key.startsWith(`/api/provision?env=${flow.env}`) || key.includes(`/api/services/${flow.env}/`)));
+      void mutate((key) => typeof key === "string" && (key.startsWith(`/api/overview?env=${env}`) || key.startsWith(`/api/provision?env=${env}`) || key.includes(`/api/services/${env}/`)));
       onClose();
     } catch (e) {
       setErr((e as Error).message);
@@ -375,11 +416,18 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
   };
 
   const done = (f: Flow, b: Record<string, unknown>, res: Record<string, unknown>) => {
-    if (f.kind === "clone") {
+    if (f.kind === "clone" || f.kind === "create") {
       const name = String(b.name);
-      toast.push({ tone: "ok", title: `Creating ${name}`, body: `${f.env} · ${b.desired ? "first rollout starting" : "created with 0 tasks — start it when ready"}` });
-      openResource(`service:${name}`);
-    } else if (f.kind === "scale") toast.push({ tone: "ok", title: `Scaling ${f.service} to ${b.desired}`, body: `${f.env}. Tasks start or stop over the next minute.` });
+      // Opened here: its panel. Created in another environment than the page shows: a link to it. The map picks it up itself.
+      const here = !onCreated && f.env === opened.env;
+      toast.push({
+        tone: "ok", title: `Creating ${name}`, body: `${f.env} · ${b.desired ? "first rollout starting" : "created with 0 tasks — start it when ready"}`,
+        link: here || onCreated ? undefined : { href: `/?env=${encodeURIComponent(f.env)}&r=${encodeURIComponent(`service:${name}`)}`, label: `Open ${name}` },
+      });
+      if (onCreated) onCreated(f.env, name);
+      else if (here) openResource(`service:${name}`);
+    } else if (f.kind === "delete-security-group") toast.push({ tone: "ok", title: `Deleted security group ${f.group}`, body: f.env });
+    else if (f.kind === "scale") toast.push({ tone: "ok", title: `Scaling ${f.service} to ${b.desired}`, body: `${f.env}. Tasks start or stop over the next minute.` });
     else if (f.kind === "run-task") {
       const logs = res.logs as { group: string; stream?: string } | undefined;
       toast.push(
@@ -387,12 +435,32 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
         12_000,
       );
     } else if (f.kind === "add-host") toast.push({ tone: "ok", title: `Launching ${(res.instanceIds as string[] | undefined)?.length ?? b.count} EC2 host${b.count === 1 ? "" : "s"}`, body: `${((res.instanceIds as string[] | undefined) ?? []).join(", ")} · they join the cluster in a few minutes.` });
-    else if (f.kind === "delete-service") toast.push({ tone: "ok", title: `Deleting ${f.service}`, body: `${f.env}. Its tasks stop within a minute.` });
+    else if (f.kind === "delete-service") {
+      const left = (res.groupsLeft as string[] | undefined) ?? [];
+      toast.push(
+        { tone: "ok", title: `Deleting ${f.service}`, body: `${f.env}. Its tasks stop within a minute.${left.length ? ` AWS kept its security group ${left.join(", ")} while they stop: delete it from New → Created by the console in a minute.` : ""}` },
+        left.length ? 12_000 : undefined,
+      );
+    }
     else toast.push({ tone: "ok", title: `Terminating ${f.host}`, body: `${f.env}. ECS drops it from the cluster once it is gone.` });
   };
 
   const I = k.icon;
-  const subject = flow.service ?? flow.host;
+  const subject = flow.service ?? flow.host ?? flow.group;
+  const head = fold ? (
+    <NewHead
+      kind={kind === "clone" ? "clone" : "create"}
+      env={env}
+      onKind={(v) => {
+        setKind(v);
+        setErr(null);
+      }}
+      onEnv={(v) => {
+        setEnv(v);
+        setErr(null);
+      }}
+    />
+  ) : undefined;
   return (
     <Modal onClose={busy ? undefined : onClose} aria-labelledby="provision-title" className="sm:max-w-lg">
       <header className="flex flex-none items-center gap-3 border-b border-line px-5 pb-3.5 pt-1 sm:pt-4">
@@ -400,7 +468,7 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
         <div className="min-w-0 flex-1">
           <h2 id="provision-title" className="truncate font-display text-2xl leading-tight">{k.title}</h2>
           <div className="truncate font-mono text-[12px] text-fg-3">
-            {flow.env}
+            {env}
             {subject && flow.kind !== "clone" && flow.kind !== "add-host" ? ` · ${subject}` : ""}
           </div>
         </div>
@@ -422,7 +490,22 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
           {/* The form stays mounted (hidden) during the review, so Back returns to exactly what was typed. */}
           {k.form && (
             <div className={cx("flex min-h-0 flex-1 flex-col", step !== "form" && "hidden")}>
-              <FormStep flow={flow} info={info} shell={{ busy, err: step === "form" ? err : null, onCancel: onClose, onReview: review }} />
+              {ready ? (
+                <FormStep
+                  key={`${kind}:${env}`}
+                  flow={flow}
+                  info={ready}
+                  head={head}
+                  onCopy={fold ? () => setKind("clone") : undefined}
+                  shell={{ busy, err: step === "form" ? err : null, onCancel: onClose, onReview: review }}
+                />
+              ) : (
+                <Shell busy={busy} err={null} onCancel={onClose} onReview={review} head={head} problem="loading…">
+                  <Skeleton className="h-10" />
+                  <Skeleton className="h-10" />
+                  <Skeleton className="h-24" />
+                </Shell>
+              )}
             </div>
           )}
           <AnimatePresence initial={false}>
@@ -433,7 +516,7 @@ function ProvisionDialog({ flow, onClose }: { flow: Flow; onClose(): void }) {
                     plan={plan}
                     danger={!!k.danger}
                     verb={k.verb}
-                    protectedEnv={info.protected}
+                    protectedEnv={(ready ?? info).protected}
                     envLabel={envInfo?.label ?? flow.env}
                     busy={busy}
                     err={err}
@@ -525,8 +608,9 @@ interface ShellProps {
   onReview(b: Record<string, unknown>): void;
 }
 
-// A form's frame: scrolling fields, the error, and a footer whose "Review plan" is enabled once the body is valid.
-function Shell({ body, problem, busy, err, onCancel, onReview, children }: ShellProps & { body?: Record<string, unknown>; problem?: string; children: ReactNode }) {
+// A form's frame: what comes first (`head`: the new-service dialog's mode and environment), scrolling fields, the
+// error, and a footer whose "Review plan" is enabled once the body is valid.
+function Shell({ body, problem, busy, err, onCancel, onReview, head, children }: ShellProps & { body?: Record<string, unknown>; problem?: string; head?: ReactNode; children: ReactNode }) {
   const ref = useRef<HTMLFormElement>(null);
   // Keyboard users land in the first field when the dialog opens.
   useEffect(() => ref.current?.querySelector<HTMLElement>("select, input")?.focus(), []);
@@ -540,6 +624,7 @@ function Shell({ body, problem, busy, err, onCancel, onReview, children }: Shell
       }}
     >
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-5">
+        {head}
         {children}
         <ErrorBox err={err} />
       </div>
@@ -555,10 +640,12 @@ function Shell({ body, problem, busy, err, onCancel, onReview, children }: Shell
   );
 }
 
-type FormProps = { flow: Flow; info: ProvisionInfo; shell: ShellProps };
+type FormProps = { flow: Flow; info: ProvisionInfo; shell: ShellProps; head?: ReactNode };
 
-function FormStep({ flow, info, shell }: FormProps) {
-  if (flow.kind === "clone") return <CloneForm flow={flow} info={info} shell={shell} />;
+function FormStep({ onCopy, ...p }: FormProps & { onCopy?: () => void }) {
+  const { flow, info, shell } = p;
+  if (flow.kind === "create") return <CreateForm {...p} onCopy={onCopy} />;
+  if (flow.kind === "clone") return <CloneForm {...p} />;
   if (flow.kind === "scale") return <ScaleForm flow={flow} info={info} shell={shell} />;
   if (flow.kind === "run-task") return <RunTaskForm flow={flow} info={info} shell={shell} />;
   return <AddHostForm flow={flow} info={info} shell={shell} />;
@@ -570,7 +657,173 @@ const gone = (shell: ShellProps) => (
   </Shell>
 );
 
-function CloneForm({ flow, info, shell }: FormProps) {
+// The new-service dialog's first fields: start from an image or a copy, and where.
+function NewHead({ kind, env, onKind, onEnv }: { kind: "create" | "clone"; env: string; onKind(k: "create" | "clone"): void; onEnv(e: string): void }) {
+  const envs = (useEnvList().data ?? []).filter((e) => e.kind !== "compose");
+  const regions = new Set(envs.map((e) => e.region)).size > 1;
+  return (
+    <>
+      <Segmented
+        id="new-service-mode"
+        size="sm"
+        value={kind}
+        onChange={onKind}
+        options={[
+          { value: "create", label: <span className="inline-flex items-center gap-1.5"><PackagePlus className="size-3.5" strokeWidth={1.75} /> From an image</span> },
+          { value: "clone", label: <span className="inline-flex items-center gap-1.5"><CopyPlus className="size-3.5" strokeWidth={1.75} /> Copy a service</span> },
+        ]}
+      />
+      <Field label="Environment">
+        <Select
+          aria-label="Environment"
+          value={env}
+          onChange={onEnv}
+          base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+          options={envs.map((e) => ({ value: e.id, label: e.label, hint: [e.protected ? "protected" : "", regions ? e.region : ""].filter(Boolean).join(" · ") || undefined, icon: e.protected ? <Lock className="size-3 text-down" /> : undefined }))}
+        />
+      </Field>
+    </>
+  );
+}
+
+const SIZE_FIELDS = "grid gap-4 sm:grid-cols-2";
+
+function CreateForm({ flow, info, shell, head, onCopy }: FormProps & { onCopy?: () => void }) {
+  const taken = info.services.map((s) => s.name);
+  const [name, setName] = useState("");
+  const [from, setFrom] = useState<"ecr" | "paste" | null>(null); // null: ECR when the region has repositories
+  const [repo, setRepo] = useState("");
+  const [tag, setTag] = useState("");
+  const [pasted, setPasted] = useState("");
+  const [port, setPort] = useState("");
+  const [cpu, setCpu] = useState(DEFAULT_SIZE.cpu);
+  const [memory, setMemory] = useState(DEFAULT_SIZE.memory);
+  const [desired, setDesired] = useState(1);
+  const { data: repos, error: reposErr } = useSWR<{ repositories: { name: string; uri: string }[] }>(`/api/provision/images?env=${flow.env}`, { revalidateOnFocus: false });
+  const { data: tags, error: tagsErr } = useSWR<{ tags: { tag: string; pushedAt?: number }[] }>(repo ? `/api/provision/images?env=${flow.env}&repository=${encodeURIComponent(repo)}` : null, { revalidateOnFocus: false });
+  const list = repos?.repositories ?? [];
+  const mode = from ?? (repos && !list.length ? "paste" : reposErr ? "paste" : "ecr");
+  const r = list.find((x) => x.name === repo);
+  const effTag = tag || tags?.tags[0]?.tag || ""; // the newest push until one is picked
+  const image = mode === "ecr" ? (r && effTag ? `${r.uri}:${effTag}` : "") : pasted.trim();
+  // Repositories this environment already pulls from come first.
+  const used = new Set(info.services.map((s) => s.image?.replace(/[:@].*$/, "")).filter(Boolean));
+  const repoOptions = [...list]
+    .sort((a, b) => Number(used.has(b.uri)) - Number(used.has(a.uri)) || a.name.localeCompare(b.name))
+    .map((x) => ({ value: x.name, label: x.name, group: used.has(x.uri) ? `Used in ${flow.env}` : "Other repositories" }));
+
+  const gate = createCheck(info.limits);
+  const nameErr = name ? newNameProblem(name, taken) : undefined;
+  const imageErr = image ? imageProblem(image, info.limits.allowedImageRegistries) : undefined;
+  const portNum = port.trim() ? Number(port.trim()) : undefined;
+  const portErr = port.trim() && !/^\d+$/.test(port.trim()) ? "a port is a whole number" : portNum !== undefined ? portProblem(portNum) : undefined;
+  const sizeErr = fargateSizeProblem(cpu, memory);
+  const desiredErr = !Number.isInteger(desired) || desired < 0 || desired > info.limits.maxTasks ? `0–${info.limits.maxTasks} tasks` : undefined;
+  // The box above the fields says why in full; the footer only names it.
+  const problem = !gate.ok ? gate.error : !info.donor.ok ? "nothing here to borrow a network from" : !name ? "name the new service" : (nameErr ?? (!image ? "pick an image" : imageErr) ?? portErr ?? sizeErr ?? desiredErr);
+  const body = { env: flow.env, name, image, ...(portNum !== undefined ? { port: portNum } : {}), cpu, memory, desired };
+  const est = Number.isInteger(desired) && !sizeErr ? serviceEstimate("FARGATE", cpu, memory, Math.max(0, desired)) : undefined;
+
+  return (
+    <Shell {...shell} head={head} body={body} problem={problem}>
+      {info.donor.ok ? (
+        <p className="text-xs leading-relaxed text-fg-3">
+          Runs on Fargate with the subnets, execution role and log group of <span className="font-medium text-fg-2">{info.donor.donor}</span> ({info.donor.why}) — never its task role, variables or secrets.
+        </p>
+      ) : (
+        <div className="space-y-2 rounded-xl border border-degraded/30 bg-degraded/8 p-3 text-xs leading-relaxed text-degraded">
+          <p>{info.donor.error.charAt(0).toUpperCase() + info.donor.error.slice(1)}.</p>
+          {onCopy && (
+            <Button type="button" size="sm" onClick={onCopy}>
+              <CopyPlus className="size-3.5" strokeWidth={1.75} /> Copy a service instead
+            </Button>
+          )}
+        </div>
+      )}
+      <Field label={`Service name in ${flow.env}`} error={nameErr} hint="Also the name of its task-definition family, its container and (with the cluster's) its security group.">
+        <input value={name} onChange={(e) => setName(e.target.value.trim())} placeholder="checkout-api" spellCheck={false} autoComplete="off" autoCapitalize="off" className={cx(FIELD, "h-10 font-mono sm:h-9", nameErr && "border-down/50")} />
+      </Field>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[14px] text-fg-2">Image</span>
+          <Segmented
+            id="new-service-image"
+            size="sm"
+            value={mode}
+            onChange={setFrom}
+            options={[{ value: "ecr", label: "ECR repository" }, { value: "paste", label: "Paste a URI" }]}
+          />
+        </div>
+        {mode === "ecr" ? (
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+            <Select
+              aria-label="Repository"
+              value={repo}
+              onChange={(v) => {
+                setRepo(v);
+                setTag("");
+              }}
+              disabled={!repos}
+              placeholder={reposErr ? "couldn't list repositories" : repos ? (list.length ? "Choose a repository…" : "no repositories in this region") : "Loading repositories…"}
+              base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+              mono
+              options={repoOptions}
+            />
+            <Select
+              aria-label="Tag"
+              value={effTag}
+              onChange={setTag}
+              disabled={!tags?.tags.length}
+              placeholder={!repo ? "then a tag" : tagsErr ? "couldn't list tags" : tags ? "no tags" : "Loading tags…"}
+              base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+              mono
+              options={(tags?.tags ?? []).map((t) => ({ value: t.tag, label: t.tag, text: t.tag, hint: t.pushedAt ? <TimeAgo at={t.pushedAt} /> : undefined }))}
+            />
+          </div>
+        ) : (
+          <input value={pasted} onChange={(e) => setPasted(e.target.value)} aria-label="Image URI" placeholder="registry/repository:tag" spellCheck={false} autoComplete="off" autoCapitalize="off" className={cx(FIELD, "h-10 font-mono text-[13px] sm:h-9", imageErr && "border-down/50")} />
+        )}
+        {imageErr ? (
+          <p className="text-xs text-down [overflow-wrap:anywhere]">{imageErr}</p>
+        ) : (
+          <p className="text-xs leading-relaxed text-fg-3 [overflow-wrap:anywhere]">{image ? <span className="font-mono">{image}</span> : mode === "ecr" ? "Newest tags first." : "A full image URI with a tag or digest, built for Linux/x86_64."}</p>
+        )}
+      </div>
+      <Field label="Container port (optional)" error={portErr} hint="The TCP port it listens on. Empty for a worker that listens on none.">
+        <input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" placeholder="8080" autoComplete="off" className={cx(FIELD_BOX, "h-10 w-32 font-mono tabular-nums sm:h-9", portErr && "border-down/50")} />
+      </Field>
+      <div className={SIZE_FIELDS}>
+        <Field label="CPU" error={sizeErr}>
+          <Select
+            aria-label="CPU"
+            value={String(cpu)}
+            onChange={(v) => {
+              const c = Number(v);
+              setCpu(c);
+              const mems = fargateMemoryFor(c);
+              if (!mems.includes(memory)) setMemory(mems[0]);
+            }}
+            base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+            options={FARGATE_CPU.map((c) => ({ value: String(c), label: `${c / 1024} vCPU (${c})` }))}
+          />
+        </Field>
+        <Field label="Memory">
+          <Select aria-label="Memory" value={String(memory)} onChange={(v) => setMemory(Number(v))} base={cx(FIELD, "h-10 px-2.5 sm:h-9")} options={fargateMemoryFor(cpu).map((m) => ({ value: String(m), label: `${m / 1024} GB` }))} />
+        </Field>
+      </div>
+      <Field label="Tasks" error={desiredErr} hint="0 creates it stopped.">
+        <Count value={desired} min={0} max={info.limits.maxTasks} onChange={setDesired} label="tasks" />
+      </Field>
+      {est && (
+        <p className="text-xs text-fg-3">
+          {est.monthlyUsd > 0 ? <>About <span className="font-medium tabular-nums text-fg-2">{usd(est.monthlyUsd)}/month</span> at Fargate list price — the plan has the estimate with your pricing.</> : "Created with 0 tasks: nothing runs, nothing is billed."}
+        </p>
+      )}
+    </Shell>
+  );
+}
+
+function CloneForm({ flow, info, shell, head }: FormProps) {
   const sources = info.sources ?? [];
   const initial = sources.find((s) => s.env === flow.env && s.name === flow.service) ?? sources.find((s) => s.env === flow.env) ?? sources[0];
   const taken = info.services.map((s) => s.name);
@@ -613,13 +866,13 @@ function CloneForm({ flow, info, shell }: FormProps) {
 
   if (!sources.length) {
     return (
-      <Shell {...shell} problem="nothing to copy">
+      <Shell {...shell} head={head} problem="nothing to copy">
         <p className="text-[14px] text-fg-2">No service in this region can be copied (the console never copies itself).</p>
       </Shell>
     );
   }
   return (
-    <Shell {...shell} body={body} problem={problem}>
+    <Shell {...shell} head={head} body={body} problem={problem}>
       <Field label="Service to copy" error={!srcCheck.ok ? srcCheck.error : undefined} hint={source ? `${source.launchType === "FARGATE" ? "Fargate" : source.launchType}${source.cpu && source.memory ? ` · ${source.cpu / 1024} vCPU · ${source.memory / 1024} GB` : ""} · ${source.image?.split("/").pop() ?? ""}` : undefined}>
         <Select
           aria-label="Service to copy"
@@ -652,7 +905,7 @@ function CloneForm({ flow, info, shell }: FormProps) {
         <input value={image} onChange={(e) => setImage(e.target.value)} placeholder={source?.image ?? "registry/repo:tag"} spellCheck={false} autoComplete="off" autoCapitalize="off" className={cx(FIELD, "h-10 font-mono text-[13px] sm:h-9", imageErr && "border-down/50")} />
       </Field>
       {fargate && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className={SIZE_FIELDS}>
           <Field label="CPU" error={sizeErr}>
             <Select
               aria-label="CPU"

@@ -15,14 +15,15 @@ import {
 import { DescribeParametersCommand, GetParameterCommand, PutParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { DescribeSecretCommand, GetSecretValueCommand, PutSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { DescribeImagesCommand, ECRClient } from "@aws-sdk/client-ecr";
+import { DescribeImagesCommand, DescribeRepositoriesCommand, ECRClient } from "@aws-sdk/client-ecr";
 import {
   CloudWatchLogsClient, DescribeLogStreamsCommand, FilterLogEventsCommand, GetLogEventsCommand, GetQueryResultsCommand, StartQueryCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import { CloudWatchClient, GetMetricDataCommand } from "@aws-sdk/client-cloudwatch";
 import {
-  DescribeInstanceAttributeCommand, DescribeInstancesCommand, DescribeRegionsCommand, DescribeSecurityGroupsCommand, DescribeSubnetsCommand, EC2Client, RunInstancesCommand,
-  StartInstancesCommand, StopInstancesCommand, TerminateInstancesCommand, type Instance, type RunInstancesCommandInput, type _InstanceType,
+  CreateSecurityGroupCommand, DeleteSecurityGroupCommand, DescribeInstanceAttributeCommand, DescribeInstancesCommand, DescribeRegionsCommand, DescribeSecurityGroupsCommand,
+  DescribeSubnetsCommand, EC2Client, RunInstancesCommand, StartInstancesCommand, StopInstancesCommand, TerminateInstancesCommand, type Instance, type RunInstancesCommandInput,
+  type _InstanceType,
 } from "@aws-sdk/client-ec2";
 import { DescribeDBInstancesCommand, RDSClient, StartDBInstanceCommand, StopDBInstanceCommand } from "@aws-sdk/client-rds";
 import { DescribeCacheClustersCommand, DescribeReplicationGroupsCommand, ElastiCacheClient } from "@aws-sdk/client-elasticache";
@@ -49,7 +50,7 @@ import { cached, memo } from "./cache.ts";
 import { connectionCredentials, type CredentialsProvider } from "./connection-credentials.ts";
 import { retire } from "./connection-state.ts";
 import { accessDeniedOf, errText, HttpError, isOutcomeUnknown, OutcomeUnknownError } from "./errors.ts";
-import type { Cloud, HostSpec, Placement } from "./sources.ts";
+import type { Cloud, HostSpec, NewTaskDefSpec, Placement } from "./sources.ts";
 
 // connectionCredentials: the sign-in Settings → AWS connection (or the environment) chose, for this generation's clients.
 const cfg = (region: string) => ({ region, retryMode: "adaptive" as const, maxAttempts: 3, credentials: connectionCredentials });
@@ -213,6 +214,34 @@ async function familyRevisions(k: Clients, family: string, want: number): Promis
     if (!nextToken) break;
   }
   return mine.slice(0, want);
+}
+
+// A repository's tagged images, one entry per tag, up to `pages` pages of 1,000 (ECR returns them unsorted).
+async function taggedImages(k: Clients, repositoryName: string, pages = Infinity): Promise<{ tag: string; pushedAt?: number }[]> {
+  const out: { tag: string; pushedAt?: number }[] = [];
+  let nextToken: string | undefined;
+  for (let page = 0; page < pages; page++) {
+    const r = await k.ecr.send(new DescribeImagesCommand({ repositoryName, filter: { tagStatus: "TAGGED" }, maxResults: 1000, nextToken }), t());
+    for (const d of r.imageDetails ?? []) for (const tag of d.imageTags ?? []) out.push({ tag, pushedAt: ms(d.imagePushedAt) });
+    nextToken = r.nextToken;
+    if (!nextToken) break;
+  }
+  return out;
+}
+
+// A new service's task definition: one Fargate container, logs in the given group. No task role, no variables.
+function newTaskDefInput(s: NewTaskDefSpec, region: string): RegisterTaskDefinitionCommandInput {
+  return {
+    family: s.family, networkMode: "awsvpc", requiresCompatibilities: ["FARGATE"], cpu: s.cpu, memory: s.memory, executionRoleArn: s.executionRole,
+    runtimePlatform: { operatingSystemFamily: "LINUX", cpuArchitecture: "X86_64" },
+    containerDefinitions: [{
+      name: s.family, image: s.image, essential: true,
+      // A named port mapping: what Service Connect refers to if the service is ever connected to by name.
+      ...(s.port ? { portMappings: [{ containerPort: s.port, protocol: "tcp" as const, name: `port-${s.port}` }] } : {}),
+      logConfiguration: { logDriver: "awslogs", options: { "awslogs-group": s.logs.group, "awslogs-region": region, "awslogs-stream-prefix": s.logs.prefix } },
+    }],
+    tags: ecsTags(s.tags),
+  };
 }
 
 // An SSM parameter's metadata (type, tier, KMS key, Version) — never its value.
@@ -461,14 +490,20 @@ function cloudOf(region: string): Cloud {
     },
 
     async imageTags(repositoryName) {
-      const tags = new Set<string>();
-      let nextToken: string | undefined;
-      do {
-        const r = await k.ecr.send(new DescribeImagesCommand({ repositoryName, filter: { tagStatus: "TAGGED" }, maxResults: 1000, nextToken }), t());
-        for (const d of r.imageDetails ?? []) for (const tag of d.imageTags ?? []) tags.add(tag);
-        nextToken = r.nextToken;
-      } while (nextToken);
-      return tags;
+      return new Set((await taggedImages(k, repositoryName)).map((x) => x.tag));
+    },
+
+    async repositories() {
+      const found = await allPages(async (nextToken) => {
+        const r = await k.ecr.send(new DescribeRepositoriesCommand({ maxResults: 1000, nextToken }), t());
+        return { items: r.repositories ?? [], next: r.nextToken };
+      });
+      return found.items.flatMap((x) => (x.repositoryName && x.repositoryUri ? [{ name: x.repositoryName, uri: x.repositoryUri }] : [])).sort((a, b) => a.name.localeCompare(b.name));
+    },
+
+    // ponytail: the newest of the first 5,000 tagged images — a repository with more may hide newer ones (paste those).
+    async recentImages(repositoryName) {
+      return (await taggedImages(k, repositoryName, 5)).sort((a, b) => (b.pushedAt ?? 0) - (a.pushedAt ?? 0)).slice(0, 50);
     },
 
     // R24/F68: one image by digest (immutable, preferred) or tag, in whichever account and region its registry names.
@@ -870,6 +905,33 @@ function cloudOf(region: string): Cloud {
     async terminateHost(id) {
       const r = await sent(k.w.ec2.send(new TerminateInstancesCommand({ InstanceIds: [id] }), tw()));
       return r.$metadata.requestId ?? "";
+    },
+
+    registerTaskDefinition: (s) => register(k, newTaskDefInput(s, region)),
+
+    // Tagged in the same call (ec2:CreateTags at creation only): the policy requires console:created=true on it.
+    async createSecurityGroup(o) {
+      const Tags = Object.entries(o.tags).map(([Key, Value]) => ({ Key, Value }));
+      const r = await sent(k.w.ec2.send(new CreateSecurityGroupCommand({ VpcId: o.vpcId, GroupName: o.name, Description: o.description, TagSpecifications: [{ ResourceType: "security-group", Tags }] }), tw()));
+      if (!r.GroupId) throw new Error("CreateSecurityGroup returned no group id");
+      return r.GroupId;
+    },
+
+    async deleteSecurityGroup(id) {
+      const r = await sent(k.w.ec2.send(new DeleteSecurityGroupCommand({ GroupId: id }), tw()));
+      return r.$metadata.requestId ?? "";
+    },
+
+    async createdGroups(vpcIds) {
+      if (!vpcIds.length) return [];
+      const found = await allPages(async (NextToken) => {
+        const r = await k.ec2.send(
+          new DescribeSecurityGroupsCommand({ Filters: [{ Name: "vpc-id", Values: [...new Set(vpcIds)] }, { Name: "tag:console:created", Values: ["true"] }], MaxResults: 1000, NextToken }),
+          t(),
+        );
+        return { items: r.SecurityGroups ?? [], next: r.NextToken };
+      });
+      return found.items.map(securityGroupOf);
     },
 
     // CONSOLE_REGIONS=all-enabled: the regions this account can use (opt-in-not-required plus opted-in), sorted.

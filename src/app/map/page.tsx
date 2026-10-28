@@ -26,6 +26,7 @@ import { ConnectionList, ConnectionsPicker, EnvFilter, FiltersButton, FiltersShe
 import { DEFAULT_FILTERS, SHARED, activeFilterCount, applyFilters, filtersFromParams, filtersToParams, haystack, type MapFilters } from "@/components/map/filter";
 import { INVENTORY_KEY, refreshInventory, useInventory, type MapInventory } from "@/components/map/data";
 import { loadLayers, saveLayers } from "@/components/map/layers";
+import { NewServiceButton } from "@/components/panel/provision";
 import { SearchField } from "../_components/fields";
 import { ApiError } from "@/lib/client/api";
 import { stamp } from "@/lib/client/format";
@@ -380,6 +381,23 @@ function CloudMap({ view }: { view: MapInventory }) {
   // Connections → focus another resource: the panel switches to it and the map centres it behind the panel.
   const selectFromPanel = useCallback((key: string) => select(key, true), [select]);
 
+  // A service created from the toolbar: discover again and open it. Refreshed a moment ago (429)? The next poll draws it.
+  const canCreate = !!useMe().data?.perms?.includes("provision");
+  const newEnv = (ecsEnvs?.some((e) => e.id === filters.env) ? filters.env : globalEnv) || ecsEnvs?.[0]?.id || "";
+  const onCreated = useCallback(
+    (env: string, name: string) => {
+      void refreshInventory()
+        .then(async (v) => {
+          await mutate(INVENTORY_KEY, v, { revalidate: false });
+          const r = v.resources.find((x) => x.kind === "ecs-service" && x.env === env && x.key.split("/")[2]?.split("@")[0] === name);
+          if (r) select(r.key);
+        })
+        .catch(() => toast.push({ tone: "info", title: `${name} appears on the map within a minute`, body: "The map was refreshed a moment ago; its next update draws it." }, 6000));
+    },
+    [mutate, select, toast],
+  );
+  const newService = canCreate && newEnv ? <NewServiceButton env={newEnv} onCreated={onCreated} compact={phone} /> : null;
+
   const onActivate = useCallback(
     (n: LayoutNode) => {
       if (n.type === "group") {
@@ -486,6 +504,7 @@ function CloudMap({ view }: { view: MapInventory }) {
         <div className="flex flex-none items-center gap-2">
           {search}
           <FiltersButton count={active - Number(!!effective.q.trim()) + Number(laneBy !== "none")} onClick={() => setSheet(true)} />
+          {newService}
         </div>
       ) : (
         <div className="flex flex-none flex-wrap items-center gap-2">
@@ -498,6 +517,7 @@ function CloudMap({ view }: { view: MapInventory }) {
           {search}
           {toggles}
           {active > 0 && <ResetChip onClick={resetFilters} count={active} />}
+          {newService && <div className="ml-auto">{newService}</div>}
         </div>
       )}
       <AnimatePresence>

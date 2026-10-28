@@ -168,6 +168,14 @@ first. License: Apache-2.0 (LICENSE).
   `dc-<operationId>`). Host launches are reserved in `host_reservations` first and reconciled by the sampler
   (`reconcileHostReservations`, 15 min to join); the cap counts registered, joining and reserved hosts. Everything it creates is tagged
   `console:created=true`; delete/terminate refuse anything without that tag (and the IAM policy enforces it too).
+  A new service from an image (`create`, `services.create`; implemented and smoke-tested on the simulated account, no
+  real-account run yet) is Fargate only: `pickDonor` takes subnets, public-IP setting, execution role and log group from
+  an awsvpc service of the env (never the console's, never its task role), then CreateSecurityGroup (tagged at creation,
+  `console:created-from=<cluster>/<service>`) → RegisterTaskDefinition → CreateService; a refused step deletes the new
+  group again. Delete service deletes the groups made for it that nothing else uses; one AWS keeps (a stopping task's
+  ENI, DependencyViolation) is listed by `GET /api/provision?groups=1` and removed by `delete-security-group`. The form
+  reads ECR through `GET /api/provision/images` (`repositories`, `recentImages`); the dialog folds the copy flow in as
+  its second mode, with its own environment choice (the map's toolbar has no env of its own).
 - Costs: `Billing` (`src/lib/server/billing.ts`) is a third door beside `Cloud` and `Ci`, with its own globalThis
   singleton; `billing-aws.ts` always calls Cost Explorer in us-east-1 ($0.01 per request), so a 4-request snapshot is
   cached in memory and in `settings` (`costs:snapshot`) for `costs.cacheHours`. List-price estimates are pure
@@ -388,9 +396,9 @@ first. License: Apache-2.0 (LICENSE).
 plus Cost Explorer and GitHub. Writes: the actions providers declare (`write` lists — Lambda, SQS, SNS, EventBridge,
 Step Functions, S3 objects, CloudFront invalidations, EC2 power, Auto Scaling, EKS, App Runner, Beanstalk, ECS
 image deploys), `ecs:UpdateService` / `RegisterTaskDefinition` (actions, variable edits), SSM / Secrets Manager / S3
-env-file values (only through the audited Variables editor), `ecs:CreateService` / `RunTask` and `ec2:RunInstances`
-(tagged `console:created=true`), `ecs:DeleteService` / `ec2:TerminateInstances` only on resources carrying that
-tag, GitHub re-runs, Cloudflare cache purges and its own DB. Never touches application databases; never acts on its
+env-file values (only through the audited Variables editor), `ecs:CreateService` / `RunTask`, `ec2:RunInstances` and
+`ec2:CreateSecurityGroup` (tagged `console:created=true`), `ecs:DeleteService` / `ec2:TerminateInstances` /
+`ec2:DeleteSecurityGroup` only on resources carrying that tag, GitHub re-runs, Cloudflare cache purges and its own DB. Never touches application databases; never acts on its
 own service or host (IAM denies by ARN and by tag `console:self=true`). Variable values reach a browser only through
 an audited reveal and never reach an API token; S3 file actions refuse env files. Outbound HTTP only to AWS, GitHub,
 `api.cloudflare.com` (when a token is set), EKS cluster endpoints (their own CA), configured health-check URLs, the

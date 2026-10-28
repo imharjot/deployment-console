@@ -97,7 +97,7 @@ function recalled(key: string, family: string): number | undefined {
 
 // A tag the console's own ECR doesn't have would fail to pull: say so in the plan (not a refusal — another account's
 // registry or a digest can't be checked here).
-async function tagWarning(image: string, region: string): Promise<string | undefined> {
+export async function tagWarning(image: string, region: string): Promise<string | undefined> {
   const ref = parseImageRef(image);
   if (!ref.ecr || !ref.tag || ref.digest || ref.region !== region) return undefined;
   const cloud = await getCloud(region);

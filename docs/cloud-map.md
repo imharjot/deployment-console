@@ -63,6 +63,9 @@ Open **Cloud map** in the sidebar (or press `g`), the **Cloud map** link on an e
   under ⌘K). Slim rows load their properties when opened.
 - **Sources footer.** What discovery read; a denied source lists the exact IAM actions to add (Settings →
   Permissions). **Refresh** re-reads the account (rate-limited; developer role and up — viewers don't see the button).
+- **New service.** The toolbar's **New service** (operator role and up) starts a service from an image, or a copy of
+  one, in the environment the map shows — the same dialog and plan as the overview's **New** menu ([Create &
+  scale](provisioning.md#new-service)). Once created the map discovers again and opens it.
 - **Links.** The URL carries the view: `q`, `env`, `kinds`, `problems=1`, `idle=1`, `region`, `layers` (comma list or
   `none`), `conn` (confidences), `lanes` (`env`, `vpc`, `region`, `none`), `view` (`map`, `list`, `table`),
   `edges=all` and `r` (the open resource). A link to a resource that's gone says so.

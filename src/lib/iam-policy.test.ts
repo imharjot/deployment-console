@@ -166,7 +166,7 @@ const NOT_CONSOLE_ROLE = ["src/lib/server/agents/inference/", "src/lib/server/ag
 const WRITES = new Set([
   "ecs:UpdateService", "ecs:RegisterTaskDefinition", "ec2:StartInstances", "ec2:StopInstances", "rds:StartDBInstance", "rds:StopDBInstance",
   "ssm:PutParameter", "secretsmanager:PutSecretValue", "s3:PutObject",
-  "ecs:CreateService", "ecs:DeleteService", "ecs:RunTask", "ec2:RunInstances", "ec2:TerminateInstances",
+  "ecs:CreateService", "ecs:DeleteService", "ecs:RunTask", "ec2:RunInstances", "ec2:TerminateInstances", "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
 ]);
 // Reads of secret values belong only in the full policy: read-only users see variable names, never values. EC2 user
 // data (read to launch a host like another) often holds secrets too. ssm:DescribeParameters is not one of them: it

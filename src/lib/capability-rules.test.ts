@@ -11,7 +11,8 @@ const NOW = 1_800_000_000_000;
 test("CONSOLE_WRITES maps every console write to the IAM actions it needs", () => {
   for (const a of ["ecs.restart", "ecs.stop", "ecs.start", "ecs.switch", "ecs.scale"]) assert.deepEqual(CONSOLE_WRITES[a], ["ecs:UpdateService"]);
   assert.deepEqual(CONSOLE_WRITES["provision.service"], ["ecs:CreateService", "ecs:RegisterTaskDefinition", "iam:PassRole"]);
-  assert.deepEqual(CONSOLE_WRITES["provision.delete"], ["ecs:DeleteService", "ec2:TerminateInstances"]);
+  assert.deepEqual(CONSOLE_WRITES["provision.create"], ["ec2:CreateSecurityGroup", "ec2:CreateTags", "ecs:RegisterTaskDefinition", "ecs:CreateService", "iam:PassRole"]);
+  assert.deepEqual(CONSOLE_WRITES["provision.delete"], ["ecs:DeleteService", "ec2:DeleteSecurityGroup", "ec2:TerminateInstances"]);
   assert.deepEqual(actionsFor("vars.edit", ["ssm", "s3"]), ["ecs:RegisterTaskDefinition", "ecs:UpdateService", "ssm:PutParameter", "s3:PutObject"]);
   assert.deepEqual(actionsFor("vars.edit"), ["ecs:RegisterTaskDefinition", "ecs:UpdateService"]);
   assert.deepEqual(actionsFor("vars.reveal", ["secretsmanager"]), ["secretsmanager:GetSecretValue"]);

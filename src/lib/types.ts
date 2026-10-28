@@ -223,6 +223,7 @@ export interface RawSecurityGroup {
   name: string;
   vpcId?: string;
   inbound: { fromPort?: number; toPort?: number; groups: string[]; cidrs?: string[]; prefixLists?: string[]; description?: string }[];
+  tags?: Record<string, string>;
 }
 
 export interface RawTargetHealth {

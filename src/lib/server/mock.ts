@@ -26,6 +26,7 @@ import type {
   RawService, RawTaskDef,
 } from "../types.ts";
 import { retire } from "./connection-state.ts";
+import { simRepositories } from "./providers/mock/ecr.ts";
 import { HttpError } from "./errors.ts";
 import type { Ci, Cloud, MetricSpec } from "./sources.ts";
 
@@ -280,6 +281,7 @@ interface MSvc {
   scaleAt?: number;
   deletedAt?: number; // DeleteService: drains for a few seconds, then leaves the cluster
   oneOff?: { id: string; at: number; container: string; command: boolean }[];
+  blank?: boolean; // started from an image (not a copy): its own roles, no health check
 }
 
 // The staging host (us-east-1 only).
@@ -310,8 +312,9 @@ interface Estate {
   alb?: string; // the ALB in front of production (us-east-1 only)
   secrets: Map<string, string>; // valueFrom (or secret id) → value
   files: Map<string, string>; // s3 object ARN → env file text
-  // Task definitions registered as copies, until CreateService picks them up; families the console created (→ revision).
-  copies: Map<string, { rev: MRev; from: MSvc; cpu: string; memory: string }>;
+  // Task definitions registered as copies (or for a new service: no `from`), until CreateService picks them up; families
+  // the console created (→ revision).
+  copies: Map<string, { rev: MRev; from?: MSvc; cpu: string; memory: string; port?: number }>;
   copyFamilies: Map<string, number>;
   // Optional: an estate an older module version created (kept on globalThis) has neither; both are created on use.
   versions?: Map<string, number>; // secret key → version number (R05)
@@ -534,6 +537,7 @@ const homeProd = (s: MSvc) => s.env === "production"; // "production" only exist
 // service), the EFS volume production worker mounts, and the service's Cloud Map registry (api and worker register in
 // acme.internal; billing's registry has no instances because its service runs without it).
 function taskDefExtras(s: MSvc): Pick<RawTaskDef, "taskRoleArn" | "executionRoleArn" | "volumes"> {
+  if (s.blank) return { executionRoleArn: IAM_ROLES.taskExecution.arn };
   const roleKey = s.kind === "console" ? "console" : s.kind;
   const task = homeProd(s) && Object.hasOwn(IAM_ROLES.tasks, roleKey) ? IAM_ROLES.tasks[roleKey as keyof typeof IAM_ROLES.tasks].arn : undefined;
   const efs = homeProd(s) && s.name === EFS.media.mountedBy.service && s.cluster === EFS.media.mountedBy.cluster;
@@ -625,9 +629,9 @@ function rawService(E: Estate, s: MSvc, now: number): RawService {
       arn: td.arn, family: famOf(s), revision: td.revision, image: td.image, cpu: s.cpu, memory: s.memory,
       memoryReservation: s.memoryReservation, networkMode: s.launch === "EC2" ? "host" : "awsvpc", launchTypes: [s.launch],
       arch: s.kind === "console" ? "arm64" : undefined, // the console itself runs on Graviton in the demo
-      healthcheck: s.healthcheck, ports: [s.port], logGroup: logGroup(s.env, s.name), registeredAt: td.registeredAt,
+      healthcheck: s.healthcheck, ports: s.port ? [s.port] : [], logGroup: logGroup(s.env, s.name), registeredAt: td.registeredAt,
       main: s.name,
-      containers: [{ name: s.name, image: td.image, essential: true, ports: [s.port], logGroup: logGroup(s.env, s.name), logStreamPrefix: "ecs", envHosts: hostsFromEnv(td.env.environment) }],
+      containers: [{ name: s.name, image: td.image, essential: true, ports: s.port ? [s.port] : [], logGroup: logGroup(s.env, s.name), logStreamPrefix: "ecs", envHosts: hostsFromEnv(td.env.environment) }],
       ...taskDefExtras(s),
     },
     targetGroupArns: s.tgArn ? [s.tgArn] : [],
@@ -1482,13 +1486,16 @@ function simulatedCloud(region: string): Cloud {
       E.copies.delete(spec.taskDefinition);
       const now = Date.now();
       const dep = `ecs-svc/${Math.floor(rnd(`${spec.name}${now}`) * 1e18)}`;
+      const from = c.from;
       E.svcs.set(`${env}/${spec.name}`, {
-        env, cluster: spec.cluster, name: spec.name, kind: c.from.kind, launch: spec.launchType === "EC2" ? "EC2" : "FARGATE", desired: spec.desired, revs: [c.rev], live: 0,
+        // ponytail: a new service logs like the simulated api (a worker without a port) — the demo has no other voices.
+        env, cluster: spec.cluster, name: spec.name, kind: from?.kind ?? (c.port ? "api" : "worker"), launch: spec.launchType === "EC2" ? "EC2" : "FARGATE", desired: spec.desired, revs: [c.rev], live: 0,
         deployments: [{
           id: dep, status: "PRIMARY", rolloutState: spec.desired ? "IN_PROGRESS" : "COMPLETED", taskDefinition: c.rev.arn, desired: spec.desired,
           running: 0, pending: spec.desired, failedTasks: 0, createdAt: now, updatedAt: now,
         }],
-        healthcheck: c.from.healthcheck, cpu: c.cpu, memory: c.memory, memoryReservation: c.from.memoryReservation, port: c.from.port, rate: c.from.rate,
+        healthcheck: from?.healthcheck, cpu: c.cpu, memory: c.memory, memoryReservation: from?.memoryReservation, port: from?.port ?? c.port ?? 0, rate: from?.rate ?? 3,
+        ...(from ? {} : { blank: true }),
         tasks: [{ id: hex40(`${spec.name}/${now}/first`).slice(0, 32), start: now + 10_000 }],
         family: c.rev.arn.split("/").pop()!.replace(/:\d+$/, ""), tags: { ...spec.tags },
         net: spec.network ? { subnets: [...spec.network.subnets], sgs: [...spec.network.securityGroups] } : undefined, createDep: dep, bornAt: now,
@@ -1549,6 +1556,52 @@ function simulatedCloud(region: string): Cloud {
       const res = { instanceIds: ids, requestId: `mock-${now.toString(36)}` };
       if (o.clientToken) tokens.set(`run-instances:${o.clientToken}`, { ...res, instanceIds: [...ids] });
       return res;
+    },
+    async registerTaskDefinition(spec) {
+      const revision = (E.copyFamilies.get(spec.family) ?? 0) + 1;
+      E.copyFamilies.set(spec.family, revision);
+      const tag = spec.image.includes("@") ? undefined : spec.image.split(":").pop();
+      const rev: MRev = {
+        arn: `arn:aws:ecs:${E.region}:${ACCT}:task-definition/${spec.family}:${revision}`, revision, image: spec.image, sha: shaFromTag(tag), registeredAt: Date.now(), imagePresent: true,
+        env: { environment: [], secrets: [], files: [] },
+      };
+      E.copies.set(rev.arn, { rev, cpu: spec.cpu, memory: spec.memory, port: spec.port });
+      return rev.arn;
+    },
+    async createSecurityGroup(o) {
+      if (Object.values(E.sgs).some((g) => g.vpcId === o.vpcId && g.name === o.name)) {
+        throw Object.assign(new Error(`InvalidGroup.Duplicate: The security group '${o.name}' already exists for VPC '${o.vpcId}'`), { name: "InvalidGroup.Duplicate" });
+      }
+      const id = `sg-0${hex40(`${o.vpcId}/${o.name}/${Date.now()}`).slice(0, 16)}`;
+      E.sgs[id] = { id, name: o.name, vpcId: o.vpcId, inbound: [], tags: { ...o.tags } };
+      return id;
+    },
+    async deleteSecurityGroup(id) {
+      const g = Object.hasOwn(E.sgs, id) ? E.sgs[id] : undefined;
+      if (!g) throw Object.assign(new Error(`InvalidGroup.NotFound: The security group '${id}' does not exist`), { name: "InvalidGroup.NotFound" });
+      // Like the shipped IAM policy: DeleteSecurityGroup only on groups tagged console:created=true.
+      if (g.tags?.["console:created"] !== "true") throw Object.assign(new Error(`UnauthorizedOperation: not authorized to delete ${id}`), { name: "UnauthorizedOperation" });
+      const now = Date.now();
+      // In use while a service runs in it, while a deleted service's tasks are still stopping (their network
+      // interfaces), or while another group's rule allows it.
+      const used = [...E.svcs.values()].some((s) => s.net?.sgs.includes(id) && (!s.deletedAt || (s.stopAt !== undefined && now - s.deletedAt < DRAIN_MS)));
+      const referenced = Object.values(E.sgs).some((x) => x.id !== id && x.inbound.some((r) => r.groups.includes(id)));
+      if (used || referenced) throw Object.assign(new Error(`DependencyViolation: resource ${id} has a dependent object`), { name: "DependencyViolation" });
+      delete E.sgs[id];
+      return `mock-${now.toString(36)}`;
+    },
+    async createdGroups(vpcIds) {
+      return Object.values(E.sgs).filter((g) => g.vpcId && vpcIds.includes(g.vpcId) && g.tags?.["console:created"] === "true").map((g) => ({ ...g, tags: { ...g.tags } }));
+    },
+    async repositories() {
+      return simRepositories(E.region).flatMap((r) => (r.repositoryName && r.repositoryUri ? [{ name: r.repositoryName, uri: r.repositoryUri }] : []));
+    },
+    // The tags the simulated services were deployed from, newest first.
+    async recentImages(repository) {
+      const prefix = `${ecrOf(E.region)}/${repository}:`;
+      const at = new Map<string, number>();
+      for (const s of E.svcs.values()) for (const r of s.revs) if (r.imagePresent && r.image.startsWith(prefix)) at.set(r.image.slice(prefix.length), Math.max(at.get(r.image.slice(prefix.length)) ?? 0, r.registeredAt));
+      return [...at].map(([tag, pushedAt]) => ({ tag, pushedAt })).sort((a, b) => b.pushedAt - a.pushedAt).slice(0, 50);
     },
     async terminateHost(id) {
       const h = E.extraHosts.get(id);

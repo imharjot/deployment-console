@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **New service from an image**: the overview's **New** menu and the cloud map's toolbar start a service from an ECR
+  repository and tag (newest first) or a pasted image, with a port, a Fargate size and a task count, or as a copy of an
+  existing service in the same dialog. The plan shows everything first: its own security group in the environment's
+  VPC (no inbound rules), a task definition logging to CloudWatch with the execution role and log group of a service
+  already there (never its task role or variables), and the service on that service's subnets. Everything is tagged
+  `console:created=true`; deleting the service deletes its security group too, and one AWS keeps a moment longer is
+  listed under **New → Created by the console** to delete. For agents: `services.create` and `services.deleteGroup`.
 - **Controls that look and behave alike**: checkboxes and radios are drawn in the console's accent with a small
   animation instead of the browser's, every on/off setting uses one switch, and number fields lose the browser's
   spinners. Why a button is disabled now shows on a tap and on keyboard focus too, not only as a hover title: re-run

@@ -113,6 +113,15 @@ export interface Cloud {
   // or not yet (R23: the host cap counts them while they boot).
   taggedHosts(cluster: string): Promise<RawTaggedHost[]>;
   terminateHost(instanceId: string): Promise<string>;
+  // A new service (provision.ts create): a task definition of its own, and its own security group in the
+  // environment's VPC, deleted again with the service — only groups tagged console:created=true (the policy agrees).
+  registerTaskDefinition(spec: NewTaskDefSpec): Promise<string>; // → task definition ARN
+  createSecurityGroup(o: { vpcId: string; name: string; description: string; tags: Record<string, string> }): Promise<string>; // → group id
+  deleteSecurityGroup(id: string): Promise<string>;
+  createdGroups(vpcIds: string[]): Promise<RawSecurityGroup[]>; // tagged console:created=true, with their tags
+  // ECR in this region, for picking a new service's image: repositories, and a repository's newest tags.
+  repositories(): Promise<{ name: string; uri: string }[]>;
+  recentImages(repository: string): Promise<{ tag: string; pushedAt?: number }[]>; // newest push first, at most 50
   // The simulated account answers health probes itself (real ones are plain HTTP, see probes.ts).
   probe?(cluster: string, service: string, url: string): ProbeResult;
   // CONSOLE_REGIONS=all-enabled resolves through this (ec2:DescribeRegions on AWS; the simulated account's MOCK_REGIONS).
@@ -153,6 +162,18 @@ export interface CopySpec {
   cpu?: string; // task size override (Fargate); container limits above it are lowered to fit
   memory?: string;
   streamPrefix?: string; // awslogs-stream-prefix for every awslogs container, so the copy's logs don't mix with the source's
+  tags: Record<string, string>;
+}
+
+// One Fargate container from an image, logging to CloudWatch with the execution role a service of the environment uses.
+export interface NewTaskDefSpec {
+  family: string; // = the service's (and its container's) name
+  image: string;
+  port?: number;
+  cpu: string;
+  memory: string;
+  executionRole: string;
+  logs: { group: string; prefix: string };
   tags: Record<string, string>;
 }
 
