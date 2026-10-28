@@ -13,7 +13,8 @@ First public version (0.1.0). What the console can do today:
   computer, another AWS account with CloudFormation, this server's AWS role), each says how long its login lasts and
   when to sign in again, and the login it shows is labelled as detected from the machine's AWS credentials. A console
   run locally can add a profile with an IAM user's access key, checked with AWS and saved to `~/.aws/credentials` the
-  way `aws configure` saves it. The CloudFormation steps are shorter, with the setup file's details behind a link.
+  way `aws configure` saves it. The CloudFormation steps are shorter, with the setup file's details behind a link and the AWS screens drawn
+  with what to do on each (Upload a template file, a stack name, the IAM acknowledgement, RoleArn under Outputs) and why.
 - **ARM64 or x86, your pick**: Deploy the console builds one image for both CPUs (`linux/arm64` and `linux/amd64`),
   so the task definition can name either, and switching needs no rebuild; a single-CPU build is still one command.
   `infra/task-definition.json` now asks for `ARM64` (Graviton), about 20 % cheaper than x86 for the same size, and the

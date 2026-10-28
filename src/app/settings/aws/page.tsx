@@ -17,6 +17,7 @@ import { ROLE_INFO, useMe } from "@/components/user-menu";
 import { ApiError, postJson, putJson } from "@/lib/client/api";
 import { regionName } from "@/lib/client/region";
 import { CONNECT_ROLE_NAME, CONNECT_STACK_NAME } from "@/lib/connect-template";
+import { CloudFormationGuide } from "./cloudformation-guide";
 import { describeArn, describeSignIn, roleArnProblem, type ConnectionTest, type ConnectionView, type MachineLogin, type ProfileKind, type SignIn } from "@/lib/connection-rules";
 
 type Kind = SignIn["kind"];
@@ -514,13 +515,21 @@ function TemplateSteps({ home, externalId, machine }: { home: string; externalId
         </Button>
       </li>
       {machine.data?.error && <li className="text-degraded">{machine.data.error}</li>}
-      <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span>
-          <span className="font-medium">2.</span> In the account to connect, create a stack from it: upload the file, keep its values, submit.
-        </span>
-        <a href={`https://console.aws.amazon.com/cloudformation/home?region=${home}#/stacks/create`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
-          Open CloudFormation <ExternalLink className="size-3.5" />
-        </a>
+      <li className="space-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span>
+            <span className="font-medium">2.</span> Sign in to the AWS account you want to connect, and create a stack from the file there.
+          </span>
+          <a href={`https://console.aws.amazon.com/cloudformation/home?region=${home}#/stacks/create`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
+            Open CloudFormation <ExternalLink className="size-3.5" />
+          </a>
+        </div>
+        <details open>
+          <summary className="cursor-pointer text-accent">What to do on each AWS screen</summary>
+          <div className="mt-2">
+            <CloudFormationGuide file={file} stack={CONNECT_STACK_NAME} role={CONNECT_ROLE_NAME} />
+          </div>
+        </details>
       </li>
       <li>
         <span className="font-medium">3.</span> Paste the stack&apos;s RoleArn output below, then test the connection.

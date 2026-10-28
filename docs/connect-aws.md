@@ -121,9 +121,16 @@ the console off.
    template ([`infra/connect-aws-role.json`](../infra/connect-aws-role.json), generated from the read-only policy) with
    its own login and its **external ID**: a random value made once per console, kept with its settings, and shown to
    admins only (under **What's in the setup file?**).
-2. In the account to connect, open CloudFormation (**Open CloudFormation** on the page) → **Create stack → With new
-   resources** → **Upload a template file**, pick the file, keep the values it fills in, tick the IAM acknowledgement
-   and submit. Or with the AWS CLI, from the file's folder (**Copy commands** on the page):
+2. Sign in to the account to connect and open CloudFormation (**Open CloudFormation** on the page; it shows each screen,
+   drawn, with what to do and why):
+   - **Create stack:** choose **Upload a template file** (it defaults to Amazon S3 URL; the file is on your computer),
+     then **Choose file** and select it. Next.
+   - **Specify stack details:** type a stack name, such as `deployment-console-access`, and keep the parameters the
+     console filled in. Next.
+   - **Configure stack options** and **Review:** leave the options, tick **I acknowledge that AWS CloudFormation might
+     create IAM resources with custom names** (the stack creates one IAM role) and **Submit**.
+
+   Or with the AWS CLI, from the file's folder (**Copy commands** on the page):
 
    ```bash
    aws cloudformation deploy --template-file deployment-console-access.json --stack-name deployment-console-access --capabilities CAPABILITY_NAMED_IAM
