@@ -167,13 +167,19 @@ const WRITES = new Set([
   "ecs:UpdateService", "ecs:RegisterTaskDefinition", "ec2:StartInstances", "ec2:StopInstances", "rds:StartDBInstance", "rds:StopDBInstance",
   "ssm:PutParameter", "secretsmanager:PutSecretValue", "s3:PutObject",
   "ecs:CreateService", "ecs:DeleteService", "ecs:RunTask", "ec2:RunInstances", "ec2:TerminateInstances", "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup",
+  "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress", "servicediscovery:CreateHttpNamespace",
+  "servicediscovery:GetOperation", // only follows a namespace the console just asked Cloud Map to create
 ]);
 // Reads of secret values belong only in the full policy: read-only users see variable names, never values. EC2 user
 // data (read to launch a host like another) often holds secrets too. ssm:DescribeParameters is not one of them: it
 // returns metadata only (name, type, tier, KMS key) and is a hand-written read in both policies.
 const SENSITIVE = new Set(["ssm:GetParameter", "secretsmanager:GetSecretValue", "s3:GetObject", "ec2:DescribeInstanceAttribute"]);
 // Authorised implicitly by the calls above rather than being SDK commands themselves.
-const IMPLICIT = new Set(["iam:PassRole", "ecs:TagResource", "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "ec2:CreateTags"]);
+// The servicediscovery ones are what ECS calls on the caller's behalf when Service Connect is turned on.
+const IMPLICIT = new Set([
+  "iam:PassRole", "ecs:TagResource", "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "ec2:CreateTags",
+  "servicediscovery:CreateService", "servicediscovery:GetNamespace", "servicediscovery:GetService", "servicediscovery:TagResource",
+]);
 
 interface Call { file: string; pkg: string; command: string; action: string }
 

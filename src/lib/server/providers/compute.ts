@@ -5,7 +5,8 @@ import { apprunnerProvider } from "./apprunner.ts";
 import { asgProvider } from "./asg.ts";
 import { beanstalkProvider } from "./beanstalk.ts";
 import { ec2Provider } from "./ec2.ts";
+import { ecsConnectProvider } from "./ecs-connect.ts";
 import { ecsImageProvider } from "./ecs-image.ts";
 import { eksProvider } from "./eks.ts";
 
-export const providers: Provider[] = [ec2Provider, asgProvider, eksProvider, apprunnerProvider, beanstalkProvider, ecsImageProvider];
+export const providers: Provider[] = [ec2Provider, asgProvider, eksProvider, apprunnerProvider, beanstalkProvider, ecsImageProvider, ecsConnectProvider];

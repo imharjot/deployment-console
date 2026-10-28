@@ -27,6 +27,7 @@ import { DEFAULT_FILTERS, SHARED, activeFilterCount, applyFilters, filtersFromPa
 import { INVENTORY_KEY, refreshInventory, useInventory, type MapInventory } from "@/components/map/data";
 import { loadLayers, saveLayers } from "@/components/map/layers";
 import { NewServiceButton } from "@/components/panel/provision";
+import { ConnectDialog, isConnectTarget } from "@/components/map/connect";
 import { SearchField } from "../_components/fields";
 import { ApiError } from "@/lib/client/api";
 import { stamp } from "@/lib/client/format";
@@ -153,6 +154,8 @@ function CloudMap({ view }: { view: MapInventory }) {
   const [open, setOpen] = useState<string | null>(null);
   const [sheet, setSheet] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Connect to: from a drag between nodes (both keys), or ?connect=1 beside ?r= (an overview service panel's link).
+  const [connecting, setConnecting] = useState<{ from: string; to?: string } | null>(null);
   const [canvas, setCanvas] = useState({ w: 0, h: 0 });
   const graph = useRef<GraphHandle>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -199,7 +202,9 @@ function CloudMap({ view }: { view: MapInventory }) {
       setOpen(r);
       lastSelected.current = r;
       queue("center", r);
+      if (u.get("connect") === "1") setConnecting({ from: r });
     }
+    if (u.has("connect")) writeUrl({ connect: null });
     /* eslint-enable react-hooks/set-state-in-effect */
     // The command palette navigates here with ?r= and then announces it.
     const onOpen = () => {
@@ -397,6 +402,16 @@ function CloudMap({ view }: { view: MapInventory }) {
     [mutate, select, toast],
   );
   const newService = canCreate && newEnv ? <NewServiceButton env={newEnv} onCreated={onCreated} compact={phone} /> : null;
+  const onConnect = useCallback(
+    (from: string, to: string) => {
+      const a = byKey.get(from), b = byKey.get(to);
+      if (!a || !b) return;
+      if (!isConnectTarget(b) || b.tags?.["console:self"] === "true") toast.push({ tone: "info", title: `Can't connect to ${b.name}`, body: b.tags?.["console:self"] === "true" ? "That's the console itself: it never changes its own service." : "Connect to reaches services, databases and caches." }, 5000);
+      else if (b.env !== a.env || b.region !== a.region) toast.push({ tone: "info", title: `${b.name} is in another environment`, body: `Connect to joins resources of one environment (${a.name} is in ${a.env ?? "none"}).` }, 6000);
+      else setConnecting({ from, to });
+    },
+    [byKey, toast],
+  );
 
   const onActivate = useCallback(
     (n: LayoutNode) => {
@@ -613,6 +628,7 @@ function CloudMap({ view }: { view: MapInventory }) {
                 onActivate={onActivate}
                 onCollapse={onCollapse}
                 onCollapseParent={onCollapseParent}
+                onConnect={canCreate ? onConnect : undefined}
               />
             ) : (
               <div className="grid h-full place-items-center bg-canvas">
@@ -634,6 +650,11 @@ function CloudMap({ view }: { view: MapInventory }) {
       <ProvidersFooter id="map-sources" providers={view.providers} truncated={view.truncated} regions={multiRegion ? regions : undefined} />
 
       <AnimatePresence>{openRes && <MapResourcePanel key={openRes.key} r={openRes} view={view} visible={visible} onClose={close} onSelect={selectFromPanel} onShowChildren={onShowChildren} />}</AnimatePresence>
+      <AnimatePresence>
+        {connecting && byKey.get(connecting.from)?.kind === "ecs-service" && (
+          <ConnectDialog key={`${connecting.from}>${connecting.to ?? ""}`} from={byKey.get(connecting.from)!} to={connecting.to} view={view} onClose={() => setConnecting(null)} />
+        )}
+      </AnimatePresence>
     </>
   );
 }

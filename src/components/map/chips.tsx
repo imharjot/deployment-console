@@ -32,6 +32,7 @@ export interface ChipHandlers {
   onBlur(id: string): void;
   onHover(id: string | null): void;
   register(id: string, el: HTMLElement | null): void;
+  connectable?(r?: Resource): boolean; // draws the drag-to-connect handle (the map's Connect to)
 }
 
 export const FULL_NAME_CHARS = 26; // what fits beside the icon and the dot at full detail (13px, 216px chip)
@@ -155,8 +156,22 @@ export const NodeChip = memo(function NodeChip({ n, r, g, lod, hot, match, ctx, 
         vanishing && "opacity-60",
         selected && "!border-accent",
         ctx && "opacity-55",
+        // The node under a connection being dragged onto it.
+        "data-[link-target]:!border-accent data-[link-target]:!opacity-100 data-[link-target]:[box-shadow:0_0_0_calc(3px/var(--zc,1))_var(--accent-soft)]",
       )}
     >
+      {/* Drag from here onto another resource to connect (people only; the panel's Connect to does the same). */}
+      {!group && h.connectable?.(r) && (
+        <span
+          data-connect
+          aria-hidden
+          title="Drag onto a service, database or cache to connect"
+          className={cx("absolute top-1/2 z-10 grid -translate-y-1/2 cursor-crosshair place-items-center rounded-full border border-accent/80 bg-panel opacity-0 group-hover/node:opacity-100 group-focus-visible/node:opacity-100", selected && "opacity-100")}
+          style={{ width: "calc(16px / var(--zc, 1))", height: "calc(16px / var(--zc, 1))", right: "calc(-8px / var(--zc, 1))" }}
+        >
+          <span className="rounded-full bg-accent" style={{ width: "calc(6px / var(--zc, 1))", height: "calc(6px / var(--zc, 1))" }} />
+        </span>
+      )}
       {/* Its category's hue down the left edge (full detail only: at lower zoom the icon carries it). */}
       {lod === "full" && <span aria-hidden className="pointer-events-none absolute inset-y-3 left-0 w-[3px] rounded-full bg-[var(--hue)] opacity-75" />}
       {match && <span aria-hidden className="pointer-events-none absolute -inset-[5px] rounded-[20px] border-accent/80 [border-style:solid] [border-width:calc(1.5px/var(--zc,1))]" />}

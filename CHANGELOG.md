@@ -9,6 +9,14 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Connect services**: **Connect to** on a service's panel (or a drag from one node to another on the cloud map)
+  lets a service reach another service, a database or a cache of its environment. The plan shows both changes first:
+  an inbound rule in the other side's security group admitting this service's group on its port, described
+  `deployment-console: A to B`, and a variable with the address — a database or cache endpoint, or for a service its
+  ECS Service Connect name, turning Service Connect on (and creating the environment's Cloud Map namespace if there is
+  none). **Disconnect from** undoes both, and the map draws the connection at once. The IAM policy opens only security
+  groups the console created or that are tagged `console:connect=allow`. Fixed on the way: on phones, the map panel's
+  actions opened behind the panel.
 - **New service from an image**: the overview's **New** menu and the cloud map's toolbar start a service from an ECR
   repository and tag (newest first) or a pasted image, with a port, a Fargate size and a task count, or as a copy of an
   existing service in the same dialog. The plan shows everything first: its own security group in the environment's

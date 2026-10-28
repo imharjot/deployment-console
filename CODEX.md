@@ -176,6 +176,17 @@ first. License: Apache-2.0 (LICENSE).
   ENI, DependencyViolation) is listed by `GET /api/provision?groups=1` and removed by `delete-security-group`. The form
   reads ECR through `GET /api/provision/images` (`repositories`, `recentImages`); the dialog folds the copy flow in as
   its second mode, with its own environment choice (the map's toolbar has no env of its own).
+  Connect A → B (`ecs-connect` provider, `providers/ecs-connect.ts`, actions `connect`/`disconnect` on ecs-service;
+  rules and plans pure in `src/lib/connect.ts`; implemented and smoke-tested on the simulated account, no real-account
+  run yet): B's group admits A's (one only A uses, else the first, with a warning) on B's port, described
+  `deployment-console: A to B` (no `>`: AWS refuses it in descriptions); A's variable `<B>_URL` holds a DB/cache
+  endpoint, `http://127.0.0.1:<port>` on one host with host networking, or B's Service Connect name — Service Connect
+  on for B (namespace: B's, A's, the cluster default, else `CreateHttpNamespace` named after the cluster; B's port
+  mapping named `port-<port>` first when unnamed), A a client in the same UpdateService as its new revision. Every call
+  is a Cloud method in aws.ts; the IAM policy opens only groups tagged `console:created=true` or `console:connect=allow`
+  (the mock refuses the same). `ActionDialog` takes `choices` (a dropdown for a string field); the map draws a drag
+  handle on ECS service chips (`ChipHandlers.connectable`, Graph `onConnect`), and `/map?r=<key>&connect=1` opens the
+  dialog (the overview panel's Connect to…). Delete service revokes the console's connection rules naming its group.
 - Costs: `Billing` (`src/lib/server/billing.ts`) is a third door beside `Cloud` and `Ci`, with its own globalThis
   singleton; `billing-aws.ts` always calls Cost Explorer in us-east-1 ($0.01 per request), so a 4-request snapshot is
   cached in memory and in `settings` (`costs:snapshot`) for `costs.cacheHours`. List-price estimates are pure
@@ -398,7 +409,9 @@ Step Functions, S3 objects, CloudFront invalidations, EC2 power, Auto Scaling, E
 image deploys), `ecs:UpdateService` / `RegisterTaskDefinition` (actions, variable edits), SSM / Secrets Manager / S3
 env-file values (only through the audited Variables editor), `ecs:CreateService` / `RunTask`, `ec2:RunInstances` and
 `ec2:CreateSecurityGroup` (tagged `console:created=true`), `ecs:DeleteService` / `ec2:TerminateInstances` /
-`ec2:DeleteSecurityGroup` only on resources carrying that tag, GitHub re-runs, Cloudflare cache purges and its own DB. Never touches application databases; never acts on its
+`ec2:DeleteSecurityGroup` only on resources carrying that tag, security-group rules (`ec2:AuthorizeSecurityGroupIngress` /
+`RevokeSecurityGroupIngress`) only in groups tagged `console:created=true` or `console:connect=allow`, Service Connect
+(`ecs:UpdateService`, a tagged Cloud Map HTTP namespace), GitHub re-runs, Cloudflare cache purges and its own DB. Never touches application databases; never acts on its
 own service or host (IAM denies by ARN and by tag `console:self=true`). Variable values reach a browser only through
 an audited reveal and never reach an API token; S3 file actions refuse env files. Outbound HTTP only to AWS, GitHub,
 `api.cloudflare.com` (when a token is set), EKS cluster endpoints (their own CA), configured health-check URLs, the

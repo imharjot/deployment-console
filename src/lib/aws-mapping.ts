@@ -90,7 +90,7 @@ export interface SdkContainerDef {
   cpu?: number;
   memory?: number;
   memoryReservation?: number;
-  portMappings?: { containerPort?: number }[];
+  portMappings?: { containerPort?: number; name?: string }[];
   logConfiguration?: { logDriver?: string; options?: Record<string, string> };
   healthCheck?: { command?: string[] };
   environment?: { name?: string; value?: string }[];
@@ -140,6 +140,12 @@ export const mainHint = (s: Pick<SdkService, "tags" | "loadBalancers" | "service
   [tagMap(s.tags)["console:main"]?.trim(), ...(s.loadBalancers ?? []).map((l) => l.containerName), ...(s.serviceRegistries ?? []).map((r) => r.containerName)]
     .find((n): n is string => !!n && has(n));
 
+// Port → its port mapping's name (Service Connect refers to a port by name); undefined when none is named.
+function named(pm: SdkContainerDef["portMappings"]): Record<string, string> | undefined {
+  const out = Object.fromEntries((pm ?? []).filter((p) => p.containerPort && p.name).map((p) => [String(p.containerPort), p.name!]));
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function containerOf(d: SdkContainerDef): RawContainer {
   const lo = d.logConfiguration?.logDriver === "awslogs" ? d.logConfiguration.options : undefined;
   return {
@@ -147,6 +153,7 @@ export function containerOf(d: SdkContainerDef): RawContainer {
     image: d.image ?? "",
     essential: d.essential !== false,
     ports: (d.portMappings ?? []).map((p) => p.containerPort ?? 0).filter(Boolean),
+    ...defined({ portNames: named(d.portMappings) }),
     logGroup: lo?.["awslogs-group"],
     ...(lo?.["awslogs-region"] ? { logRegion: lo["awslogs-region"] } : {}),
     logStreamPrefix: lo?.["awslogs-stream-prefix"],
@@ -600,9 +607,10 @@ export function securityGroupOf(g: SdkSecurityGroup): RawSecurityGroup {
       const cidrs = [...(p.IpRanges ?? []).map((r) => r.CidrIp), ...(p.Ipv6Ranges ?? []).map((r) => r.CidrIpv6)].filter((x): x is string => !!x);
       const prefixLists = (p.PrefixListIds ?? []).map((x) => x.PrefixListId).filter((x): x is string => !!x);
       const description = [...(p.UserIdGroupPairs ?? []), ...(p.IpRanges ?? []), ...(p.Ipv6Ranges ?? []), ...(p.PrefixListIds ?? [])].map((x) => x.Description).find((d) => d);
+      const notes = Object.fromEntries((p.UserIdGroupPairs ?? []).filter((x) => x.GroupId && x.Description).map((x) => [x.GroupId!, x.Description!]));
       return {
         fromPort: p.FromPort, toPort: p.ToPort, groups: (p.UserIdGroupPairs ?? []).map((x) => x.GroupId!).filter(Boolean),
-        ...(cidrs.length ? { cidrs } : {}), ...(prefixLists.length ? { prefixLists } : {}), ...defined({ description }),
+        ...(cidrs.length ? { cidrs } : {}), ...(prefixLists.length ? { prefixLists } : {}), ...defined({ description }), ...(Object.keys(notes).length ? { notes } : {}),
       };
     }),
   };

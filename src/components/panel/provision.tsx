@@ -6,12 +6,14 @@
 // Terminate only appear for resources the console created — and the server checks everything again.
 import { AnimatePresence, motion } from "motion/react";
 import {
-  AlertTriangle, ArrowLeft, Check as CheckIcon, CopyPlus, Layers, Loader2, Lock, Minus, PackagePlus, Plus, Server, ServerCog, Shield, SquareTerminal, Trash2, X, type LucideIcon,
+  AlertTriangle, ArrowLeft, Cable, Check as CheckIcon, CopyPlus, Layers, Loader2, Lock, Minus, PackagePlus, Plus, Server, ServerCog, Shield, SquareTerminal, Trash2, X, type LucideIcon,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { postJson } from "@/lib/client/api";
 import { useEnvInfo, useEnvList } from "@/lib/client/env";
+import { useRegions } from "@/lib/client/region";
 import { usd } from "@/lib/costs";
 import {
   DEFAULT_SIZE, FARGATE_CPU, addHostCheck, cloneCheck, commandProblem, createCheck, deleteServiceCheck, fargateMemoryFor, fargateSizeProblem, imageProblem,
@@ -116,14 +118,20 @@ function hostItems(info: ProvisionInfo, id: string): Item[] {
 // ---------- entry points ----------
 
 // Resource panel: inline buttons from `sm`; phones get one button that opens a sheet (disabled entries still say why).
+// A service also gets Connect to…, which opens it on the cloud map with the connect dialog (map/connect.tsx).
 export function ProvisionActions({ r }: { r: ResourceView }) {
   const phone = usePhone();
+  const router = useRouter();
   const { data: info } = useProvisionInfo(r.kind === "service" || r.kind === "box" ? r.env : "");
+  const env = useEnvInfo(r.env);
+  const home = useRegions().data?.home;
   const [flow, setFlow] = useState<Flow | null>(null);
   const [sheet, setSheet] = useState(false);
   if (!info) return null;
   const items = r.kind === "service" ? serviceItems(info, r.id) : r.kind === "box" ? hostItems(info, r.id) : [];
   if (!items.length) return null;
+  const key = env?.cluster ? `ecs:service/${env.cluster}/${r.id}${home && env.region !== home ? `@${env.region}` : ""}` : undefined;
+  const connect = r.kind === "service" && key ? { href: `/map?r=${encodeURIComponent(key)}&connect=1`, why: info.can.provision ? undefined : `needs ${info.can.provisionRole} role` } : undefined;
   const start = (k: Kind) => {
     setSheet(false);
     setFlow(r.kind === "box" ? { kind: k, env: r.env, host: r.id } : { kind: k, env: r.env, service: r.id });
@@ -146,6 +154,11 @@ export function ProvisionActions({ r }: { r: ResourceView }) {
               {icon(a.kind)} {a.label}
             </Button>
           ))}
+          {connect && (
+            <Button size="sm" disabled={!!connect.why} tip={connect.why ?? "Let it reach another service, a database or a cache — on the cloud map"} onClick={() => router.push(connect.href)}>
+              <Cable className="size-3.5" strokeWidth={1.75} /> Connect to…
+            </Button>
+          )}
         </div>
       )}
       <AnimatePresence>
@@ -168,6 +181,17 @@ export function ProvisionActions({ r }: { r: ResourceView }) {
                   </button>
                 </li>
               ))}
+              {connect && (
+                <li>
+                  <button disabled={!!connect.why} onClick={() => router.push(connect.href)} className="press flex min-h-12 w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[16px] text-fg enabled:hover:bg-panel-2 disabled:opacity-45">
+                    <Cable className="size-3.5 text-fg-3" strokeWidth={1.75} />
+                    <span className="min-w-0 flex-1">
+                      Connect to…
+                      <span className="block text-xs text-fg-3">{connect.why ?? "Another service, a database or a cache, on the cloud map"}</span>
+                    </span>
+                  </button>
+                </li>
+              )}
             </ul>
           </Modal>
         )}

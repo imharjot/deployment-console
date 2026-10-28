@@ -802,16 +802,20 @@ export interface DeleteServiceFacts {
   desired: number;
   family?: string;
   groups?: string[]; // security groups the console created for it
+  rules?: string[]; // the console's connection rules elsewhere that admit those groups ("sg-db allows sg-x on 5432")
   rates?: Rates;
 }
 
 export function deleteServicePlan(f: DeleteServiceFacts): ProvisionPlan {
   const groups = f.groups ?? [];
+  const rules = f.rules ?? [];
   return {
     action: "delete-service", env: f.env.id, risk: "danger",
     summary: `Delete ${f.service} from ${f.env.id}`,
     changes: [
       `Set its desired count to 0 (now ${f.desired}), then delete the service (DeleteService, force)`,
+      // A rule naming the group keeps AWS from deleting it; the console's own connection rules go first.
+      ...rules.map((r) => `Remove the console's connection rule ${r}`),
       ...(groups.length ? [`Delete its security group${groups.length === 1 ? "" : "s"} ${groups.join(", ")} (created with it)`] : []),
       `Keep its task definitions${f.family ? ` (family ${f.family})` : ""} — harmless, and they keep the history; deregister them in AWS if you want them gone`,
     ],

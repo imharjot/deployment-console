@@ -14,6 +14,7 @@
 // The sampler calls reconcileHostReservations() every tick: joined → registered; 15 minutes without → failed, audited,
 // and an issue (console.ts hostIssues).
 import "server-only";
+import { isConsoleRule } from "../connect.ts";
 import { ratesFrom } from "../costs.ts";
 import { canonicalKey } from "../mutation-keys.ts";
 import {
@@ -32,7 +33,7 @@ import { cached, invalidate } from "./cache.ts";
 import { capability } from "./capability.ts";
 import { liveService } from "./console.ts";
 import { getDb, newId } from "./db.ts";
-import { consoleConfig, envInfo, inRegion, listEnvs, metaOf, servicesOf } from "./discovery.ts";
+import { catalog, consoleConfig, envInfo, inRegion, listEnvs, metaOf, servicesOf } from "./discovery.ts";
 import { HttpError, errText, isOutcomeUnknown } from "./errors.ts";
 import { mutate, type MutationActor, type MutationHandle } from "./mutations.ts";
 import { markVerified } from "./operations.ts";
@@ -758,6 +759,22 @@ async function ownGroups(env: EnvInfo, live: RawService, all: RawService[]): Pro
   return groups.filter((g) => isConsoleCreated(g.tags) && g.tags?.[CREATED_FROM_TAG] === madeFor(env, live.name) && !others.has(g.id));
 }
 
+// The console's connection rules (Connect, providers/ecs-connect.ts) in the environment's other groups that admit
+// one of `own`: AWS won't delete a group another group's rule names, and they connect nothing once it's gone.
+async function connectionRules(env: EnvInfo, own: string[], svcs: RawService[]): Promise<{ group: string; port: number; from: string; text: string }[]> {
+  if (!own.length) return [];
+  const cat = await catalog(env.id).catch(() => undefined);
+  const ids = [...new Set([...svcs.flatMap((s) => s.securityGroups), ...(cat?.databases ?? []).flatMap((d) => d.securityGroups), ...(cat?.caches ?? []).flatMap((c) => c.securityGroups)])].filter((g) => !own.includes(g));
+  if (!ids.length) return [];
+  const out: { group: string; port: number; from: string; text: string }[] = [];
+  for (const g of await (await cloudFor(env)).securityGroups(ids))
+    for (const r of g.inbound)
+      for (const from of r.groups.filter((x) => own.includes(x)))
+        if (r.fromPort !== undefined && r.fromPort >= 0 && isConsoleRule(r.notes?.[from] ?? (r.groups.length === 1 ? r.description : undefined)))
+          out.push({ group: g.id, port: r.fromPort, from, text: `${g.id} allows ${from} on ${r.fromPort}` });
+  return out;
+}
+
 async function prepareDeleteService(body: unknown, who: Who): Promise<Prepared<RemoveResult>> {
   const i = parsed(parseDeleteService(body));
   const env = await envInfo(i.env);
@@ -765,17 +782,22 @@ async function prepareDeleteService(body: unknown, who: Who): Promise<Prepared<R
   const { live, meta } = await freshService(env, i.service);
   orThrow(deleteServiceCheck(facts(live, meta.self)));
   if (live.status === "DRAINING") throw new HttpError(409, `${live.name} is already being deleted`);
-  const groups = (await ownGroups(env, live, await servicesOf(env.cluster, env.region))).map((g) => g.id);
-  const plan = deleteServicePlan({ env, service: live.name, desired: live.desired, family: live.taskDef?.family, groups });
+  const svcs = await servicesOf(env.cluster, env.region);
+  const groups = (await ownGroups(env, live, svcs)).map((g) => g.id);
+  const rules = await connectionRules(env, groups, svcs);
+  const plan = deleteServicePlan({ env, service: live.name, desired: live.desired, family: live.taskDef?.family, groups, rules: rules.map((r) => r.text) });
   return {
     env, plan, input: i, action: "provision.delete-service", target: live.name,
-    keys: [serviceKey(env, live.name), ...groups.map((g) => groupKey(env, g))],
+    keys: [serviceKey(env, live.name), ...[...new Set([...groups, ...rules.map((r) => r.group)])].map((g) => groupKey(env, g))],
     after: () => refresh(env, live.name, true),
     execute: async (h) => {
       const cloud = await cloudFor(env);
-      await h.intent({ desiredBefore: live.desired, taskDefinition: live.taskDef?.arn, ...(groups.length ? { securityGroups: groups } : {}) });
+      await h.intent({ desiredBefore: live.desired, taskDefinition: live.taskDef?.arn, ...(groups.length ? { securityGroups: groups } : {}), ...(rules.length ? { connectionRules: rules.map((r) => r.text) } : {}) });
       const requestId = await cloud.deleteService(env.cluster, live.name);
       if (requestId) h.requestId(requestId);
+      for (const r of rules) {
+        await cloud.revokeIngress(r.group, { port: r.port, fromGroup: r.from }).catch((e) => log("connection rule kept after its service was deleted", { rule: r.text, err: errText(e) }));
+      }
       // Right away only when no task held a network interface in them; otherwise they wait for New → Created by the console.
       const groupsLeft: string[] = [];
       for (const g of groups) {
