@@ -18,7 +18,7 @@ import { useToast } from "../toast";
 import { Button, Skeleton, cx } from "../ui";
 import { formSchema, groupsFor, hasFields, type Schema } from "./action-form";
 import { INVENTORY_KEY } from "./data";
-import { Select } from "@/components/select";
+import { Select, type SelectOption } from "@/components/select";
 
 // The JSON Schema subset actions use, and which fields a person fills in: ./action-form.ts.
 export { formSchema, groupsFor, type Schema, type XGroup } from "./action-form";
@@ -177,7 +177,11 @@ function openInNewTab(url: string) {
   a.remove();
 }
 
-export function ActionDialog({ r, action, env, initial: preset, onClose }: { r: Resource; action: ActionInfo; env?: { label: string; protected: boolean }; initial?: Record<string, unknown>; onClose(): void }) {
+// `choices`: a dropdown for a string field whose values the page knows (Connect to's resources on the map) instead of
+// a text box; the schema still validates what is sent.
+export function ActionDialog({ r, action, env, initial: preset, choices, onClose }: {
+  r: Resource; action: ActionInfo; env?: { label: string; protected: boolean }; initial?: Record<string, unknown>; choices?: Record<string, SelectOption[]>; onClose(): void;
+}) {
   const full = useMemo(() => ((action.input ?? {}) as Schema), [action.input]);
   const groups = useMemo(() => groupsFor(full, r.props), [full, r.props]);
   const [group, setGroup] = useState<string | undefined>(() => groups[0]?.id);
@@ -202,10 +206,10 @@ export function ActionDialog({ r, action, env, initial: preset, onClose }: { r: 
   const { input, errors } = useMemo(() => toInput(schema, values), [schema, values]);
   const valid = !Object.keys(errors).length;
 
-  // Esc closes this dialog (not the panel under it), unless the confirmation above it is open.
+  // Esc closes this dialog (not the panel under it), unless the confirmation above it or a dropdown in it is open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || document.getElementById("confirm-title")) return;
+      if (e.key !== "Escape" || document.getElementById("confirm-title") || (e.target instanceof Element && e.target.closest('[aria-expanded="true"], [role="listbox"]'))) return;
       e.stopImmediatePropagation();
       if (!busy) onClose();
     };
@@ -347,6 +351,7 @@ export function ActionDialog({ r, action, env, initial: preset, onClose }: { r: 
                 key={name}
                 name={name}
                 s={s}
+                options={choices && Object.hasOwn(choices, name) ? choices[name] : undefined}
                 required={!!schema.required?.includes(name)}
                 value={values[name]}
                 error={touched[name] ? errors[name] : undefined}
@@ -493,9 +498,10 @@ function ErrorBox({ err }: { err: string | null }) {
   );
 }
 
-function SchemaField({ name, s, required, value, error, autoFocus, onChange, onBlur, onFileError }: {
+function SchemaField({ name, s, options, required, value, error, autoFocus, onChange, onBlur, onFileError }: {
   name: string;
   s: Schema;
+  options?: SelectOption[];
   required: boolean;
   value: Value;
   error?: string;
@@ -523,14 +529,15 @@ function SchemaField({ name, s, required, value, error, autoFocus, onChange, onB
       </label>
     );
   }
-  if (k === "enum") {
+  if (k === "enum" || (options && k === "string")) {
     control = (
       <Select
         {...common}
         value={String(value ?? "")}
         onChange={(v) => onChange(v)}
         base={cx(FIELD, "h-10 sm:h-9", errCls)}
-        options={[...(required ? [] : [{ value: "", label: "—" }]), ...s.enum!.map((o) => ({ value: String(o), label: String(o) }))]}
+        placeholder={options ? "Choose…" : undefined}
+        options={options ?? [...(required ? [] : [{ value: "", label: "—" }]), ...s.enum!.map((o) => ({ value: String(o), label: String(o) }))]}
       />
     );
   } else if (k === "integer" || k === "number") {

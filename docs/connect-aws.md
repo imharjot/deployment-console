@@ -213,6 +213,7 @@ want:
 | Start/stop hosts and databases | `PowerNonProtectedHostsAndDatabases` | start, stop and reboot EC2 instances, and start and stop RDS instances, that you tagged `console:power=allow` — for the cloud map's EC2 actions too | [Actions](actions.md) |
 | Reveal and edit environment variables | `EditVariablesNewRevision`, `PassTaskRolesToNewRevisions`, `SecretValues`, `SecretValuesKms`, `EnvironmentFiles` (plus `ServiceActions`) | read and write secret values and S3 env files, register task-definition revisions | [Environment variables](environment-variables.md) |
 | Create & scale | `CreateServicesTaggedByTheConsole` through `DeleteOnlyConsoleCreatedSecurityGroups` (plus `ServiceActions`, `EditVariablesNewRevision` and `PassTaskRolesToNewRevisions`) | create services from an image or as copies, scale them, run one-off tasks, launch EC2 hosts; delete only what it created | [Create & scale](provisioning.md) |
+| Connect services | `OpenSecurityGroupsMadeByTheConsole` through `FollowCloudMapOperations` (plus `ServiceActions`, `EditVariablesNewRevision` and `PassTaskRolesToNewRevisions`) | let one service reach another service, a database or a cache: a rule in the other side's security group (only groups it created or you tagged `console:connect=allow`), a variable with the address, ECS Service Connect between services | [Cloud map](cloud-map.md#connect-services) |
 | Costs | `CostsRead` (already in the read-only policy) | read Cost Explorer | [Costs](costs.md) |
 | Cloud map data reads and actions | `Inventory<Service>Sensitive`, `Inventory<Service>Write` (one pair per service) | read data behind audited actions; the map's actions (invalidate a CDN path, set desired capacity, purge a queue…). S3 file actions come from a hand-written statement instead: `EnvironmentFiles`, or one you add | [Supported services](services.md), [Permissions setup](permissions.md#7-add-write-permissions-one-feature-at-a-time) |
 
@@ -274,6 +275,7 @@ statements are generated from what each service declares and listed in
 | `cloudwatch:GetMetricData` | Metrics, request performance, sparklines |
 | `ecr:DescribeImages` | Whether a revision's image still exists before switching to it, and a repository's newest tags when you pick a new service's image |
 | `ecr:DescribeRepositories` | The repositories offered when you pick a new service's image (also the cloud map's ECR listing) |
+| `servicediscovery:ListNamespaces` | Finding the environment's Service Connect namespace when you [connect services](cloud-map.md#connect-services) (also the cloud map's Cloud Map listing) |
 | `logs:DescribeLogStreams`, `logs:GetLogEvents`, `logs:FilterLogEvents` | Live tail, history, search, view-in-context |
 | `logs:StartQuery`, `logs:GetQueryResults` | Logs Insights, and request performance from Caddy access logs |
 | `ssm:DescribeParameters` | Parameter metadata only — name, type, tier, KMS key, never a value: the cloud map's Parameter Store listing, and keeping a parameter's type, tier and key when the full policy's variable editor writes a new value, and its current Version, so a write is refused when the parameter changed since it was read |
@@ -301,6 +303,9 @@ statements are generated from what each service declares and listed in
 | `ecs:DeleteService` | Deleting a service the console created — only services tagged `console:created=true`, never the console's own |
 | `ec2:CreateSecurityGroup` (+ `ec2:CreateTags` at creation only) | A [new service](provisioning.md#new-service)'s own security group, in a VPC its environment already uses — the group must carry `console:created=true` (`CreateSecurityGroupsTaggedByTheConsole`, `CreateSecurityGroupsInExistingVpcs`, `TagSecurityGroupsAtCreationOnly`) |
 | `ec2:DeleteSecurityGroup` | Removing that group with its service, or later when AWS kept it — only groups tagged `console:created=true` (`DeleteOnlyConsoleCreatedSecurityGroups`) |
+| `ec2:AuthorizeSecurityGroupIngress`, `ec2:RevokeSecurityGroupIngress` | [Connecting services](cloud-map.md#connect-services): one inbound rule admitting a service's group on the other side's port, and removing it again — only in groups the console created or you tagged `console:connect=allow` (`OpenSecurityGroupsMadeByTheConsole`, `OpenSecurityGroupsTaggedForConnections`) |
+| `servicediscovery:CreateHttpNamespace` (+ `servicediscovery:TagResource`), `servicediscovery:GetOperation` | The environment's Service Connect namespace when it has none — only tagged `console:created=true` (`CreateServiceConnectNamespacesTaggedByTheConsole`, `FollowCloudMapOperations`) |
+| `servicediscovery:CreateService`, `servicediscovery:GetNamespace`, `servicediscovery:GetService` | What ECS calls in Cloud Map on the console's behalf when Service Connect is turned on for a service (`ServiceConnectThroughEcs`) |
 | `ecs:RunTask` (+ `iam:PassRole` to `ecs-tasks.amazonaws.com`) | One-off tasks from a service's task definition, for example a migration — only with the tag `console:created=true` in the request |
 | `ec2:RunInstances` (+ `ec2:CreateTags` at launch only, `iam:PassRole` to `ec2.amazonaws.com`) | Adding an EC2 host like an existing one — the instance and its volumes must carry `console:created=true` |
 | `ec2:DescribeInstanceAttribute` | Reading a host's user data to launch another like it. It never leaves the server (user data often holds secrets) |
@@ -327,6 +332,8 @@ The console enforces its own guards and roles, but IAM has the last word. Common
   `DeleteOnlyConsoleCreatedSecurityGroups` and set `provisioning.enabled` to `false` in the config file.
 - Allow new services' security groups only in VPCs you name: replace `vpc/*` in `CreateSecurityGroupsInExistingVpcs`
   with `vpc/vpc-0abc…` entries.
+- Let connections open groups in one VPC only: add `"ArnEquals": { "ec2:Vpc": "arn:aws:ec2:REGION:ACCOUNT_ID:vpc/vpc-0abc…" }`
+  to the conditions of `OpenSecurityGroupsMadeByTheConsole` and `OpenSecurityGroupsTaggedForConnections`.
 - The generated `Inventory…Write` statements use `"Resource": "*"`: replace them with ARN patterns or tag conditions
   as described in [Permissions setup](permissions.md#narrowing-further).
 

@@ -196,6 +196,9 @@ const deployImage: ProviderAction<In> = {
   },
 };
 
+// The connect actions (ecs-connect.ts) read an ECS service's live tags the same way.
+export { authoritative as ecsServiceTags };
+
 export const ecsImageProvider: Provider = {
   id: "ecs-image",
   label: "ECS image deploys",

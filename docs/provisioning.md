@@ -49,7 +49,9 @@ outside 1–65535; more than `provisioning.maxTasks` tasks. If AWS refuses the t
 security group is deleted again.
 
 **Delete** (a console-created service's **Delete**) also deletes the security group made for it, unless another
-service uses it (a copy of a new service shares its group). AWS keeps a group while a stopping task still holds a
+service uses it (a copy of a new service shares its group), and first removes the console's
+[connection](cloud-map.md#connect-services) rules in other groups that admit it — AWS keeps a group another group's
+rule names. AWS keeps a group while a stopping task still holds a
 network interface in it; such a group is listed under **New → Created by the console** — delete it there a minute
 later.
 
