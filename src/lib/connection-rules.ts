@@ -83,6 +83,7 @@ export interface ConnectionView {
   identity?: { account: string; arn: string };
   identityError?: string;
   profiles: string[];
+  externalId: string; // this console's, for roles made from its CloudFormation template (server/connection.ts)
   scopeSince?: number;
 }
 
@@ -173,10 +174,14 @@ export function describeArn(arn: string): string {
 }
 
 // A sign-in that failed, for the page. When the SDK finds nothing at all to sign in with, the usual failure on a new
-// host, its message ("Could not load credentials from any providers") doesn't say what to do: this does. `detail` is
-// the error as the server words it (errText).
+// host, its message ("Could not load credentials from any providers") doesn't say what to do: this does, and so for a
+// role AWS won't let the console switch into, which AWS words the same whichever side refuses. `detail` is the error
+// as the server words it (errText).
 export function signInFailure(s: SignIn, e: { name?: unknown; message?: unknown } | null | undefined, detail: string): string {
-  const none = e?.name === "CredentialsProviderError" && /could not load credentials from any providers/i.test(String(e.message ?? ""));
+  const name = String(e?.name ?? "");
+  const none = name === "CredentialsProviderError" && /could not load credentials from any providers/i.test(String(e?.message ?? ""));
+  if (s.kind === "role" && /AccessDenied/.test(name) && /sts:AssumeRole/.test(String(e?.message ?? "")))
+    return `AWS didn't let this console's own login switch into ${s.roleArn}. The role's trust policy must name that login and the external ID (a role made from this console's CloudFormation template does; if the console now runs somewhere else, download the template again and update the stack), and the login itself must be allowed sts:AssumeRole on the role (on ECS, add it to the task role).`;
   if (!none) return `Couldn't sign in to AWS: ${detail}`;
   if (s.kind === "profile") return `The profile ${s.profile} gives this machine no AWS credentials. Check it where the console runs: aws sts get-caller-identity --profile ${s.profile}`;
   if (s.kind === "role")

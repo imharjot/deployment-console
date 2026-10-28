@@ -3,12 +3,15 @@
 //   (src/lib/connection-rules.ts) lets every environment variable that is set decide its part.
 // - testConnection() asks AWS who a candidate signs in as and where its ECS clusters are, with its own clients;
 //   machineLogin() asks who the machine's own login is, for the page to show beside that choice.
+// - connectionTemplate() fills in the CloudFormation template that creates a role for this console in another account,
+//   trusting its own login and its externalId().
 // - saveConnection() is admin only and audited. It refuses while changes are running, and only saves what AWS answers
 //   for. It then switches: the generation moves on (connection-state.ts) and the caches are dropped.
 // - ensureScope(): when the account or the home region (which names the environments) is new, the data the console
 //   derived from the previous one is forgotten (forgetAccountData), before anything is recorded for the new one.
 // - syncConnection(): the sampler's tick picks up a save made by another console sharing the database.
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +19,8 @@ import {
   describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, sameSignIn, scopeKey, signInFailure, suggestHome, withInput,
   type ConnectionInput, type ConnectionTest, type ConnectionView, type EffectiveConnection, type MachineLogin, type SavedConnection, type SignIn,
 } from "../connection-rules.ts";
+import { connectTemplate, trustedPrincipalOf } from "../connect-template.ts";
+import type { PolicyDocument } from "../permissions.ts";
 import { writeAudit } from "./audit.ts";
 import { invalidate } from "./cache.ts";
 import { connectionCredentials, credentialsFor } from "./connection-credentials.ts";
@@ -207,9 +212,7 @@ export async function testConnection(body: unknown): Promise<ConnectionTest> {
 // chooses the sign-in: an environment that pins it (or the simulated account) decides who the console is, and the
 // page offers no choice.
 export async function machineLogin(): Promise<MachineLogin> {
-  const eff = effectiveConnection();
-  const pinned = [...new Set([eff.locked.source, eff.locked.signIn].filter((v): v is string => !!v))];
-  if (pinned.length) throw new HttpError(409, lockedMessage(pinned));
+  const eff = settingsChoosesSignIn();
   const chain: SignIn = { kind: "chain" };
   try {
     const p = await (await import("./aws.ts")).probeConnection(credentialsFor(chain, eff.home), eff.home);
@@ -217,6 +220,42 @@ export async function machineLogin(): Promise<MachineLogin> {
   } catch (e) {
     return { error: signInError(e, chain) };
   }
+}
+
+function settingsChoosesSignIn(): EffectiveConnection {
+  const eff = effectiveConnection();
+  const pinned = [...new Set([eff.locked.source, eff.locked.signIn].filter((v): v is string => !!v))];
+  if (pinned.length) throw new HttpError(409, lockedMessage(pinned));
+  return eff;
+}
+
+// This console's external ID for the roles it switches into: made once at random, kept with the settings, the same
+// for every console sharing the database, and shown to admins only. The template's role trusts only this console's
+// login, and only with this ID, so a login shared by several consoles (one AWS account running a few, or one service
+// connecting many customers) can't be pointed at a role made for another.
+const EXTERNAL_ID_KEY = "connection:external-id";
+export async function externalId(): Promise<string> {
+  const db = await getDb();
+  const have = await readRow(EXTERNAL_ID_KEY, db);
+  if (have) return have;
+  await db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", [EXTERNAL_ID_KEY, `dc-${randomBytes(24).toString("base64url")}`]);
+  return (await readRow(EXTERNAL_ID_KEY, db))!;
+}
+
+// GET /api/connection/template: the CloudFormation template (src/lib/connect-template.ts) with this console's own
+// login and external ID filled in, to run in the account to connect. Needs a login the role can trust.
+export async function connectionTemplate(readonly: PolicyDocument): Promise<string> {
+  const eff = settingsChoosesSignIn();
+  const chain: SignIn = { kind: "chain" };
+  let arn: string;
+  try {
+    arn = (await (await import("./aws.ts")).probeConnection(credentialsFor(chain, eff.home), eff.home)).arn;
+  } catch (e) {
+    throw new HttpError(400, signInError(e, chain));
+  }
+  const trusted = trustedPrincipalOf(arn);
+  if ("error" in trusted) throw new HttpError(400, trusted.error);
+  return JSON.stringify(connectTemplate(readonly, { externalId: await externalId(), trusted }), null, 2) + "\n";
 }
 
 // An audited change, the way every console write is: the intent is on record before the change (an intent that can't be
@@ -326,6 +365,7 @@ export async function connectionView(): Promise<ConnectionView> {
     ...(identity ? { identity } : {}),
     ...(identityError ? { identityError } : {}),
     profiles,
+    externalId: await externalId(),
     ...(s.scope ? { scopeSince: s.scope.since } : {}),
   };
 }

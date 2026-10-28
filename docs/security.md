@@ -165,7 +165,8 @@ Every URL that someone configures — integration URLs (Slack, webhooks, a Jira 
 
 | Data | Where | How it's protected |
 |---|---|---|
-| AWS credentials | not stored | the SDK credential chain (an ECS task role in production) |
+| AWS credentials | not stored | the SDK credential chain (an ECS task role in production); another account is reached by switching into a role for an hour at a time |
+| The console's external ID | the console's database | random, made once; admins only. Not a secret in AWS's sense: a role made from the console's CloudFormation template also requires the console's own login (`aws:PrincipalArn`) |
 | Users, sessions, invite links, API tokens | the console's database | only hashes of session tokens, links and API tokens; passwords as scrypt hashes |
 | Integration secrets (Slack webhooks, API tokens) | the console's database | encrypted with AES-256-GCM using `CONSOLE_SECRET_KEY`; never sent back to the browser |
 | Agents' approval inputs (may contain variable values) | the console's database | sealed the same way; secret inputs shown as `(hidden)` |

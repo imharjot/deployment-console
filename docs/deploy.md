@@ -130,6 +130,15 @@ With the full policy, set its `CONSOLE_CLUSTER` and `CONSOLE_SERVICE` placeholde
 family `deployment-console` and the role `deployment-console-task`; if you name them differently, change those
 statements too.
 
+**To connect other accounts** with the console's CloudFormation template ([Connect AWS](connect-aws.md#connect-an-account-with-cloudformation)),
+let the task role switch into the roles it creates, and leave `CONSOLE_SOURCE` out of the task definition (step 6), so
+an admin can pick **Switch into a role** in Settings:
+
+```bash
+aws iam put-role-policy --role-name deployment-console-task --policy-name switch-into-connected-accounts \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Resource":"arn:aws:iam::*:role/deployment-console-access"}]}'
+```
+
 ## Step 5: Create the log group
 
 ```bash

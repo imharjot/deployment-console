@@ -1,6 +1,8 @@
-// Regenerates the Inventory* statements of infra/iam-policy.json and infra/iam-policy-readonly.json, and the generated
-// table in docs/services.md, from the provider registry (src/lib/server/providers). Hand-written statements are kept,
-// first. The rules live in src/lib/permissions.ts (shared with Settings → AWS permissions). Re-runnable; output sorted.
+// Regenerates the Inventory* statements of infra/iam-policy.json and infra/iam-policy-readonly.json, the generated
+// table in docs/services.md, and infra/connect-aws-role.json (the CloudFormation template that connects another account
+// with the read-only policy: src/lib/connect-template.ts), from the provider registry (src/lib/server/providers).
+// Hand-written statements are kept, first. The rules live in src/lib/permissions.ts (shared with Settings → AWS
+// permissions). Re-runnable; output sorted.
 //
 //   npm run iam:policy                          rewrite the files (only those that changed)
 //   npm run iam:policy -- --check               exit 1 when a file is out of date
@@ -23,6 +25,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FILES = { read: "infra/iam-policy-readonly.json", full: "infra/iam-policy.json" };
 const DOCS = "docs/services.md";
+const TEMPLATE = "infra/connect-aws-role.json";
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
@@ -111,10 +114,12 @@ if (value("--print")) {
 
 const check = flag("--check");
 const stale = [];
+const built = {};
 for (const mode of ["read", "full"]) {
   const file = FILES[mode];
   const current = await load(file);
   const { policy, skipped } = perms.buildPolicy(decls, mode, perms.baseStatements(current));
+  built[mode] = policy;
   if (mode === "full") for (const s of skipped) console.warn(`iam-policy: skipped ${s.action} (${s.provider}): ${s.why}`);
   if (JSON.stringify(current) === JSON.stringify(policy)) continue;
   stale.push(file);
@@ -122,6 +127,12 @@ for (const mode of ["read", "full"]) {
   const size = perms.policySize(policy);
   if (!check && size > perms.MANAGED_POLICY_LIMIT)
     console.warn(`iam-policy: ${file} is ${size} characters; AWS allows ${perms.MANAGED_POLICY_LIMIT} per managed policy — create it as parts (Settings → AWS permissions, or --print ${mode} --out <dir>)`);
+}
+const { connectTemplate } = await import("../src/lib/connect-template.ts");
+const template = text(connectTemplate(built.read));
+if ((await readFile(path.join(root, TEMPLATE), "utf8").catch(() => "")) !== template) {
+  stale.push(TEMPLATE);
+  if (!check) await writeFile(path.join(root, TEMPLATE), template);
 }
 const md = await readFile(path.join(root, DOCS), "utf8");
 const nextMd = perms.withDocsSection(md, decls);
