@@ -215,6 +215,7 @@ function TokenPendingCard({ a }: { a: ApprovalView }) {
               {" "}· approving needs <code className="rounded border border-line bg-panel-2 px-1 font-mono text-[12px] text-fg-2">{a.confirm}</code>
             </>
           )}
+          {why && <span className="mt-0.5 block text-degraded">{why}.</span>}
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
           <Button variant="secondary" onClick={reject} disabled={!a.canDecide} title={why} className="flex-1 sm:flex-none max-sm:h-11">
@@ -380,6 +381,7 @@ function AgentPendingCard({ a }: { a: ApprovalView }) {
                 </>
               )}{" "}
               · <RiskChip risk={a.risk} /> · requested <TimeAgo at={a.createdAt} />
+              {why && <span className="mt-0.5 block text-degraded">{why}.</span>}
             </div>
             <div className="flex w-full gap-2 sm:w-auto">
               <Button variant="secondary" onClick={reject} disabled={!a.canDecide} title={why} className="flex-1 sm:flex-none max-sm:h-11">

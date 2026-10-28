@@ -122,7 +122,7 @@ function Dialog({ ask, close }: { ask: Ask; close: () => void }) {
 
         {ask.migrations && (
           <label className="flex cursor-pointer gap-2.5 rounded-xl border border-degraded/30 p-3 text-[14px] leading-relaxed">
-            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-1 accent-[var(--degraded)]" />
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-1 [--check:var(--degraded)]" />
             {ask.migrations === true ? (
               <span>
                 <b className="font-medium text-degraded">Database migrations changed between these commits.</b> Rolling back code does <b className="font-medium">not</b> undo them. I understand.

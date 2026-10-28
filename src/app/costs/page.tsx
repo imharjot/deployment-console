@@ -108,7 +108,7 @@ function Freshness({ data, onRefreshed }: { data: CostsView; onRefreshed(v: Cost
         {a.status === "ok" ? <>as of <span title={stamp(a.fetchedAt)}><TimeAgo at={a.fetchedAt} /></span> · kept {data.refresh.cacheHours} h</> : "Cost Explorer unavailable"}
         {a.source === "mock" && <> · <Chip tone="muted">simulated</Chip></>}
       </span>
-      <Button onClick={refresh} disabled={busy || wait > 0} title={wait > 0 ? `Available in ${Math.ceil(wait / 60_000)} min — one refresh per 5 minutes (each is billed: ${cost})` : `Take a new snapshot now: ${cost}`}>
+      <Button onClick={refresh} disabled={busy || wait > 0} tip={wait > 0 ? `Available in ${Math.ceil(wait / 60_000)} min — one refresh per 5 minutes (each is billed: ${cost})` : `Take a new snapshot now: ${cost}`}>
         <RefreshCw className={cx("size-3.5", busy && "animate-spin")} /> Refresh
       </Button>
     </div>

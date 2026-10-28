@@ -360,7 +360,7 @@ function WorkflowEditor({ id, me }: { id: string; me: Me }) {
 
       <Card title="Acts on">
         <label className="mb-2 flex items-center gap-2 text-[14px]">
-          <input type="checkbox" checked={!!draft.targets} onChange={(e) => edit((d) => ({ ...d, targets: e.target.checked ? { envs: [] } : undefined }))} className="accent-[var(--accent)]" />
+          <input type="checkbox" checked={!!draft.targets} onChange={(e) => edit((d) => ({ ...d, targets: e.target.checked ? { envs: [] } : undefined }))} />
           Explicitly chosen ECS services
         </label>
         {draft.targets ? (
@@ -557,7 +557,7 @@ function StepFields({ n, index, last, onChange, onMove, onRemove }: { n: Workflo
           <>
             <Labeled label="Operation">{(id) => <input id={id} className={cx(INPUT, "font-mono")} value={n.op} onChange={(e) => set({ op: e.target.value.trim() })} placeholder="services.get" />}</Labeled>
             <label className="flex items-center gap-2 self-end pb-2 text-[13.5px]">
-              <input type="checkbox" checked={n.forEach === "targets"} onChange={(e) => set({ forEach: e.target.checked ? "targets" : undefined })} className="accent-[var(--accent)]" />
+              <input type="checkbox" checked={n.forEach === "targets"} onChange={(e) => set({ forEach: e.target.checked ? "targets" : undefined })} />
               Once per service it acts on
             </label>
             <div className="sm:col-span-2">

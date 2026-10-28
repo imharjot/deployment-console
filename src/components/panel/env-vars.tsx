@@ -117,7 +117,7 @@ export function EnvVars({ r }: { r: ResourceView }) {
                 {values ? "Hide values" : "Reveal values"}
               </Button>
             )}
-            <Button size="sm" variant="primary" onClick={startEdit} disabled={!data.canEdit || revealing} title={editWhy}>
+            <Button size="sm" variant="primary" onClick={startEdit} disabled={!data.canEdit || revealing} tip={editWhy}>
               <Pencil className="size-3.5" /> Edit
             </Button>
           </>

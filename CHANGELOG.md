@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Controls that look and behave alike**: checkboxes and radios are drawn in the console's accent with a small
+  animation instead of the browser's, every on/off setting uses one switch, and number fields lose the browser's
+  spinners. Why a button is disabled now shows on a tap and on keyboard focus too, not only as a hover title: re-run
+  and redeploy in CI, cost refresh, AWS connection test and save, integration test and save, resource actions and
+  provisioning, editing environment variables, the read-only and image chips. Approvals say when your role can't
+  decide them, and a release step that couldn't check for migrations says why when opened. Saving a log query asks for its name in the menu instead of a
+  browser prompt, and the permissions and resources searches clear with the console's own button.
 - **The console's own dropdowns**: every dropdown was the browser's; now each is the console's (`Select`). On larger
   screens it's an animated menu with a highlight that glides to the option under the pointer or the keys, a check on the
   chosen one, hints and group headings; on phones, the console's bottom sheet. Keys work as in a native select (arrows,

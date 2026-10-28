@@ -405,14 +405,14 @@ function AdminSettings({ endpoints, policy, onSaved }: { endpoints: EndpointEntr
         <div className="space-y-3 rounded-2xl border border-line bg-panel p-4 shadow-card">
           <h3 className="text-[14.5px] font-semibold">Policy</h3>
           <label className="flex cursor-pointer items-start gap-2.5 text-[14px]">
-            <input type="checkbox" checked={policy.personal} onChange={(e) => toggle("personal", e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
+            <input type="checkbox" checked={policy.personal} onChange={(e) => toggle("personal", e.target.checked)} className="mt-0.5" />
             <span>
               <span className="font-medium">Personal connections</span>
               <span className="block text-[12.5px] leading-snug text-fg-3">People may connect their own keys and sign-ins. Off: organisation connections only.</span>
             </span>
           </label>
           <label className="flex cursor-pointer items-start gap-2.5 text-[14px]">
-            <input type="checkbox" checked={policy.localOnly} onChange={(e) => toggle("localOnly", e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
+            <input type="checkbox" checked={policy.localOnly} onChange={(e) => toggle("localOnly", e.target.checked)} className="mt-0.5" />
             <span>
               <span className="font-medium">Local models only</span>
               <span className="block text-[12.5px] leading-snug text-fg-3">Prompts never leave your network: only local endpoints (and the demo model) may be used.</span>
@@ -471,21 +471,21 @@ function EndpointDialog({ onClose, onSave }: { onClose(): void; onSave(e: { url:
             <div className="flex flex-wrap gap-3">
               {ENDPOINT_PROVIDERS.map((p) => (
                 <label key={p} className="flex items-center gap-1.5 text-[14px]">
-                  <input type="checkbox" checked={providers.includes(p)} onChange={(e) => setProviders((l) => (e.target.checked ? [...l, p] : l.filter((x) => x !== p)))} className="accent-[var(--accent)]" />
+                  <input type="checkbox" checked={providers.includes(p)} onChange={(e) => setProviders((l) => (e.target.checked ? [...l, p] : l.filter((x) => x !== p)))} />
                   <span className="font-mono text-[13px]">{p}</span>
                 </label>
               ))}
             </div>
           </fieldset>
           <label className="flex items-start gap-2.5 text-[14px]">
-            <input type="checkbox" checked={local} onChange={(e) => setLocal(e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
+            <input type="checkbox" checked={local} onChange={(e) => setLocal(e.target.checked)} className="mt-0.5" />
             <span>
               <span className="font-medium">Local endpoint</span>
               <span className="block text-[12.5px] text-fg-3">Every address it resolves to must be loopback or private (required for Ollama).</span>
             </span>
           </label>
           <label className="flex items-start gap-2.5 text-[14px]">
-            <input type="checkbox" checked={personal} onChange={(e) => setPersonal(e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
+            <input type="checkbox" checked={personal} onChange={(e) => setPersonal(e.target.checked)} className="mt-0.5" />
             <span>
               <span className="font-medium">Allow personal connections</span>
               <span className="block text-[12.5px] text-fg-3">Off: only organisation connections may use it.</span>

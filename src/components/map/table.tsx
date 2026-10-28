@@ -17,6 +17,7 @@ import { REMOTE_TEXT, isRemote, isVanishing } from "./chips";
 export { DEFAULT_TABLE, tableFromParams, tableToParams, type TableFilters } from "./table-rules";
 import { HEALTH, HealthDot, healthStyle, iconOf, isProblem } from "./kinds";
 import { Select } from "@/components/select";
+import { SearchField } from "@/app/_components/fields";
 
 // ---- the table ----
 const ROW_H = 44;
@@ -120,15 +121,7 @@ export function ResourceTable({ resources, envs, regions, filters: f, onFilters,
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-none flex-wrap items-center gap-2">
-        <input
-          type="search"
-          value={f.q}
-          onChange={(e) => set({ q: e.target.value })}
-          placeholder="Search…"
-          title="Search by name, key, tag or endpoint"
-          aria-label="Search resources by name, key, tag or endpoint"
-          className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-panel px-3 text-[14px] text-fg outline-none placeholder:text-fg-3 focus:border-accent/70 sm:max-w-72 pointer-coarse:h-10"
-        />
+        <SearchField value={f.q} onChange={(q) => set({ q })} label="Search resources by name, key, tag or endpoint" placeholder="Search…" className="flex-1 sm:max-w-72" />
         <button type="button" onClick={() => setMore((m) => !m)} aria-expanded={more} className="press flex h-10 flex-none items-center gap-1.5 rounded-lg border border-line bg-panel px-3 text-[14px] text-fg-2 sm:hidden">
           <SlidersHorizontal className="size-4" /> Filters{activeCount ? ` · ${activeCount}` : ""}
         </button>
@@ -143,7 +136,7 @@ export function ResourceTable({ resources, envs, regions, filters: f, onFilters,
         </div>
         {hiddenCount > 0 && (
           <label className="flex h-9 flex-none cursor-pointer items-center gap-2 rounded-lg border border-line bg-panel px-2.5 text-[14px] text-fg-2 hover:border-line-strong pointer-coarse:h-10" title="AWS-managed keys, service roles and table-only types: listed here, never drawn on the map">
-            <input type="checkbox" checked={f.hidden} onChange={(e) => set({ hidden: e.target.checked })} className="size-3.5 accent-[var(--accent)]" />
+            <input type="checkbox" checked={f.hidden} onChange={(e) => set({ hidden: e.target.checked })} className="size-3.5" />
             <EyeOff className="size-3.5 text-fg-3" /> Hidden <span className="tabular-nums text-fg-3">{hiddenCount}</span>
           </label>
         )}
