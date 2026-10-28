@@ -68,14 +68,7 @@ export default function NotesPage() {
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <SearchField value={text} onChange={setText} label="Search notes" placeholder="Search text, resource, key…" className="min-w-0 flex-1 sm:max-w-sm" />
-          <SelectField value={env} onChange={setEnv} label="Environment" className="w-full sm:w-48">
-            <option value="">All environments</option>
-            {envOptions.map((id) => (
-              <option key={id} value={id}>
-                {envLabel(id)}
-              </option>
-            ))}
-          </SelectField>
+          <SelectField value={env} onChange={setEnv} label="Environment" className="w-full sm:w-48" options={[{ value: "", label: "All environments" }, ...envOptions.map((id) => ({ value: id, label: envLabel(id) }))]} />
         </div>
         {tags.length > 0 && (
           <ScrollX>

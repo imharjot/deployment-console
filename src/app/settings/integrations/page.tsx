@@ -11,6 +11,7 @@ import { ApiError } from "@/lib/client/api";
 import type { EnvFilter } from "@/lib/plugins/events";
 import type { IntegrationView } from "@/lib/plugins/types";
 import { SectionTitle } from "../../_components/page-frame";
+import { Select } from "@/components/select";
 
 interface Delivery {
   id: string;
@@ -266,14 +267,13 @@ function ConfigDialog({ it, list, onClose }: { it: IntegrationView; list: Integr
                   {f.type === "secret" ? (
                     <SecretInput id={`f-${f.key}`} state={secrets[f.key]} required={!!f.required} wasSaved={!!saved[f.key]} placeholder={f.placeholder} autoFocus={i === 0} onChange={(s) => setSecrets((m) => ({ ...m, [f.key]: s }))} />
                   ) : f.type === "select" ? (
-                    <select id={`f-${f.key}`} value={values[f.key]} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} className={inputCls}>
-                      <option value="">—</option>
-                      {f.options?.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
+                    <Select
+                      id={`f-${f.key}`}
+                      value={values[f.key]}
+                      onChange={(x) => setValues((v) => ({ ...v, [f.key]: x }))}
+                      base={inputCls}
+                      options={[{ value: "", label: "—" }, ...(f.options ?? []).map((o) => ({ value: o.value, label: o.label }))]}
+                    />
                   ) : (
                     <input
                       id={`f-${f.key}`}

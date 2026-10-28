@@ -13,6 +13,7 @@ import { stamp } from "@/lib/client/format";
 import { ROLES, type Role } from "@/lib/rbac";
 import { DataTable, type Column } from "../../_components/data-table";
 import { Field, FormError } from "../../login/auth-card";
+import { Select } from "@/components/select";
 
 interface Item {
   id: string;
@@ -133,11 +134,14 @@ function UsersAdmin({ me }: { me: Me }) {
       key: "role",
       header: "Role",
       cell: (u) => (
-        <select aria-label={`Role for ${u.email}`} className={selectCls} value={u.role} disabled={busy === u.id} onChange={(e) => patch(u, { role: e.target.value }, `${u.email} is now ${ROLE_INFO[e.target.value as Role].label.toLowerCase()}`)}>
-          {ROLES.map((r) => (
-            <option key={r} value={r}>{ROLE_INFO[r].label}</option>
-          ))}
-        </select>
+        <Select<Role>
+          aria-label={`Role for ${u.email}`}
+          base={selectCls}
+          value={u.role}
+          disabled={busy === u.id}
+          onChange={(r) => patch(u, { role: r }, `${u.email} is now ${ROLE_INFO[r].label.toLowerCase()}`)}
+          options={ROLES.map((r) => ({ value: r, label: ROLE_INFO[r].label }))}
+        />
       ),
     },
     {

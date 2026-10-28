@@ -9,6 +9,10 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **The console's own dropdowns**: every dropdown was the browser's; now each is the console's (`Select`). On larger
+  screens it's an animated menu with a highlight that glides to the option under the pointer or the keys, a check on the
+  chosen one, hints and group headings; on phones, the console's bottom sheet. Keys work as in a native select (arrows,
+  Home/End, Page Up/Down, typing to jump, Enter, Esc), and the menu flips up near the bottom of the screen.
 - **Settings → AWS connection, simpler**: the sign-ins are named by where the console runs (AWS CLI profile on this
   computer, another AWS account with CloudFormation, this server's AWS role), each says how long its login lasts and
   when to sign in again, and the login it shows is labelled as detected from the machine's AWS credentials. A console

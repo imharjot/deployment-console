@@ -20,6 +20,7 @@ import { AssistantRoot } from "./assistant/root";
 import { AskButton, EmergencyStopBanner } from "./assistant/status";
 import { openAssistant } from "./assistant/store";
 import { UserMenu } from "./user-menu";
+import { Select } from "@/components/select";
 
 // Every page in the sidebar, with its "g <key>" shortcut. The command palette builds its page list from these too.
 // "/" opens the person's home page (a dashboard or the Incident view when they chose one); ?view=overview always opens
@@ -282,26 +283,24 @@ function EnvTabs({ groups, env, setEnv }: { groups: Group[]; env: EnvName; setEn
   );
 }
 
-// Phones: the native picker (the OS sheet is the best touch control there is), dressed as a compact pill.
+// Phones: a compact pill that opens the console's bottom sheet of environments.
 function EnvSelect({ groups, opts, env, setEnv }: { groups: Group[]; opts: EnvOpt[]; env: EnvName; setEnv(e: EnvName): void }) {
   const cur = opts.find((o) => o.value === env) ?? opts[0];
-  const option = (o: EnvOpt) => (
-    <option key={o.value} value={o.value}>
-      {o.label}
-      {o.prot ? " (protected)" : ""}
-    </option>
+  // The region filter applies here too: one region chosen = its environments only (plus the selected one).
+  const options = groups.flatMap((g) =>
+    g.items.map((o) => ({ value: o.value, label: o.label, hint: o.prot ? "protected" : undefined, icon: <EnvDot o={o} />, group: groups.length > 1 ? regionLabel(g.region) : undefined })),
   );
   return (
-    <label className="relative flex h-9 min-w-0 items-center gap-2 rounded-lg border border-accent/45 bg-panel-2 pl-3 pr-2 text-[14px] font-medium sm:hidden">
-      <EnvDot o={cur} />
-      <span className="truncate">{cur.label}</span>
-      {cur.prot && <Lock className="size-3 flex-none text-fg-3 max-[400px]:hidden" />}
-      <ChevronDown className="size-3.5 flex-none text-fg-3" />
-      <select aria-label="Environment" value={env} onChange={(e) => setEnv(e.target.value)} className="absolute inset-0 cursor-pointer appearance-none opacity-0">
-        {/* The region filter applies here too: one region chosen = its environments only (plus the selected one). */}
-        {groups.length > 1 ? groups.map((g) => <optgroup key={g.region} label={regionLabel(g.region)}>{g.items.map(option)}</optgroup>) : groups.flatMap((g) => g.items).map(option)}
-      </select>
-    </label>
+    <Select aria-label="Environment" value={env} onChange={setEnv} options={options} className="flex h-9 min-w-0 items-center gap-2 rounded-lg border border-accent/45 bg-panel-2 pl-3 pr-2 text-[14px] font-medium sm:hidden">
+      {(open) => (
+        <>
+          <EnvDot o={cur} />
+          <span className="truncate">{cur.label}</span>
+          {cur.prot && <Lock className="size-3 flex-none text-fg-3 max-[400px]:hidden" />}
+          <ChevronDown className={cx("size-3.5 flex-none text-fg-3 transition-transform duration-200", open && "rotate-180")} />
+        </>
+      )}
+    </Select>
   );
 }
 
@@ -321,17 +320,22 @@ function RegionSelect({ rf, className }: { rf: ShellRegion; className?: string }
     }
   };
   return (
-    <label title={`Region: ${regionLabel(region)}`} className={cx("relative flex h-8 flex-none items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs font-medium text-fg-2 hover:border-line-strong pointer-coarse:h-10", className)}>
-      <Globe className="size-3.5 flex-none text-fg-3" strokeWidth={1.75} />
-      <span className="max-w-[9rem] truncate">{region === "all" ? "All regions" : region}</span>
-      <ChevronDown className="size-3 flex-none text-fg-3" />
-      <select aria-label="Region" value={region} onChange={(e) => choose(e.target.value)} className="absolute inset-0 cursor-pointer appearance-none opacity-0">
-        <option value="all">All regions</option>
-        {regions.map((r) => (
-          <option key={r} value={r}>{regionLabel(r)}</option>
-        ))}
-      </select>
-    </label>
+    <Select
+      title={`Region: ${regionLabel(region)}`}
+      aria-label="Region"
+      value={region}
+      onChange={choose}
+      options={[{ value: "all", label: "All regions" }, ...regions.map((r) => ({ value: r, label: regionLabel(r) }))]}
+      className={cx("flex h-8 flex-none items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs font-medium text-fg-2 hover:border-line-strong pointer-coarse:h-10", className)}
+    >
+      {(open) => (
+        <>
+          <Globe className="size-3.5 flex-none text-fg-3" strokeWidth={1.75} />
+          <span className="max-w-[9rem] truncate">{region === "all" ? "All regions" : region}</span>
+          <ChevronDown className={cx("size-3 flex-none text-fg-3 transition-transform duration-200", open && "rotate-180")} />
+        </>
+      )}
+    </Select>
   );
 }
 

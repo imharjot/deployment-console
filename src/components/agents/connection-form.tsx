@@ -14,6 +14,7 @@ import type { ConnectionView, EndpointEntry } from "@/lib/agents/connection-rule
 import { postJson } from "@/lib/client/api";
 import { ROLES } from "@/lib/rbac";
 import { AUTH_LABEL, connectionBody, draftReady, emptyDraft, endpointChoices, secretFields, type ConnectionDraft, type ProviderOptionLike, type SecretFieldKey } from "./rules";
+import { Select } from "@/components/select";
 
 const INPUT =
   "h-10 w-full rounded-lg border border-line bg-panel-2 px-3 text-[14.5px] text-fg outline-none transition-colors placeholder:text-fg-3 focus:border-accent focus:bg-panel disabled:opacity-60 pointer-coarse:h-11";
@@ -139,11 +140,7 @@ export function ConnectionForm({ providers, endpoints, admin, onDone, onCancel }
             {spec.authKinds.length > 1 && (
               <FormField label="Authentication">
                 {(id) => (
-                  <select id={id} value={draft.authKind} onChange={(e) => setDraft({ ...draft, authKind: e.target.value as ConnectionDraft["authKind"], secret: {} })} className={INPUT}>
-                    {spec.authKinds.map((a) => (
-                      <option key={a} value={a}>{AUTH_LABEL[a]}</option>
-                    ))}
-                  </select>
+                  <Select id={id} value={draft.authKind} onChange={(v) => setDraft({ ...draft, authKind: v as ConnectionDraft["authKind"], secret: {} })} base={INPUT} options={spec.authKinds.map((a) => ({ value: a, label: AUTH_LABEL[a] }))} />
                 )}
               </FormField>
             )}
@@ -166,11 +163,7 @@ export function ConnectionForm({ providers, endpoints, admin, onDone, onCancel }
             {orgAllowed && draft.scope === "org" && (
               <FormField label="Least role that may use it">
                 {(id) => (
-                  <select id={id} value={draft.minRole} onChange={(e) => set("minRole", e.target.value)} className={INPUT}>
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
+                  <Select id={id} value={draft.minRole} onChange={(v) => set("minRole", v)} base={INPUT} options={ROLES.map((r) => ({ value: r, label: r }))} />
                 )}
               </FormField>
             )}
@@ -180,12 +173,16 @@ export function ConnectionForm({ providers, endpoints, admin, onDone, onCancel }
                 hint={choices.length ? "Built-in, or one an admin registered. A connection can't point anywhere else." : "No endpoint is registered for this provider yet — an admin adds them under Endpoints."}
               >
                 {(id, hintId) => (
-                  <select id={id} aria-describedby={hintId} value={draft.endpoint} onChange={(e) => set("endpoint", e.target.value)} disabled={!choices.length} className={INPUT}>
-                    {!spec.endpoint?.builtin && <option value="">Choose a registered endpoint…</option>}
-                    {choices.map((c) => (
-                      <option key={c.value || "builtin"} value={c.value}>{c.label}</option>
-                    ))}
-                  </select>
+                  <Select
+                    id={id}
+                    aria-describedby={hintId}
+                    value={draft.endpoint}
+                    onChange={(v) => set("endpoint", v)}
+                    disabled={!choices.length}
+                    base={INPUT}
+                    placeholder="Choose a registered endpoint…"
+                    options={choices.map((c) => ({ value: c.value, label: c.label }))}
+                  />
                 )}
               </FormField>
             )}

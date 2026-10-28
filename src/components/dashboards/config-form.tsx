@@ -14,6 +14,7 @@ import type { EnvInfo, MetricSeries } from "@/lib/types";
 import type { JsonSchema } from "@/lib/server/ops/types";
 import { useApi } from "./data";
 import { WidgetIcon } from "./widgets";
+import { Select as Dropdown, optionsFrom } from "@/components/select";
 
 interface ResourceRow {
   env: string;
@@ -45,12 +46,9 @@ function FieldBox({ label, hint, children, wide }: { label: string; hint?: strin
   );
 }
 
+// The fields keep writing <option> children; the console's dropdown shows them.
 function Select({ value, onChange, children, label, disabled }: { value: string; onChange: (v: string) => void; children: ReactNode; label: string; disabled?: boolean }) {
-  return (
-    <select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={cx(INPUT, "px-2.5 disabled:opacity-60")}>
-      {children}
-    </select>
-  );
+  return <Dropdown aria-label={label} value={value} disabled={disabled} onChange={onChange} options={optionsFrom(children)} base={cx(INPUT, "px-2.5 disabled:opacity-60")} />;
 }
 
 function Checks({ options, value, onChange, label }: { options: { value: string; label: string }[]; value: string[]; onChange: (v: string[]) => void; label: string }) {

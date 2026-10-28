@@ -5,7 +5,7 @@
 // a role in another account can be created from the page with CloudFormation (TemplateSteps).
 // "Test connection" asks AWS who the sign-in is and where its ECS clusters are; saving switches at once
 // (src/lib/server/connection.ts), then the app reloads so nothing of the previous account stays on screen.
-import { CircleCheck, Clock, Cloud, Download, ExternalLink, FlaskConical, KeyRound, Loader2, Lock, MapPin, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
+import { ChevronRight, CircleCheck, Clock, Cloud, Download, ExternalLink, FlaskConical, KeyRound, Loader2, Lock, MapPin, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import useSWR, { mutate } from "swr";
@@ -19,6 +19,7 @@ import { regionName } from "@/lib/client/region";
 import { CONNECT_ROLE_NAME, CONNECT_STACK_NAME } from "@/lib/connect-template";
 import { CloudFormationGuide } from "./cloudformation-guide";
 import { describeArn, describeSignIn, roleArnProblem, type ConnectionTest, type ConnectionView, type MachineLogin, type ProfileKind, type SignIn } from "@/lib/connection-rules";
+import { Select } from "@/components/select";
 
 type Kind = SignIn["kind"];
 type RegionsMode = "home" | "all" | "pick";
@@ -215,13 +216,13 @@ function Editor({ view }: { view: ConnectionView }) {
                     {view.profiles.length ? (
                       <label className="block max-w-sm">
                         <span className="eyebrow mb-1 block">Profile</span>
-                        <select className={inputCls} value={form.profile} onChange={(e) => set({ profile: e.target.value })}>
-                          {view.profiles.map((p) => (
-                            <option key={p} value={p}>
-                              {p} · {KIND_LABEL[view.profileKinds[p] ?? "other"]}
-                            </option>
-                          ))}
-                        </select>
+                        <Select
+                          aria-label="Profile"
+                          base={inputCls}
+                          value={form.profile}
+                          onChange={(v) => set({ profile: v })}
+                          options={view.profiles.map((p) => ({ value: p, label: p, hint: KIND_LABEL[view.profileKinds[p] ?? "other"] }))}
+                        />
                       </label>
                     ) : (
                       <p className="text-[13.5px] text-fg-3">
@@ -292,17 +293,16 @@ function Editor({ view }: { view: ConnectionView }) {
                     {withName(view.awsHome)} <span className="text-fg-3">· {locked.home} decides it</span>
                   </p>
                 ) : (
-                  <select className={inputCls} value={form.home} onChange={(e) => set({ home: e.target.value })}>
-                    {regionList.map((r) => {
+                  <Select
+                    aria-label="Home region"
+                    base={inputCls}
+                    value={form.home}
+                    onChange={(v) => set({ home: v })}
+                    options={regionList.map((r) => {
                       const c = clustersIn(r);
-                      return (
-                        <option key={r} value={r}>
-                          {withName(r)}
-                          {c?.clusters ? ` · ${c.clusters}${c.more ? "+" : ""} cluster${c.clusters === 1 ? "" : "s"}` : ""}
-                        </option>
-                      );
+                      return { value: r, label: withName(r), hint: c?.clusters ? `${c.clusters}${c.more ? "+" : ""} cluster${c.clusters === 1 ? "" : "s"}` : undefined };
                     })}
-                  </select>
+                  />
                 )}
               </label>
               <div>
@@ -524,8 +524,10 @@ function TemplateSteps({ home, externalId, machine }: { home: string; externalId
             Open CloudFormation <ExternalLink className="size-3.5" />
           </a>
         </div>
-        <details open>
-          <summary className="cursor-pointer text-accent">What to do on each AWS screen</summary>
+        <details open className="group">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-accent hover:underline [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="size-3.5 transition-transform duration-200 group-open:rotate-90" aria-hidden /> What to do on each AWS screen
+          </summary>
           <div className="mt-2">
             <CloudFormationGuide file={file} stack={CONNECT_STACK_NAME} role={CONNECT_ROLE_NAME} />
           </div>
@@ -539,8 +541,10 @@ function TemplateSteps({ home, externalId, machine }: { home: string; externalId
         <span>Access renews itself every hour, so nobody signs in again. It works as long as this machine&apos;s AWS login does; delete the stack to disconnect.</span>
       </li>
       <li>
-        <details>
-          <summary className="cursor-pointer text-accent">What&apos;s in the setup file?</summary>
+        <details className="group">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-accent hover:underline [&::-webkit-details-marker]:hidden">
+            <ChevronRight className="size-3.5 transition-transform duration-200 group-open:rotate-90" aria-hidden /> What&apos;s in the setup file?
+          </summary>
           <div className="mt-2 space-y-2 text-fg-3">
             <p>
               A CloudFormation template for one read-only IAM role, {CONNECT_ROLE_NAME}. The role lets in only this machine&apos;s AWS login

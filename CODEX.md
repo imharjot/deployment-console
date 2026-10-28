@@ -98,6 +98,12 @@ first. License: Apache-2.0 (LICENSE).
   fades only, and the `slowerWhenLite` SWR middleware doubles polling (`src/lib/client/perf.ts`). Settings sections
   and their grouping live in `src/app/settings/sections.ts` (the layout's side nav, section headers and the overview
   cards); `/account` redirects to `/settings/account`; Settings → Interface holds theme, effects and sidebar.
+- Dropdowns: `Select` (`src/components/select.tsx`; stepping, typeahead and placement in `src/lib/select-rules.ts`),
+  never a native `<select>`. An animated menu in a `Portal` on larger screens (flips up near the bottom, closes on an
+  outside press, a scroll elsewhere or a resize), the `Modal` bottom sheet on phones. The trigger keeps focus and points
+  at the active option (`aria-activedescendant`); keys as a native select. `base` keeps a caller's own field style
+  (classes can't be merged reliably), `children` draws a pill trigger, and `optionsFrom()` reads `<option>` children
+  for wrappers that still write them (the dashboards form).
 - Views, guarded actions and the background sampler: `src/lib/server/console.ts`; the guards themselves are pure
   (`src/lib/actions.ts`, `src/lib/status.ts`, view rules in `src/lib/overview-rules.ts`) and shared with the UI so
   buttons and server never disagree. Console actions answer "AWS accepted" with an operation id; the sampler marks ECS

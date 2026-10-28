@@ -18,6 +18,7 @@ import { useToast } from "../toast";
 import { Button, Skeleton, cx } from "../ui";
 import { formSchema, groupsFor, hasFields, type Schema } from "./action-form";
 import { INVENTORY_KEY } from "./data";
+import { Select } from "@/components/select";
 
 // The JSON Schema subset actions use, and which fields a person fills in: ./action-form.ts.
 export { formSchema, groupsFor, type Schema, type XGroup } from "./action-form";
@@ -524,13 +525,13 @@ function SchemaField({ name, s, required, value, error, autoFocus, onChange, onB
   }
   if (k === "enum") {
     control = (
-      <select {...common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className={cx(FIELD, "h-10 sm:h-9", errCls)}>
-        {!required && <option value="">—</option>}
-        {required && !value && <option value="" disabled>Choose…</option>}
-        {s.enum!.map((o) => (
-          <option key={String(o)} value={String(o)}>{String(o)}</option>
-        ))}
-      </select>
+      <Select
+        {...common}
+        value={String(value ?? "")}
+        onChange={(v) => onChange(v)}
+        base={cx(FIELD, "h-10 sm:h-9", errCls)}
+        options={[...(required ? [] : [{ value: "", label: "—" }]), ...s.enum!.map((o) => ({ value: String(o), label: String(o) }))]}
+      />
     );
   } else if (k === "integer" || k === "number") {
     control = <input type="number" inputMode={k === "integer" ? "numeric" : "decimal"} step={k === "integer" ? 1 : "any"} min={s.minimum} max={s.maximum} {...common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} className={cx(FIELD, "h-10 w-40 tabular-nums sm:h-9", errCls)} />;

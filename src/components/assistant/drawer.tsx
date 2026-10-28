@@ -25,6 +25,7 @@ import { ProposalDecision } from "./decide";
 import { MAX_QUESTION, checkQuestion, ecsStateWord, normalizeConnections, pickConnection, questionFor, type ThreadEntry } from "./model";
 import { OFF_TEXT, ecsSubject, useAgentsStatus } from "./status";
 import { ask, chooseConnection, clearContext, clearThread, retry, useAssistant } from "./store";
+import { Select } from "@/components/select";
 
 export default function AssistantDrawer({ onClose }: { onClose(): void }) {
   const { thread } = useAssistant();
@@ -306,20 +307,22 @@ function ConnectionPicker() {
   }
   return (
     <div className="flex min-w-0 items-center gap-2.5 text-[12.5px] text-fg-3">
-      <label title="The model connection this question runs on" className="relative inline-flex h-8 min-w-0 max-w-[60%] flex-none items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs font-medium text-fg-2 hover:border-line-strong pointer-coarse:h-10">
-        <Bot className="size-3.5 flex-none text-fg-3" strokeWidth={1.75} aria-hidden />
-        <span className="min-w-0 truncate">{chosen.label}</span>
-        <ChevronDown className="size-3 flex-none text-fg-3" aria-hidden />
-        <select aria-label="Model connection" value={chosen.id} onChange={(e) => chooseConnection(e.target.value)} className="absolute inset-0 cursor-pointer appearance-none opacity-0">
-          {data.map((c) => (
-            <option key={c.id} value={c.id} disabled={!c.usable}>
-              {c.label}
-              {c.providerLabel ? ` · ${c.providerLabel}` : ""}
-              {!c.usable && c.why ? ` (${c.why})` : ""}
-            </option>
-          ))}
-        </select>
-      </label>
+      <Select
+        title="The model connection this question runs on"
+        aria-label="Model connection"
+        value={chosen.id}
+        onChange={chooseConnection}
+        options={data.map((c) => ({ value: c.id, label: c.label, hint: [c.providerLabel, !c.usable && c.why ? c.why : ""].filter(Boolean).join(" · ") || undefined, disabled: !c.usable }))}
+        className="inline-flex h-8 min-w-0 max-w-[60%] flex-none items-center gap-1.5 rounded-lg border border-line px-2.5 text-xs font-medium text-fg-2 hover:border-line-strong pointer-coarse:h-10"
+      >
+        {(open) => (
+          <>
+            <Bot className="size-3.5 flex-none text-fg-3" strokeWidth={1.75} aria-hidden />
+            <span className="min-w-0 truncate">{chosen.label}</span>
+            <ChevronDown className={cx("size-3 flex-none text-fg-3 transition-transform duration-200", open && "rotate-180")} aria-hidden />
+          </>
+        )}
+      </Select>
       {chosen.payer && (
         <span className="min-w-0 flex-1 truncate" title={`Who pays: ${chosen.payer}`}>
           Pays: {chosen.payer}
