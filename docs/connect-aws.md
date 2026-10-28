@@ -95,11 +95,40 @@ The other sign-ins:
 - **Machine's own login** (the AWS SDK's default credentials): whatever the machine running the console already signs
   in as. That is its ECS task role or EC2 instance profile on AWS, and the default profile on a laptop. The page shows
   who it is before you pick it. Running the console on ECS or EC2, pick this one: nothing to paste, no keys.
-- **Switch into a role**: give the role's ARN (`arn:aws:iam::123456789012:role/name`, not a user's), and an external ID
-  if its trust policy asks for one. The machine's own login assumes it and renews the session before it ends, so the
-  ARN alone signs nothing in: that login needs `sts:AssumeRole` on the role, and the role's trust policy must name it.
-  The role holds the console's policy; `sts:AssumeRole` belongs to whoever assumes it, so the generated policies don't
-  include it. Use it for a role in another account, or one narrower than the machine's own.
+- **Switch into a role**: the machine's own login assumes an IAM role and renews the session before it ends, so a role
+  ARN alone signs nothing in. Create the role from the page (below), or choose **Use a role you have** and give its ARN
+  (`arn:aws:iam::123456789012:role/name`, not a user's) and an external ID if its trust policy asks for one: that role's
+  trust policy must name the machine's own login, which needs `sts:AssumeRole` on it. The role holds the console's
+  policy; `sts:AssumeRole` belongs to whoever assumes it, so the generated policies don't include it. Use it for another
+  account, or for a role narrower than the machine's own.
+
+### Connect an account with CloudFormation
+
+The way monitoring and security products reach their customers' accounts, from the page, in a couple of minutes: no
+keys change hands, each session lasts an hour, every use shows in the account's CloudTrail, and deleting the stack cuts
+the console off.
+
+1. **Sign-in → Switch into a role → Create it with CloudFormation → Download template.** The console fills in the
+   template ([`infra/connect-aws-role.json`](../infra/connect-aws-role.json), generated from the read-only policy) with
+   its own login and its **external ID**: a random value made once per console, kept with its settings, and shown to
+   admins only.
+2. In the account to connect, open CloudFormation (**Open CloudFormation** on the page) → **Create stack → With new
+   resources** → **Upload a template file**, pick the file, keep the values it fills in, tick the IAM acknowledgement
+   and submit. Or with the AWS CLI, from the file's folder (**Copy commands** on the page):
+
+   ```bash
+   aws cloudformation deploy --template-file deployment-console-access.json --stack-name deployment-console-access --capabilities CAPABILITY_NAMED_IAM
+   ```
+
+3. When the stack shows `CREATE_COMPLETE`, copy **RoleArn** from its **Outputs** into **Role ARN**, then **Test
+   connection** and **Save and switch**.
+
+The stack creates the role `deployment-console-access` (change **RoleName** to make another) with the read-only
+policy, as managed policies sized for IAM's quota. Its trust policy lets in only the console's own login, named by
+`aws:PrincipalArn` under any path, and only with the console's external ID: a login shared by several consoles can't be
+pointed at a role made for another. The console's login needs `sts:AssumeRole` on the role. An IAM user with broad
+rights has it; on ECS, add it to the task role (Deploy the console, step 4). If the console later runs as another
+login (moved from a laptop to ECS, say), download the template again and update the stack with it.
 
 A machine with no AWS login at all (a host outside AWS, with no keys or profiles) says so on the page: on AWS, give the
 console a task role or an instance profile; anywhere else, set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` where it

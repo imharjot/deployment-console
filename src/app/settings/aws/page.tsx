@@ -1,30 +1,35 @@
 "use client";
 // Settings → AWS connection: which account the console reads (the simulated one or yours), how it signs in to AWS,
 // its home region and the other regions it reads. Admins only. A part an environment variable (or console.config.json)
-// decides is shown, not editable. Each choice says what it means, and the machine's own login says who it is here.
+// decides is shown, not editable. Each choice says what it means, and the machine's own login says who it is here;
+// a role in another account can be created from the page with CloudFormation (TemplateSteps).
 // "Test connection" asks AWS who the sign-in is and where its ECS clusters are; saving switches at once
 // (src/lib/server/connection.ts), then the app reloads so nothing of the previous account stays on screen.
-import { CircleCheck, Cloud, FlaskConical, KeyRound, Loader2, Lock, MapPin, ShieldCheck, TriangleAlert } from "lucide-react";
+import { CircleCheck, Cloud, Download, ExternalLink, FlaskConical, KeyRound, Loader2, Lock, MapPin, ShieldCheck, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import { useConfirm } from "@/components/confirm";
 import { hue } from "@/components/hue";
 import { useToast } from "@/components/toast";
-import { Button, Empty, Segmented, Skeleton, TimeAgo, cx } from "@/components/ui";
+import { Button, CopyButton, Empty, Segmented, Skeleton, TimeAgo, cx } from "@/components/ui";
 import { ROLE_INFO, useMe } from "@/components/user-menu";
 import { ApiError, postJson, putJson } from "@/lib/client/api";
 import { regionName } from "@/lib/client/region";
+import { CONNECT_ROLE_NAME, CONNECT_STACK_NAME } from "@/lib/connect-template";
 import { describeArn, describeSignIn, roleArnProblem, type ConnectionTest, type ConnectionView, type MachineLogin, type SignIn } from "@/lib/connection-rules";
 
 type Kind = SignIn["kind"];
 type RegionsMode = "home" | "all" | "pick";
+// A role made from this console's CloudFormation template (with its external ID), or one the admin already has.
+type RoleSetup = "template" | "existing";
 interface Form {
   source: "aws" | "mock";
   kind: Kind;
   profile: string;
+  roleSetup: RoleSetup;
   roleArn: string;
-  externalId: string;
+  externalId: string; // an existing role's
   home: string;
   regions: RegionsMode;
   picked: string[];
@@ -37,12 +42,14 @@ const withName = (r: string) => (regionName(r) ? `${r} (${regionName(r)})` : r);
 function formOf(v: ConnectionView): Form {
   const s = v.signIn;
   const choice = v.regions.choice;
+  const existing = s.kind === "role" && s.externalId !== v.externalId;
   return {
     source: v.source,
     kind: s.kind,
     profile: s.kind === "profile" ? s.profile : (v.profiles[0] ?? ""),
+    roleSetup: existing ? "existing" : "template",
     roleArn: s.kind === "role" ? s.roleArn : "",
-    externalId: s.kind === "role" ? (s.externalId ?? "") : "",
+    externalId: existing ? (s.externalId ?? "") : "",
     home: v.awsHome,
     regions: choice === "all-enabled" ? "all" : Array.isArray(choice) && choice.length ? "pick" : "home",
     picked: Array.isArray(choice) ? choice : [],
@@ -50,9 +57,10 @@ function formOf(v: ConnectionView): Form {
 }
 
 // What PUT /api/connection and POST /api/connection/test get: only the parts the environment doesn't decide.
-function bodyOf(f: Form, locked: ConnectionView["locked"]): Record<string, unknown> {
+function bodyOf(f: Form, { locked, externalId }: ConnectionView): Record<string, unknown> {
   if (f.source === "mock") return { source: "mock" };
-  const signIn = f.kind === "chain" ? { kind: "chain" } : f.kind === "profile" ? { kind: "profile", profile: f.profile } : { kind: "role", roleArn: f.roleArn.trim(), ...(f.externalId.trim() ? { externalId: f.externalId.trim() } : {}) };
+  const ext = f.roleSetup === "template" ? externalId : f.externalId.trim();
+  const signIn = f.kind === "chain" ? { kind: "chain" } : f.kind === "profile" ? { kind: "profile", profile: f.profile } : { kind: "role", roleArn: f.roleArn.trim(), ...(ext ? { externalId: ext } : {}) };
   return {
     source: "aws",
     ...(locked.signIn ? {} : { signIn }),
@@ -89,13 +97,13 @@ function Editor({ view }: { view: ConnectionView }) {
   const [tested, setTested] = useState<{ body: string; result: ConnectionTest } | null>(null);
   const set = (p: Partial<Form>) => setForm((f) => ({ ...f, ...p }));
   const { locked } = view;
-  const body = useMemo(() => bodyOf(form, locked), [form, locked]);
+  const body = useMemo(() => bodyOf(form, view), [form, view]);
   const bodyKey = JSON.stringify(body);
   // A test proves the sign-in: picking the home region it suggested (or other regions) doesn't need another one, and
   // saving checks the sign-in with AWS again anyway.
   const testKey = JSON.stringify({ source: body.source, signIn: body.signIn ?? null });
   const result = tested?.body === testKey ? tested.result : undefined;
-  const sameAsNow = bodyKey === JSON.stringify(bodyOf(formOf(view), locked));
+  const sameAsNow = bodyKey === JSON.stringify(bodyOf(formOf(view), view));
   const awsReady = form.source === "mock" || !!result?.ok;
   const arnProblem = form.kind === "role" ? roleArnProblem(form.roleArn) : undefined;
   const signInIncomplete = form.source === "aws" && !locked.signIn && ((form.kind === "profile" && !form.profile) || !!arnProblem);
@@ -184,7 +192,7 @@ function Editor({ view }: { view: ConnectionView }) {
                     <MachineWho machine={machine} />
                   </Choice>
                   <Choice name="conn-signin" value="role" picked={form.kind} onPick={(v) => set({ kind: v })} title="Switch into a role">
-                    The machine&apos;s own login assumes the IAM role you name: a read-only one, or one in another account.
+                    The machine&apos;s own login switches into an IAM role: one you create here in a couple of minutes, in any account, or one you already have.
                   </Choice>
                 </div>
                 {form.kind === "profile" &&
@@ -203,24 +211,49 @@ function Editor({ view }: { view: ConnectionView }) {
                     <p className="text-[13.5px] text-fg-3">No profiles in this machine&apos;s AWS config files. Add one with <code className="font-mono">aws configure</code>, or use the machine&apos;s own login.</p>
                   ))}
                 {form.kind === "role" && (
-                  <div className="grid gap-3 sm:grid-cols-[2fr_1fr]">
-                    <label className="block">
-                      <span className="eyebrow mb-1 block">Role ARN</span>
-                      <input className={cx(inputCls, "font-mono text-[13px]")} value={form.roleArn} onChange={(e) => set({ roleArn: e.target.value })} placeholder="arn:aws:iam::123456789012:role/console-readonly" spellCheck={false} autoComplete="off" aria-invalid={!!form.roleArn.trim() && !!arnProblem} />
-                    </label>
-                    <label className="block">
-                      <span className="eyebrow mb-1 block">External ID (optional)</span>
-                      <input className={inputCls} value={form.externalId} onChange={(e) => set({ externalId: e.target.value })} spellCheck={false} autoComplete="off" />
-                    </label>
-                    {form.roleArn.trim() && arnProblem && (
-                      <p className="flex items-start gap-1.5 text-[13px] text-down sm:col-span-2">
-                        <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
-                        {arnProblem}
-                      </p>
-                    )}
-                    <p className="text-[13px] text-fg-3 sm:col-span-2">
-                      The machine&apos;s own login{machine.data?.identity ? ` (${describeArn(machine.data.identity.arn)})` : ""} asks for the role, so it needs sts:AssumeRole on it, and the role&apos;s trust policy must name it. The external ID is only for a role whose trust policy asks for one.
-                    </p>
+                  <div className="space-y-3">
+                    <Segmented<RoleSetup>
+                      id="conn-role-setup"
+                      size="sm"
+                      value={form.roleSetup}
+                      onChange={(v) => set({ roleSetup: v })}
+                      options={[
+                        { value: "template", label: "Create it with CloudFormation" },
+                        { value: "existing", label: "Use a role you have" },
+                      ]}
+                    />
+                    {form.roleSetup === "template" && <TemplateSteps home={form.home} externalId={view.externalId} machine={machine} />}
+                    <div className={cx("grid gap-3", form.roleSetup === "existing" && "sm:grid-cols-[2fr_1fr]")}>
+                      <label className="block">
+                        <span className="eyebrow mb-1 block">Role ARN</span>
+                        <input
+                          className={cx(inputCls, "font-mono text-[13px]")}
+                          value={form.roleArn}
+                          onChange={(e) => set({ roleArn: e.target.value })}
+                          placeholder={`arn:aws:iam::123456789012:role/${form.roleSetup === "template" ? CONNECT_ROLE_NAME : "console-readonly"}`}
+                          spellCheck={false}
+                          autoComplete="off"
+                          aria-invalid={!!form.roleArn.trim() && !!arnProblem}
+                        />
+                      </label>
+                      {form.roleSetup === "existing" && (
+                        <label className="block">
+                          <span className="eyebrow mb-1 block">External ID (optional)</span>
+                          <input className={inputCls} value={form.externalId} onChange={(e) => set({ externalId: e.target.value })} spellCheck={false} autoComplete="off" />
+                        </label>
+                      )}
+                      {form.roleArn.trim() && arnProblem && (
+                        <p className="flex items-start gap-1.5 text-[13px] text-down sm:col-span-2">
+                          <TriangleAlert className="mt-0.5 size-3.5 flex-none" />
+                          {arnProblem}
+                        </p>
+                      )}
+                      {form.roleSetup === "existing" && (
+                        <p className="text-[13px] text-fg-3 sm:col-span-2">
+                          The machine&apos;s own login{machine.data?.identity ? ` (${describeArn(machine.data.identity.arn)})` : ""} asks for the role, so it needs sts:AssumeRole on it, and the role&apos;s trust policy must name it. The external ID is only for a role whose trust policy asks for one.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -417,6 +450,75 @@ function Choice<T extends string>({ name, value, picked, onPick, title, children
         <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-3">{children}</span>
       </span>
     </label>
+  );
+}
+
+// Switch into a role → Create it with CloudFormation: the template comes from this console (GET /api/connection/template)
+// with its own login and external ID filled in, so the admin only uploads it in the account to connect and pastes back
+// the role's ARN. No template hosting, no keys.
+function TemplateSteps({ home, externalId, machine }: { home: string; externalId: string; machine: { data?: MachineLogin; error?: unknown } }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const who = machine.data?.identity;
+  const file = `${CONNECT_STACK_NAME}.json`;
+  const cli = [
+    `aws cloudformation deploy --template-file ${file} --stack-name ${CONNECT_STACK_NAME} --capabilities CAPABILITY_NAMED_IAM`,
+    `aws cloudformation describe-stacks --stack-name ${CONNECT_STACK_NAME} --query "Stacks[0].Outputs[?OutputKey=='RoleArn'].OutputValue" --output text`,
+  ].join("\n");
+  async function download() {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/connection/template");
+      if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${r.status}`);
+      const url = URL.createObjectURL(await r.blob());
+      const a = Object.assign(document.createElement("a"), { href: url, download: file });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      toast.push({ tone: "error", title: "Couldn't make the template", body: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <ol className="space-y-3 rounded-xl border border-line bg-panel-2 p-4 text-[13.5px] leading-relaxed">
+      <li className="space-y-2">
+        <p>
+          <span className="font-medium">1. Download the template.</span> It creates a read-only role that only this console can switch into: the role trusts{" "}
+          {who ? `${describeArn(who.arn)} in account ${account(who.account)}` : "this console's own login"}, and only with this console&apos;s external ID.
+        </p>
+        {machine.data?.error && <p className="text-degraded">{machine.data.error}</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={download} disabled={busy || !who}>
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+            Download template
+          </Button>
+          <span className="text-fg-3">
+            External ID <code className="font-mono text-[12.5px] text-fg-2">{externalId}</code>
+          </span>
+          <CopyButton text={externalId} label="Copy" />
+        </div>
+      </li>
+      <li className="space-y-2">
+        <p>
+          <span className="font-medium">2. Create the stack in the account to connect.</span> Sign in to that account and open CloudFormation, then choose Create stack, With new resources, and
+          Upload a template file. Pick the downloaded file, keep the values it fills in, tick the IAM acknowledgement on the last page and submit.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={`https://console.aws.amazon.com/cloudformation/home?region=${home}#/stacks/create`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
+            Open CloudFormation <ExternalLink className="size-3.5" />
+          </a>
+          <span className="text-fg-3">or with the AWS CLI, from the file&apos;s folder:</span>
+          <CopyButton text={cli} label="Copy commands" />
+        </div>
+      </li>
+      <li>
+        <span className="font-medium">3. Paste the role&apos;s ARN below.</span> When the stack shows CREATE_COMPLETE, copy RoleArn from its Outputs tab, then test the connection. Deleting the stack
+        later cuts the console off.
+      </li>
+    </ol>
   );
 }
 

@@ -6,13 +6,13 @@
 // activity-metric spend, AWS call stats); and a policy builder that turns the providers' declarations into an IAM
 // policy and copy-paste AWS CLI commands (GET /api/permissions/policy), starting from console.config.json
 // inventory.providers. Read-only: nothing here changes AWS or the console. Operators and admins.
-import { Activity, AlertTriangle, Check, ChevronRight, CircleCheck, CircleSlash, Cloud, Copy, Hourglass, KeyRound, Lock, Radar, Ship, ShieldAlert, ShieldCheck, Zap } from "lucide-react";
+import { Activity, AlertTriangle, Check, ChevronRight, CircleCheck, CircleSlash, Cloud, Hourglass, KeyRound, Lock, Radar, Ship, ShieldAlert, ShieldCheck, Zap } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import useSWR from "swr";
 import { FreshnessBanner } from "@/components/freshness-banner";
 import { KIND_ICON } from "@/components/map/kinds";
-import { Button, Chip, Empty, Segmented, Skeleton, Tabs, TimeAgo, copy, cx } from "@/components/ui";
+import { Chip, CopyButton, Empty, Segmented, Skeleton, Tabs, TimeAgo, cx } from "@/components/ui";
 import { ROLE_INFO, useMe } from "@/components/user-menu";
 import type { Freshness } from "@/lib/freshness";
 import { CATEGORY_LABEL, CATEGORY_ORDER, KIND_INFO, type Category, type InventoryCompleteness, type InventoryView, type ProviderStatus, type RegionStatus, type ResourceKind } from "@/lib/inventory/types";
@@ -754,19 +754,3 @@ function EksCard({ role, account }: { role: string; account: string }) {
   );
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Button
-      type="button"
-      size="sm"
-      onClick={async () => {
-        await copy(text);
-        setDone(true);
-        setTimeout(() => setDone(false), 1600);
-      }}
-    >
-      {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />} {done ? "Copied" : label}
-    </Button>
-  );
-}

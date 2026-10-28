@@ -1,5 +1,6 @@
 "use client";
 import { clsx } from "clsx";
+import { Check, Copy } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { ago } from "@/lib/client/format";
@@ -240,4 +241,21 @@ export function TimeAgo({ at, className }: { at: number | string | undefined; cl
 
 export function copy(text: string) {
   return navigator.clipboard?.writeText(text);
+}
+
+export function CopyButton({ text, label }: { text: string; label: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <Button
+      type="button"
+      size="sm"
+      onClick={async () => {
+        await copy(text);
+        setDone(true);
+        setTimeout(() => setDone(false), 1600);
+      }}
+    >
+      {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />} {done ? "Copied" : label}
+    </Button>
+  );
 }

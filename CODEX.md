@@ -53,6 +53,14 @@ first. License: Apache-2.0 (LICENSE).
     environment pins the account or the sign-in). `roleArnProblem()` catches the usual mistake, a user's or a session's
     ARN; `signInFailure()` turns the SDK's "Could not load credentials from any providers" (a host with no AWS login)
     into what to do. Region names come from `regionName()` in `src/lib/client/region.tsx`.
+  - Another account by CloudFormation: `src/lib/connect-template.ts` (pure) turns the read-only policy into a template
+    for a role trusting the console's account root, narrowed by `aws:PrincipalArn` to its own login (role or user, any
+    path) and by `sts:ExternalId`. The parts are split below the managed-policy quota with room for the role's own ARN
+    in `SimulateOwnPermissions`, and placeholders other than that one are refused. `npm run iam:policy` writes the
+    generic `infra/connect-aws-role.json` (CI checks it). `GET /api/connection/template` fills in the console's login
+    (`trustedPrincipalOf()`; never the root user) and `externalId()` (settings key `connection:external-id`, made once),
+    both refused with 409 like the machine's login when the environment pins the sign-in. The page sends that external
+    ID when the role was made from the template, a typed one otherwise.
 - A switch retires a *generation* instead of hunting down state (`connection-state.ts`):
   - `bumpGeneration()` aborts every AWS call in flight (`ctrl`), drops the stores read through globalThis (its
     `DROPPED` list), and runs each module's `onConnectionChange` hook. A hook clears, in place, a store the module

@@ -10,7 +10,12 @@ export default async function connectionSmoke({ get, post, call, check, BASE }) 
   if (v?.locked?.source) {
     const m = await get("/api/connection/machine");
     check("connection: with the account pinned, the console doesn't ask who the machine's own login is", m.status === 409, `${m.status} ${JSON.stringify(m.json)}`);
+    const t = await get("/api/connection/template");
+    check("connection: ... nor makes a CloudFormation template for a role", t.status === 409, `${t.status}`);
   }
+  // The external ID the console's CloudFormation template puts in a role's trust policy: made once, then kept.
+  const again = (await get("/api/connection")).json;
+  check("connection: the console has one external ID, and keeps it", /^dc-[\w-]{32}$/.test(v?.externalId ?? "") && again?.externalId === v?.externalId, String(v?.externalId));
   const t = await post("/api/connection/test", { source: "mock" });
   check("connection: testing the simulated account passes without AWS", t.status === 200 && t.json?.ok === true && t.json?.identity?.account === "123456789012", JSON.stringify(t.json));
   const keys = await post("/api/connection/test", { source: "aws", signIn: { kind: "keys", accessKeyId: "AKIAIOSFODNN7EXAMPLE" } });

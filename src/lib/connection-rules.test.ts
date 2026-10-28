@@ -105,6 +105,10 @@ test("sign-in failures: a machine with no AWS login says what to do; anything el
   assert.match(signInFailure({ kind: "profile", profile: "console-readonly" }, none, detail), /^The profile console-readonly gives this machine no AWS credentials/);
   assert.equal(signInFailure({ kind: "chain" }, { name: "InvalidClientTokenId", message: "The security token included in the request is invalid." }, "InvalidClientTokenId: invalid"), "Couldn't sign in to AWS: InvalidClientTokenId: invalid");
   assert.equal(signInFailure({ kind: "chain" }, null, "timed out"), "Couldn't sign in to AWS: timed out");
+  // A role AWS won't let the console switch into: either side may refuse, and AWS words both the same.
+  const refused = { name: "AccessDenied", message: "User: arn:aws:iam::123456789012:user/alice is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::210987654321:role/deployment-console-access" };
+  assert.match(signInFailure({ kind: "role", roleArn: "arn:aws:iam::210987654321:role/deployment-console-access" }, refused, "denied"), /^AWS didn't let this console's own login switch into arn:aws:iam::210987654321:role\/deployment-console-access\. The role's trust policy must name that login and the external ID/);
+  assert.equal(signInFailure({ kind: "chain" }, refused, "denied"), "Couldn't sign in to AWS: denied");
 });
 
 test("connection: a damaged stored row counts as no choice", () => {
