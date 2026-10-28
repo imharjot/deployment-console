@@ -296,7 +296,7 @@ function InviteDialog({ me, onClose, onDone }: { me: Me; onClose(): void; onDone
             <div className="grid gap-1.5 sm:grid-cols-2">
               {ROLES.map((r) => (
                 <label key={r} className={cx("press flex cursor-pointer gap-2.5 rounded-xl border p-2.5 transition-colors [--press-scale:0.985]", role === r ? "border-accent/60 bg-accent-soft" : "border-line hover:border-line-strong hover:bg-panel-2")}>
-                  <input type="radio" name="role" value={r} checked={role === r} onChange={() => setRole(r)} className="mt-0.5 accent-[var(--accent)]" />
+                  <input type="radio" name="role" value={r} checked={role === r} onChange={() => setRole(r)} className="mt-0.5" />
                   <span>
                     <span className="block text-[14px] font-medium">{ROLE_INFO[r].label}</span>
                     <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-3">{ROLE_INFO[r].hint}</span>

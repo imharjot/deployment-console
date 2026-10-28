@@ -367,7 +367,7 @@ export function CreateDialog({ me, onClose, onDone }: { me: Me; onClose(): void;
             <div className="grid gap-1.5">
               {TOKEN_MODES.map((m) => (
                 <label key={m} className={radio(mode === m)}>
-                  <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => setMode(m)} className="mt-0.5 accent-[var(--accent)]" />
+                  <input type="radio" name="mode" value={m} checked={mode === m} onChange={() => setMode(m)} className="mt-0.5" />
                   <span>
                     <span className="block text-[14px] font-medium">{MODE_INFO[m].label}</span>
                     <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-3">{MODE_INFO[m].hint}</span>
@@ -381,7 +381,7 @@ export function CreateDialog({ me, onClose, onDone }: { me: Me; onClose(): void;
             <div className="grid gap-1.5 sm:grid-cols-2">
               {roles.map((r) => (
                 <label key={r} className={radio(role === r)}>
-                  <input type="radio" name="role" value={r} checked={role === r} onChange={() => setRole(r)} className="mt-0.5 accent-[var(--accent)]" />
+                  <input type="radio" name="role" value={r} checked={role === r} onChange={() => setRole(r)} className="mt-0.5" />
                   <span>
                     <span className="block text-[14px] font-medium">{ROLE_INFO[r].label}</span>
                     <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-3">{ROLE_INFO[r].hint}</span>

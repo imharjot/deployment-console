@@ -125,6 +125,11 @@ function Release({ r, i, stale }: { r: ReleaseView; i: number; stale: boolean })
         {step && step.commits.length > 0 && (
           <motion.div key={open} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto", transition: enter }} exit={{ opacity: 0, height: 0, transition: exit }} className="overflow-hidden">
             <div className="mt-3 text-xs text-fg-3">{step.commits.length} commit{step.commits.length === 1 ? "" : "s"} {r.stages.find((s) => s.env === step.to)?.label} would get from {r.stages.find((s) => s.env === step.from)?.label}</div>
+            {step.migrations === "unknown" && (
+              <div className="mt-2 flex items-start gap-2 text-[13px] text-fg-3">
+                <Database className="mt-0.5 size-3.5 flex-none" /> Couldn&apos;t check for database migrations{step.migrationsWhy ? `: ${step.migrationsWhy}` : "."}
+              </div>
+            )}
             {warn && (
               <div className="mt-2 flex items-start gap-2 rounded-lg border border-down/25 bg-down/6 px-3 py-2 text-[13.5px] text-down">
                 <TriangleAlert className="mt-px size-3.5 flex-none" /> {warn} Merge {r.stages.find((s) => s.env === step.to)?.label}&apos;s commits back into {r.stages.find((s) => s.env === step.from)?.label} first.

@@ -19,7 +19,7 @@ import { PinButton } from "../pin-button";
 import { ResourceCard } from "../overview/card";
 import { StateBadge, UptimeBars, stateStyle } from "../state";
 import { CreateTicketButton, resourceTicket } from "../ticket-button";
-import { Button, Chip, Empty, IconButton, RegionBadge, Segmented, Skeleton, Tabs, TimeAgo, copy, cx } from "../ui";
+import { Button, Chip, Empty, IconButton, RegionBadge, Segmented, Skeleton, Tabs, TimeAgo, Tip, copy, cx } from "../ui";
 
 // The heavy tabs load when first opened (F53); cards start loading them on hover or focus (preloadPanel).
 const LogViewer = dynamic(() => import("../logs/log-viewer").then((m) => m.LogViewer), { ssr: false, loading: () => <Skeleton className="h-full min-h-60 rounded-xl" /> });
@@ -90,7 +90,7 @@ export function ResourcePanel({ r, overview, onClose, onOpen }: { r: ResourceVie
               <StateBadge state={r.state} />
               <Chip mono>{r.env}</Chip>
               {regions.multi && <RegionBadge region={envInfo?.region} />}
-              {r.readOnly && <span title={r.actions.find((a) => !a.enabled)?.why}><Chip tone="muted">read-only</Chip></span>}
+              {r.readOnly && <Tip text={r.actions.find((a) => !a.enabled)?.why}><Chip tone="muted">read-only</Chip></Tip>}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-3">
               <span className="max-w-full truncate font-mono">{r.subtitle}</span>
@@ -210,7 +210,7 @@ function Actions({ r, run }: { r: ResourceView; run(name: Action["name"]): void 
     // Disabled: why. Enabled with a warning (permission not verified, autoscaling overrides the count): the warning,
     // marked on the button and repeated at the top of the confirmation.
     return (
-      <Button key={a.name} size="sm" disabled={!a.enabled} title={a.enabled ? a.warning : a.why} onClick={() => run(a.name)} className={cx(a.danger && "enabled:hover:!border-down/50 enabled:hover:!text-down", className)}>
+      <Button key={a.name} size="sm" disabled={!a.enabled} tip={a.enabled ? a.warning : a.why} onClick={() => run(a.name)} className={cx(a.danger && "enabled:hover:!border-down/50 enabled:hover:!text-down", className)}>
         <I className="size-3.5" strokeWidth={1.75} /> {a.label}
         {a.enabled && a.warning && <TriangleAlert className="size-3 text-degraded" aria-label="warning" />}
       </Button>
@@ -381,11 +381,11 @@ function Revisions({ r }: { r: ResourceView }) {
                       {v.imageCheck === "missing" ? (
                         <span title={v.imageCheckWhy}><Chip tone="bad">image missing</Chip></span>
                       ) : v.imageCheck === "unknown" ? (
-                        <span title={v.imageCheckWhy}><Chip tone="muted">image unchecked</Chip></span>
+                        <Tip text={v.imageCheckWhy}><Chip tone="muted">image unchecked</Chip></Tip>
                       ) : v.imageCheck === undefined && !v.imagePresent ? (
                         <Chip tone="bad">image expired</Chip>
                       ) : null}
-                      {v.mutableTag && <span title={v.mutableTagWhy ?? `the tag ${v.tag} can point at another image`}><Chip tone="warn">moving tag</Chip></span>}
+                      {v.mutableTag && <Tip text={v.mutableTagWhy ?? `the tag ${v.tag} can point at another image`}><Chip tone="warn">moving tag</Chip></Tip>}
                       {/* "unknown" is truthy: every check is === true (F07). */}
                       {v.migrations === true && <Chip tone="warn">DB migrations vs live</Chip>}
                       {v.migrations === "unknown" && (

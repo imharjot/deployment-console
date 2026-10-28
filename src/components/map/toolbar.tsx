@@ -128,7 +128,7 @@ export function KindList({ selected, counts, onChange }: { selected: ReadonlySet
                 return (
                   <li key={k}>
                     <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-[14px] text-fg-2 hover:bg-panel-3 hover:text-fg pointer-coarse:py-2.5">
-                      <input type="checkbox" checked={isOn(k)} onChange={() => toggle(k)} className="size-3.5 accent-[var(--accent)]" />
+                      <input type="checkbox" checked={isOn(k)} onChange={() => toggle(k)} className="size-3.5" />
                       <I className="size-3.5 flex-none text-fg-3" strokeWidth={1.6} aria-hidden />
                       <span className="min-w-0 flex-1 truncate">{KIND_INFO[k].label}</span>
                       <span className="tabular-nums text-xs text-fg-3">{counts.get(k)}</span>
@@ -236,7 +236,7 @@ export function LayerList({ on, counts, onChange }: { on: ReadonlySet<Layer>; co
               else next.add(l.id);
               onChange(next);
             }}
-            className="mt-0.5 size-3.5 accent-[var(--accent)]"
+            className="mt-0.5 size-3.5"
           />
           <span className="min-w-0 flex-1">
             <span className="block text-fg">{l.label}</span>
@@ -274,7 +274,7 @@ export function ConnectionList({ on, counts, onChange }: { on: ReadonlySet<Confi
               else next.add(c);
               onChange(next.size === CONFIDENCES.length ? null : next);
             }}
-            className="mt-0.5 size-3.5 accent-[var(--accent)]"
+            className="mt-0.5 size-3.5"
           />
           <span className="min-w-0 flex-1">
             <span className="block text-fg">{CONFIDENCE[c].label}</span>

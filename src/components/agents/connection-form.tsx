@@ -119,7 +119,7 @@ export function ConnectionForm({ providers, endpoints, admin, onDone, onCancel }
                     off && "cursor-not-allowed opacity-50",
                   )}
                 >
-                  <input type="radio" name="provider" value={p.id} checked={pid === p.id} disabled={off} onChange={() => pick(p.id)} className="mt-0.5 accent-[var(--accent)]" />
+                  <input type="radio" name="provider" value={p.id} checked={pid === p.id} disabled={off} onChange={() => pick(p.id)} className="mt-0.5" />
                   <span className="min-w-0">
                     <span className="block text-[14px] font-medium">{p.label}</span>
                     <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-3">{off ? p.why : p.authKinds.map((a) => AUTH_LABEL[a]).join(" or ")}</span>
@@ -150,7 +150,7 @@ export function ConnectionForm({ providers, endpoints, admin, onDone, onCancel }
                 <div className="grid gap-1.5 sm:grid-cols-2">
                   {(["personal", "org"] as const).map((s) => (
                     <label key={s} className={cx("press flex cursor-pointer gap-2.5 rounded-xl border p-2.5 [--press-scale:0.985]", draft.scope === s ? "border-accent/60 bg-accent-soft" : "border-line hover:bg-panel-2")}>
-                      <input type="radio" name="scope" checked={draft.scope === s} onChange={() => setDraft({ ...draft, scope: s, endpoint: "" })} className="mt-0.5 accent-[var(--accent)]" />
+                      <input type="radio" name="scope" checked={draft.scope === s} onChange={() => setDraft({ ...draft, scope: s, endpoint: "" })} className="mt-0.5" />
                       <span>
                         <span className="block text-[14px] font-medium">{s === "personal" ? "Only me" : "The organisation"}</span>
                         <span className="mt-0.5 block text-[12.5px] leading-snug text-fg-3">{s === "personal" ? "Never shared, not even with admins." : "People with at least the role below; the organisation pays."}</span>
@@ -212,7 +212,7 @@ export function ConnectionForm({ providers, endpoints, admin, onDone, onCancel }
               </fieldset>
             )}
             <label className="flex cursor-pointer items-start gap-2.5 text-[14px]">
-              <input type="checkbox" checked={draft.backgroundOk} onChange={(e) => set("backgroundOk", e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />
+              <input type="checkbox" checked={draft.backgroundOk} onChange={(e) => set("backgroundOk", e.target.checked)} className="mt-0.5" />
               <span>
                 <span className="font-medium">Allow background runs</span>
                 <span className="block text-[12.5px] leading-snug text-fg-3">Scheduled and event-triggered workflows may use it while nobody is watching.</span>

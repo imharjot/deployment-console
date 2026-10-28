@@ -199,7 +199,7 @@ function AgentTokenForm({ onMinted }: { onMinted(m: Minted): void }) {
         <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
           {[...TEMPLATES.filter((t) => t.llm).map((t) => ({ id: t.id, name: t.name, mode: t.mode, blurb: t.blurb, mine: false })), ...stored.map((d) => ({ id: d.id, name: d.name, mode: d.mode, blurb: `Your definition, version ${d.version}.`, mine: true }))].map((o) => (
             <label key={o.id} className={cx("press flex cursor-pointer gap-2.5 rounded-xl border p-2.5 transition-colors [--press-scale:0.985]", definitionId === o.id ? "border-accent/60 bg-accent-soft" : "border-line hover:border-line-strong hover:bg-panel-2")}>
-              <input type="radio" name="definition" value={o.id} checked={definitionId === o.id} onChange={() => setDefinitionId(o.id)} className="mt-0.5 accent-[var(--accent)]" />
+              <input type="radio" name="definition" value={o.id} checked={definitionId === o.id} onChange={() => setDefinitionId(o.id)} className="mt-0.5" />
               <span className="min-w-0">
                 <span className="flex flex-wrap items-center gap-1.5 text-[14px] font-medium">
                   {o.mine ? <Bot className="size-3.5 text-fg-3" aria-hidden /> : null}

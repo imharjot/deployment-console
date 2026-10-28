@@ -45,6 +45,8 @@
   --primary-hover: #2a2a2a;
   --accent: #806337;
   --accent-fg: #ffffff;
+  /* The checkbox tick, in --accent-fg. */
+  --check-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23ffffff' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8.25l2.6 2.6L12 5.4'/%3E%3C/svg%3E");
   --accent-soft: rgba(128, 99, 55, 0.1);
   --focus: rgba(128, 99, 55, 0.6);
 
@@ -111,6 +113,7 @@
   --primary-hover: #ffffff;
   --accent: #cdb38b;
   --accent-fg: #17130c;
+  --check-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2317130c' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8.25l2.6 2.6L12 5.4'/%3E%3C/svg%3E");
   --accent-soft: rgba(205, 179, 139, 0.12);
   --focus: rgba(205, 179, 139, 0.65);
 
@@ -346,6 +349,60 @@ body {
   }
   button:disabled {
     cursor: not-allowed;
+  }
+  /* Checkboxes and radios in the console's accent instead of the browser's own. The native input stays (keyboard,
+     forms, screen readers); --check tints one (the rollback acknowledgement is amber). */
+  input:is([type="checkbox"], [type="radio"]) {
+    appearance: none;
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    border: 1px solid color-mix(in srgb, var(--text-3) 75%, transparent);
+    background: var(--panel-2) center / 0 0 no-repeat;
+    cursor: pointer;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      background-size 0.22s var(--ease-out-soft);
+  }
+  input[type="checkbox"] {
+    border-radius: 5px;
+  }
+  input[type="radio"] {
+    border-radius: 999px;
+  }
+  input:is([type="checkbox"], [type="radio"]):not(:checked):enabled:hover {
+    border-color: var(--text-3);
+  }
+  input[type="checkbox"]:checked {
+    border-color: var(--check, var(--accent));
+    background-color: var(--check, var(--accent));
+    background-image: var(--check-mark);
+    background-size: 100% 100%;
+  }
+  input[type="radio"]:checked {
+    border-color: var(--check, var(--accent));
+    background-image: radial-gradient(circle, var(--check, var(--accent)) 0 3.5px, transparent 4px);
+    background-size: 100% 100%;
+  }
+  input:is([type="checkbox"], [type="radio"]):disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  /* Number fields without the browser's spin buttons: tiny, mouse-only and easy to hit by accident. */
+  input[type="number"] {
+    appearance: textfield;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    appearance: none;
+    margin: 0;
+  }
+}
+@media (forced-colors: active) {
+  input:is([type="checkbox"], [type="radio"]) {
+    appearance: auto;
   }
 }
 /* iOS zooms into any field under 16px on focus; touch screens get 16px fields instead. */

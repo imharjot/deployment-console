@@ -14,7 +14,7 @@ import useSWR, { useSWRConfig } from "swr";
 import { useConfirm } from "@/components/confirm";
 import { Modal } from "@/components/motion";
 import { useToast } from "@/components/toast";
-import { Button, Chip, Empty, IconButton, Skeleton, TimeAgo, cx } from "@/components/ui";
+import { Button, Chip, Empty, IconButton, Skeleton, Switch, TimeAgo, cx } from "@/components/ui";
 import type { Me } from "@/components/user-menu";
 import { MODE_LABEL, TEMPLATES, agentsSwitchText, shortHash } from "@/components/agents/rules";
 import type { AgentSettings, DefinitionItem } from "@/components/agents/types";
@@ -78,20 +78,7 @@ function Switches({ admin, mode }: { admin: boolean; mode: string }) {
               <h3 className="text-[15px] font-semibold">Agents {on ? "on" : "off"}</h3>
               <p className="mt-0.5 text-[13.5px] leading-relaxed text-fg-3">{sw.text}</p>
             </div>
-            {admin && (
-              <button
-                type="button"
-                role="switch"
-                aria-checked={on}
-                aria-label="Agents on this console"
-                disabled={sw.locked}
-                title={sw.locked ? "Set by CONSOLE_AGENTS on the server" : undefined}
-                onClick={flip}
-                className={cx("relative mt-1 inline-flex h-6 w-11 flex-none items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50", on ? "border-up/40 bg-up" : "border-line-strong bg-panel-3")}
-              >
-                <span className={cx("inline-block size-4.5 rounded-full bg-white shadow transition-transform", on ? "translate-x-[22px]" : "translate-x-[3px]")} />
-              </button>
-            )}
+            {admin && <Switch checked={on} onChange={flip} aria-label="Agents on this console" disabled={sw.locked} className="mt-1 flex-none" />}
           </div>
           {!admin && <p className="text-[13px] text-fg-3">Only an admin can change this.</p>}
           {w && (
@@ -183,7 +170,7 @@ function Definitions() {
             </div>
             <p className="mt-1.5 flex-1 text-[13.5px] leading-relaxed text-fg-2">{t.blurb}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => setCreating(t.id)} disabled={unavailable} title={unavailable ? "Agent definitions aren't available on this console yet" : undefined}>
+              <Button size="sm" onClick={() => setCreating(t.id)} disabled={unavailable} tip={unavailable ? "Agent definitions aren't available on this console yet" : undefined}>
                 <Plus className="size-3.5" /> Make my own
               </Button>
               <a href={`#connect`} className="inline-flex h-7 items-center rounded-lg px-2.5 text-xs font-medium text-fg-2 hover:bg-panel-3 hover:text-fg pointer-coarse:h-9">Connect an agent with it</a>

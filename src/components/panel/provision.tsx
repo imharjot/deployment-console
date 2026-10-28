@@ -133,7 +133,7 @@ export function ProvisionActions({ r }: { r: ResourceView }) {
       ) : (
         <div className="flex flex-wrap gap-2 border-line sm:border-l sm:pl-2">
           {items.map((a) => (
-            <Button key={a.kind} size="sm" disabled={!a.enabled} title={a.why ?? a.warn} onClick={() => start(a.kind)} className={cx(a.danger && "enabled:hover:!border-down/50 enabled:hover:!text-down")}>
+            <Button key={a.kind} size="sm" disabled={!a.enabled} tip={a.why ?? a.warn} onClick={() => start(a.kind)} className={cx(a.danger && "enabled:hover:!border-down/50 enabled:hover:!text-down")}>
               {icon(a.kind)} {a.label}
             </Button>
           ))}
