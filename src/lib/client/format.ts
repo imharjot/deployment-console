@@ -3,15 +3,24 @@
 import { isStale, type Freshness } from "../freshness.ts";
 import type { EnvOverview, OperationNote, ReleaseStep, ReleaseView, ResourceView, RevisionView, State, UptimeView } from "../types.ts";
 
+// "just now" for the first minute, then whole minutes, hours and days: the label changes at most once a minute.
 export function ago(ms: number | string | undefined, now = Date.now()) {
   if (!ms) return "—";
   const t = typeof ms === "string" ? Date.parse(ms) : ms;
-  const s = Math.max(0, Math.round((now - t) / 1000));
-  if (s < 5) return "just now";
-  if (s < 60) return `${s}s ago`;
+  const s = Math.max(0, Math.floor((now - t) / 1000));
+  if (s < 60) return "just now";
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
+}
+
+// When ago(ms) next reads differently: the age's next whole minute, hour or day.
+export function agoChangesAt(ms: number | string | undefined, now: number): number | undefined {
+  const t = typeof ms === "string" ? Date.parse(ms) : ms;
+  if (!t || !Number.isFinite(t)) return undefined;
+  const age = Math.max(0, now - t);
+  const unit = age < 3_600_000 ? 60_000 : age < 86_400_000 ? 3_600_000 : 86_400_000;
+  return t + (Math.floor(age / unit) + 1) * unit;
 }
 
 export function duration(ms: number) {

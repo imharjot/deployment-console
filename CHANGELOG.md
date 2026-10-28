@@ -16,6 +16,9 @@ First public version (0.1.0). What the console can do today:
   provisioning, editing environment variables, the read-only and image chips. Approvals say when your role can't
   decide them, and a release step that couldn't check for migrations says why when opened. Saving a log query asks for its name in the menu instead of a
   browser prompt, and the permissions and resources searches clear with the console's own button.
+- **Calmer relative times**: "checked 19s ago" no longer counts up every second and nudges what's beside it. Ages read
+  "just now" for the first minute, then whole minutes, hours and days, and each one re-renders only when its words
+  change.
 - **The console's own dropdowns**: every dropdown was the browser's; now each is the console's (`Select`). On larger
   screens it's an animated menu with a highlight that glides to the option under the pointer or the keys, a check on the
   chosen one, hints and group headings; on phones, the console's bottom sheet. Keys work as in a native select (arrows,

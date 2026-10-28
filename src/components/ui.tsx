@@ -3,7 +3,7 @@ import { clsx } from "clsx";
 import { Check, Copy } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { ago } from "@/lib/client/format";
+import { ago, agoChangesAt } from "@/lib/client/format";
 import { regionLabel } from "@/lib/client/region";
 import { Portal, popover, spring } from "./motion";
 
@@ -331,10 +331,11 @@ export function RegionBadge({ region, className }: { region?: string; className?
   );
 }
 
+// Re-renders only when its label changes (once a minute at most); digits keep their width, so nothing around it moves.
 export function TimeAgo({ at, className }: { at: number | string | undefined; className?: string }) {
-  const n = useNow();
+  const n = useClockAt((now) => (now ? agoChangesAt(at, now) : undefined));
   return (
-    <time suppressHydrationWarning className={className} title={at ? new Date(at).toISOString() : undefined}>
+    <time suppressHydrationWarning className={cx("tabular-nums", className)} title={at ? new Date(at).toISOString() : undefined}>
       {n ? ago(at, n) : "—"}
     </time>
   );
