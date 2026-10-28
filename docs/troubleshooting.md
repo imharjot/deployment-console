@@ -31,7 +31,7 @@ server log (your terminal, `docker compose logs console`, or the `/ecs/deploymen
 | "No environments found yet" | wrong home region, or no ECS clusters there | **Test connection** in Settings → AWS connection lists the clusters per region; pick that home region (or set `AWS_REGION`) |
 | "This machine has no AWS login of its own", `Could not load credentials`, `ExpiredToken` | the machine running the console has no AWS credentials, or an SSO session expired | on AWS, give the console an ECS task role or an EC2 instance profile; elsewhere pick a saved profile in Settings → AWS connection (or set `AWS_PROFILE`, or keys); run `aws sso login` |
 | "AWS didn't let this console's own login switch into …" | the role's trust policy doesn't name the console's login or external ID, or that login may not call `sts:AssumeRole` on it | made from the console's CloudFormation template: check the stack finished, and if the console now runs as another login, download the template again and update the stack; on ECS, give the task role `sts:AssumeRole` on the role ([Deploy](deploy.md), step 4) |
-| "That's the ARN of the IAM user …" | a user's ARN in **Switch into a role**: only roles can be assumed | enter the role's ARN (`arn:aws:iam::<account>:role/<name>`), or pick **Machine's own login** or a saved profile to sign in as that user |
+| "That's the ARN of the IAM user …" | a user's ARN where a role's belongs (**Already have a role?**): only roles can be switched into | enter the role's ARN (`arn:aws:iam::<account>:role/<name>`), or pick an AWS CLI profile that signs in as that user |
 | `AccessDeniedException` at the top of Settings | the role lacks a permission | attach [the policy](connect-aws.md#step-1-create-the-read-only-policy); the message names the missing action |
 | A button fails with `AccessDenied…` | the read-only policy, or a statement left out | add the feature's statements (see [Connect AWS](connect-aws.md#step-5-turn-on-more-one-feature-at-a-time)) |
 | A cluster is missing | it isn't `ACTIVE`, it's tagged `console:ignore=true`, it's in `ignoreClusters` / not listed with `discoverClusters: false`, or it's an AWS Batch cluster (`AWSBatch-…`, skipped unless the config names it) | see [How discovery works](discovery.md) |
@@ -136,5 +136,6 @@ server log (your terminal, `docker compose logs console`, or the `/ecs/deploymen
 - `GET /api/connection` — the AWS connection (admins): the account and identity AWS confirms, the sign-in, the home
   region and regions, and which environment variable decides each part; `POST /api/connection/test` tries a candidate;
   `GET /api/connection/machine` says who the machine's own login is; `GET /api/connection/template` downloads the
-  CloudFormation template for a role in another account.
+  CloudFormation template for a role in another account; `POST /api/connection/profiles` saves an IAM user's access key
+  as a profile (a console run locally, `AUTH_MODE=dev`).
 - `GET /api/me` — who you are, your role and permissions (signed in, or with a token).

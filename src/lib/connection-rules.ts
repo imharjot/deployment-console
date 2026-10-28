@@ -83,6 +83,8 @@ export interface ConnectionView {
   identity?: { account: string; arn: string };
   identityError?: string;
   profiles: string[];
+  profileKinds: Record<string, ProfileKind>;
+  canAddProfile: boolean; // a console run locally by one person (AUTH_MODE=dev) may save an access key as a profile
   externalId: string; // this console's, for roles made from its CloudFormation template (server/connection.ts)
   scopeSince?: number;
 }
@@ -273,6 +275,63 @@ export function profileNames(config = "", credentials = ""): string[] {
   }
   return [...out].filter((n) => PROFILE_NAME.test(n)).sort((a, b) => (a === "default" ? -1 : b === "default" ? 1 : a.localeCompare(b)));
 }
+
+// What kind of login a profile is, which decides how long it lasts: an access key (until it's deleted), temporary keys
+// (until their session ends), a role switched into through another profile (renewed every hour), an IAM Identity Center
+// (SSO) or `aws login` session (until that session ends), or a credential_process. Read from the setting names only,
+// never their values. The SDK's order: a role_arn wins over keys.
+export type ProfileKind = "role" | "keys" | "temporary-keys" | "process" | "sso" | "login" | "other";
+export function profileKinds(config = "", credentials = ""): Record<string, ProfileKind> {
+  const header = /^\s*\[\s*([^\]]+?)\s*\]\s*(?:[#;].*)?$/;
+  const settings = new Map<string, Set<string>>();
+  const read = (text: string, nameOf: (h: string) => string | undefined) => {
+    let cur: Set<string> | undefined;
+    for (const line of text.split(/\r?\n/)) {
+      const h = header.exec(line)?.[1];
+      if (h !== undefined) {
+        const name = nameOf(h);
+        cur = name && PROFILE_NAME.test(name) ? (settings.get(name) ?? settings.set(name, new Set()).get(name)) : undefined;
+        continue;
+      }
+      const key = /^\s*([A-Za-z_][\w-]*)\s*=/.exec(line)?.[1]?.toLowerCase();
+      if (cur && key) cur.add(key);
+    }
+  };
+  read(config, (h) => (h === "default" ? h : h.startsWith("profile ") ? h.slice(8).trim() : undefined));
+  read(credentials, (h) => h);
+  const kind = (k: Set<string>): ProfileKind =>
+    k.has("role_arn") ? "role"
+    : k.has("aws_access_key_id") ? (k.has("aws_session_token") ? "temporary-keys" : "keys")
+    : k.has("credential_process") ? "process"
+    : k.has("sso_session") || k.has("sso_start_url") ? "sso"
+    : k.has("login_session") ? "login"
+    : "other";
+  return Object.fromEntries([...settings].map(([name, k]) => [name, kind(k)]));
+}
+
+// Settings → AWS connection → Add a profile: an IAM user's long-term access key, checked before it's written to the
+// machine's AWS credentials file the way `aws configure` writes it. Strict, so nothing typed can add lines to the file.
+const ACCESS_KEY_ID = /^AKIA[A-Z0-9]{12,124}$/;
+const SECRET_ACCESS_KEY = /^[A-Za-z0-9/+=]{40}$/;
+export interface NewProfile {
+  name: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+}
+export function parseNewProfile(v: unknown): NewProfile | { error: string } {
+  if (!isObj(v)) return { error: "expected a JSON object" };
+  const name = typeof v.name === "string" ? v.name.trim() : "";
+  const accessKeyId = typeof v.accessKeyId === "string" ? v.accessKeyId.trim() : "";
+  const secretAccessKey = typeof v.secretAccessKey === "string" ? v.secretAccessKey.trim() : "";
+  if (!PROFILE_NAME.test(name)) return { error: "Give the profile a name: letters, digits and +=,.@/_- (up to 128)." };
+  if (/^ASIA/.test(accessKeyId))
+    return { error: "That's a temporary key (it starts with ASIA): it needs a session token and stops working when its session ends. Use an IAM user's access key (AKIA…), or `aws login`." };
+  if (!ACCESS_KEY_ID.test(accessKeyId)) return { error: "An access key ID starts with AKIA, followed by capital letters and digits." };
+  if (!SECRET_ACCESS_KEY.test(secretAccessKey)) return { error: "A secret access key is 40 characters: letters, digits and / + =." };
+  return { name, accessKeyId, secretAccessKey };
+}
+// The lines a new profile appends to the credentials file.
+export const credentialsSection = (p: NewProfile) => `[${p.name}]\naws_access_key_id = ${p.accessKeyId}\naws_secret_access_key = ${p.secretAccessKey}\n`;
 
 // The home region to suggest after a connection test: where most ECS clusters are, the current home on a tie.
 export function suggestHome(regions: { region: string; clusters?: number }[], current?: string): string | undefined {

@@ -12,7 +12,12 @@ export default async function connectionSmoke({ get, post, call, check, BASE }) 
     check("connection: with the account pinned, the console doesn't ask who the machine's own login is", m.status === 409, `${m.status} ${JSON.stringify(m.json)}`);
     const t = await get("/api/connection/template");
     check("connection: ... nor makes a CloudFormation template for a role", t.status === 409, `${t.status}`);
+    // Saving an access key as a profile writes this machine's AWS credentials file: refused before anything is read,
+    // checked with AWS or written while the environment decides the account.
+    const k = await post("/api/connection/profiles", { name: "smoke-never-saved", accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" });
+    check("connection: ... nor saves an access key as a profile", k.status === 409 && v.canAddProfile === false, `${k.status} ${JSON.stringify(k.json)}`);
   }
+  check("connection: each AWS CLI profile comes with its kind", v && typeof v.profileKinds === "object" && v.profiles.every((p) => typeof v.profileKinds[p] === "string"), JSON.stringify(v?.profileKinds));
   // The external ID the console's CloudFormation template puts in a role's trust policy: made once, then kept.
   const again = (await get("/api/connection")).json;
   check("connection: the console has one external ID, and keeps it", /^dc-[\w-]{32}$/.test(v?.externalId ?? "") && again?.externalId === v?.externalId, String(v?.externalId));

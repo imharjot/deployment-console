@@ -75,3 +75,27 @@ test("save records the first scope without forgetting; a later account change fo
   assert.deepEqual(out.audit, ["connection.update:intent", "connection.update:result", "connection.forget:intent", "connection.forget:result"]);
   assert.equal(out.refused, 503);
 });
+
+// Add a profile: appended to the credentials file the way aws configure writes it, the file and its folder kept to
+// their owner, and nothing of an existing profile changed (here a file that doesn't end in a newline).
+test("a saved profile is appended, owner-only, after the profiles already there", async () => {
+  const { mkdtempSync, readFileSync, statSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "dc-profile-"));
+  const file = join(dir, "aws", "credentials");
+  const save = (f: string) => `
+const { saveProfile } = await import(${mod("./connection.ts")});
+await saveProfile(${JSON.stringify(f)}, { name: "deployment-console", accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" });
+`;
+  const run = (src: string) => execFileSync(process.execPath, ["--conditions=react-server", "--no-warnings", "--input-type=module", "-e", src], { encoding: "utf8", timeout: 60_000 });
+  run(save(file));
+  assert.equal(readFileSync(file, "utf8"), "[deployment-console]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n");
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.equal(statSync(join(dir, "aws")).mode & 0o777, 0o700);
+  const existing = join(dir, "existing");
+  writeFileSync(existing, "[default]\naws_access_key_id = AKIAEXISTING", { mode: 0o644 });
+  run(save(existing));
+  assert.equal(readFileSync(existing, "utf8"), "[default]\naws_access_key_id = AKIAEXISTING\n\n[deployment-console]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n");
+  assert.equal(statSync(existing).mode & 0o777, 0o600);
+});
