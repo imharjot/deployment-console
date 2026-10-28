@@ -16,6 +16,7 @@ import { Button, Chip, Segmented, cx } from "../ui";
 import { CONFIDENCE, KIND_ICON } from "./kinds";
 import { CONFIDENCES, SHARED, type Confidence } from "./filter";
 import { LAYERS } from "./layers";
+import { Select } from "@/components/select";
 
 type Envs = InventoryView["envs"];
 
@@ -306,11 +307,13 @@ export function LanesSelect({ value, onChange, regions }: { value: LaneBy; onCha
   return (
     <label className="flex h-9 flex-none items-center gap-1.5 rounded-lg border border-line bg-panel pl-2.5 text-[14px] text-fg-2 hover:border-line-strong pointer-coarse:h-10">
       Lanes
-      <select value={value} onChange={(e) => onChange(e.target.value as LaneBy)} aria-label="Lanes" className="h-full cursor-pointer rounded-r-lg bg-transparent pr-2 text-fg outline-none">
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+      <Select
+        value={value}
+        onChange={(v) => onChange(v as LaneBy)}
+        aria-label="Lanes"
+        base="h-full cursor-pointer rounded-r-lg bg-transparent pr-2 text-fg outline-none"
+        options={options.map((o) => ({ value: o.value, label: o.label }))}
+      />
     </label>
   );
 }
@@ -319,15 +322,13 @@ export function RegionSelect({ value, onChange, regions, counts }: { value: stri
   return (
     <label className="flex h-9 flex-none items-center gap-1.5 rounded-lg border border-line bg-panel pl-2.5 text-[14px] text-fg-2 hover:border-line-strong pointer-coarse:h-10">
       Region
-      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Region" className="h-full max-w-[14rem] cursor-pointer rounded-r-lg bg-transparent pr-2 text-fg outline-none">
-        <option value="all">All regions</option>
-        {regions.map((r) => (
-          <option key={r} value={r}>
-            {regionLabel(r)}
-            {counts?.get(r) !== undefined ? ` (${counts.get(r)!.toLocaleString()})` : ""}
-          </option>
-        ))}
-      </select>
+      <Select
+        value={value}
+        onChange={onChange}
+        aria-label="Region"
+        base="h-full max-w-[14rem] cursor-pointer rounded-r-lg bg-transparent pr-2 text-fg outline-none"
+        options={[{ value: "all", label: "All regions" }, ...regions.map((r) => ({ value: r, label: regionLabel(r), hint: counts?.get(r) !== undefined ? counts.get(r)!.toLocaleString() : undefined }))]}
+      />
     </label>
   );
 }

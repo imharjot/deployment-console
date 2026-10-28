@@ -129,10 +129,7 @@ export default function AuditPage() {
           <>
             <SearchField value={q} onChange={setQ} label="Filter the audit log" className="w-full sm:w-56" />
             {regions.multi && (
-              <SelectField value={region} onChange={setRegion} label="Region">
-                <option value="all">All regions</option>
-                {regions.data?.regions.map((r) => <option key={r} value={r}>{regionLabel(r)}</option>)}
-              </SelectField>
+              <SelectField value={region} onChange={setRegion} label="Region" options={[{ value: "all", label: "All regions" }, ...(regions.data?.regions ?? []).map((r) => ({ value: r, label: regionLabel(r) }))]} />
             )}
             <ScrollX>
               <Segmented id="audit-env" value={env} onChange={setEnv} options={[{ value: "all", label: "All" }, ...(envList ?? []).map((e) => ({ value: e.id, label: e.label }))]} />

@@ -18,6 +18,7 @@ import { Page } from "@/app/_components/page-frame";
 import { WidgetDialog } from "./config-form";
 import { SendError, send, useApi, usePrefs, useRefresh } from "./data";
 import { DashboardGrid } from "./grid";
+import { Select } from "@/components/select";
 
 interface Draft {
   version: number;
@@ -266,14 +267,13 @@ export function DashboardView({ id, home, startEditing }: { id: string; home?: b
           {draft.visibility === "team" && (
             <label className="flex items-center gap-2 text-[13.5px] text-fg-2">
               from
-              <select
+              <Select<Role>
                 aria-label="Minimum role"
                 value={draft.minRole}
-                onChange={(e) => setDraft({ ...draft, minRole: e.target.value as Role })}
-                className="h-8 rounded-lg border border-line bg-panel-2 px-2 text-[13.5px] outline-none focus:border-accent pointer-coarse:h-10"
-              >
-                {ROLES.map((x) => <option key={x} value={x}>{ROLE_INFO[x].label}{x === "viewer" ? " (everyone)" : " and up"}</option>)}
-              </select>
+                onChange={(r) => setDraft({ ...draft, minRole: r })}
+                base="h-8 rounded-lg border border-line bg-panel-2 px-2 text-[13.5px] outline-none hover:border-line-strong focus-visible:border-accent pointer-coarse:h-10"
+                options={ROLES.map((x) => ({ value: x, label: `${ROLE_INFO[x].label}${x === "viewer" ? " (everyone)" : " and up"}` }))}
+              />
             </label>
           )}
           <span className="text-[12.5px] text-fg-3">

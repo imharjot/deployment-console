@@ -4,7 +4,7 @@
 // from globals.css.
 import { clsx } from "clsx";
 import { Search, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { Select, type SelectOption } from "@/components/select";
 
 const BOX =
   "h-10 rounded-lg border border-line bg-panel text-[14px] text-fg outline-none transition-[border-color,box-shadow] duration-200 hover:border-line-strong focus-within:border-accent focus-within:shadow-[0_0_0_3px_var(--accent-soft)] sm:h-9";
@@ -23,10 +23,6 @@ export function SearchField({ value, onChange, label, placeholder = "Filter…",
   );
 }
 
-export function SelectField({ value, onChange, label, children, className }: { value: string; onChange(v: string): void; label: string; children: ReactNode; className?: string }) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className={clsx(BOX, "min-w-0 px-2.5", className)}>
-      {children}
-    </select>
-  );
+export function SelectField<V extends string>({ value, onChange, label, options, className }: { value: string; onChange(v: V): void; label: string; options: readonly SelectOption<V>[]; className?: string }) {
+  return <Select value={value} onChange={onChange} options={options} aria-label={label} base={clsx(BOX, "min-w-0 px-2.5 focus-visible:border-accent focus-visible:shadow-[0_0_0_3px_var(--accent-soft)]")} className={className} />;
 }

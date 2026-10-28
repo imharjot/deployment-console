@@ -143,12 +143,7 @@ function RunList({ admin, scope, setScope }: { admin: boolean; scope: "mine" | "
             ),
           }))}
         />
-        <SelectField value={kind} onChange={setKind} label="Kind of run" className="w-[150px]">
-          <option value="all">All kinds</option>
-          <option value="assistant">Assistant</option>
-          <option value="workflow">Workflow</option>
-          <option value="external">External agent</option>
-        </SelectField>
+        <SelectField value={kind} onChange={setKind} label="Kind of run" className="w-[150px]" options={[{ value: "all", label: "All kinds" }, { value: "assistant", label: "Assistant" }, { value: "workflow", label: "Workflow" }, { value: "external", label: "External agent" }]} />
         {admin && <Segmented id="run-scope" size="sm" value={scope} onChange={setScope} options={[{ value: "mine", label: "Mine" }, { value: "all", label: "Everyone" }]} />}
         <SearchField value={q} onChange={setQ} label="Filter runs" placeholder="Filter runs…" className="w-full sm:ml-auto sm:w-64" />
       </div>

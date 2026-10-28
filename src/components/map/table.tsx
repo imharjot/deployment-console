@@ -16,6 +16,7 @@ import { Button, cx } from "../ui";
 import { REMOTE_TEXT, isRemote, isVanishing } from "./chips";
 export { DEFAULT_TABLE, tableFromParams, tableToParams, type TableFilters } from "./table-rules";
 import { HEALTH, HealthDot, healthStyle, iconOf, isProblem } from "./kinds";
+import { Select } from "@/components/select";
 
 // ---- the table ----
 const ROW_H = 44;
@@ -97,12 +98,13 @@ export function ResourceTable({ resources, envs, regions, filters: f, onFilters,
   const sel = (label: string, value: string, onChange: (v: string) => void, items: [string, string][]) => (
     <label className="flex h-9 min-w-0 flex-none items-center gap-1.5 rounded-lg border border-line bg-panel pl-2.5 text-[14px] text-fg-2 hover:border-line-strong pointer-coarse:h-10">
       {label}
-      <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className={cx("h-full max-w-[11rem] cursor-pointer rounded-r-lg bg-transparent pr-2 outline-none", value ? "text-fg" : "text-fg-3")}>
-        <option value="">Any</option>
-        {items.map(([v, l]) => (
-          <option key={v} value={v}>{l}</option>
-        ))}
-      </select>
+      <Select
+        value={value}
+        onChange={onChange}
+        aria-label={label}
+        base={cx("h-full max-w-[11rem] cursor-pointer rounded-r-lg bg-transparent pr-2 outline-none", value ? "text-fg" : "text-fg-3")}
+        options={[{ value: "", label: "Any" }, ...items.map(([v, l]) => ({ value: v, label: l }))]}
+      />
     </label>
   );
   const head = (k: SortKey, label: string, cls?: string) => (

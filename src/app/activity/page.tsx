@@ -51,10 +51,7 @@ export default function ActivityPage() {
         actions={
           <>
             <SearchField value={q} onChange={setQ} label="Filter activity" className="min-w-40 flex-1 sm:w-48 sm:flex-none" />
-            <SelectField value={svc} onChange={setSvc} label="Service" className="max-w-[45%] sm:max-w-none">
-              <option value="all">All services</option>
-              {services.map((s) => <option key={s} value={s}>{s}</option>)}
-            </SelectField>
+            <SelectField value={svc} onChange={setSvc} label="Service" className="max-w-[45%] sm:max-w-none" options={[{ value: "all", label: "All services" }, ...services.map((s) => ({ value: s, label: s }))]} />
             <Segmented id="act-kind" value={kind} onChange={setKind} options={[{ value: "all", label: "All" }, { value: "deploy", label: "Deploys" }, { value: "ci", label: "CI" }, { value: "ecs", label: "ECS" }, { value: "action", label: "Actions" }]} />
           </>
         }

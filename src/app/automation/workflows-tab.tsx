@@ -22,6 +22,7 @@ import { ApiError, getJson, postJson } from "@/lib/client/api";
 import { stamp } from "@/lib/client/format";
 import { DataTable, type Column } from "../_components/data-table";
 import { SectionTitle } from "../_components/page-frame";
+import { Select } from "@/components/select";
 
 const BASE = "/api/agents/workflows";
 const STATE_TONE: Record<string, "ok" | "muted" | "accent"> = { published: "ok", draft: "accent", disabled: "muted" };
@@ -327,12 +328,14 @@ function WorkflowEditor({ id, me }: { id: string; me: Me }) {
           </Labeled>
           <Labeled label="Who pays (connection)" hint={draft.steps.some((s) => s.kind === "model") ? "Model steps need one; it must allow background runs for schedules and events." : "No model step: nothing to pay for."}>
             {(id, hint) => (
-              <select id={id} aria-describedby={hint} className={INPUT} value={draft.connectionId ?? ""} onChange={(e) => edit((d) => ({ ...d, connectionId: e.target.value || undefined }))}>
-                <option value="">None (deterministic)</option>
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>{c.label} — {c.payer}{c.backgroundOk ? "" : " (no background runs)"}</option>
-                ))}
-              </select>
+              <Select
+                id={id}
+                aria-describedby={hint}
+                base={INPUT}
+                value={draft.connectionId ?? ""}
+                onChange={(v) => edit((d) => ({ ...d, connectionId: v || undefined }))}
+                options={[{ value: "", label: "None (deterministic)" }, ...connections.map((c) => ({ value: c.id, label: `${c.label} — ${c.payer}${c.backgroundOk ? "" : " (no background runs)"}` }))]}
+              />
             )}
           </Labeled>
           <Labeled label="Description" className="sm:col-span-2">
@@ -377,20 +380,14 @@ function WorkflowEditor({ id, me }: { id: string; me: Me }) {
       <Card
         title="Steps"
         action={
-          <select
+          <Select<WorkflowStepKind>
             aria-label="Add a step"
             value=""
-            onChange={(e) => {
-              const k = e.target.value as WorkflowStepKind;
-              if (k) edit((d) => ({ ...d, steps: [...d.steps, newStep(k, ids) as unknown as WorkflowNode] }));
-            }}
-            className="h-7 rounded-lg border border-line bg-panel px-2 text-xs pointer-coarse:h-9"
-          >
-            <option value="">+ Add step…</option>
-            {WORKFLOW_STEP_KINDS.map((k) => (
-              <option key={k} value={k}>{STEP_KIND_LABEL[k].label}</option>
-            ))}
-          </select>
+            placeholder={<span className="text-fg-2">+ Add step…</span>}
+            onChange={(k) => edit((d) => ({ ...d, steps: [...d.steps, newStep(k, ids) as unknown as WorkflowNode] }))}
+            base="h-7 rounded-lg border border-line bg-panel px-2 text-xs outline-none hover:border-line-strong focus-visible:border-accent pointer-coarse:h-9"
+            options={WORKFLOW_STEP_KINDS.map((k) => ({ value: k, label: STEP_KIND_LABEL[k].label }))}
+          />
         }
       >
         {draft.steps.length ? (
@@ -495,20 +492,20 @@ function TriggerFields({ t, onChange, onRemove }: { t: WorkflowTrigger; onChange
     <div className="flex flex-wrap items-end gap-3">
       <Labeled label="When">
         {(id) => (
-          <select
+          <Select
             id={id}
-            className={cx(INPUT, "w-40")}
+            base={cx(INPUT, "w-40")}
             value={t.type === "event" ? `event:${t.source}` : t.type}
-            onChange={(e) => {
-              const v = e.target.value;
+            options={[
+              { value: "manual", label: "By hand" },
+              { value: "schedule", label: "On a schedule" },
+              { value: "event:state", label: "A service goes down" },
+              { value: "event:alarm", label: "An alarm fires" },
+            ]}
+            onChange={(v) => {
               onChange(v === "schedule" ? { type: "schedule", cron: "0 19 * * 1-5", tz: "UTC" } : v.startsWith("event:") ? { type: "event", source: v.slice(6) as "state" | "alarm", selector: { envs: [] } } : { type: "manual" });
             }}
-          >
-            <option value="manual">By hand</option>
-            <option value="schedule">On a schedule</option>
-            <option value="event:state">A service goes down</option>
-            <option value="event:alarm">An alarm fires</option>
-          </select>
+          />
         )}
       </Labeled>
       {t.type === "schedule" && (
@@ -585,10 +582,16 @@ function StepFields({ n, index, last, onChange, onMove, onRemove }: { n: Workflo
         {n.kind === "notify" && (
           <Labeled label="Send to">
             {(id) => (
-              <select id={id} className={INPUT} value={n.to} onChange={(e) => set({ to: e.target.value as "run" | "integrations" })}>
-                <option value="run">The run&apos;s result</option>
-                <option value="integrations">The run&apos;s result and integrations</option>
-              </select>
+              <Select
+                id={id}
+                base={INPUT}
+                value={n.to}
+                onChange={(v) => set({ to: v as "run" | "integrations" })}
+                options={[
+                  { value: "run", label: "The run's result" },
+                  { value: "integrations", label: "The run's result and integrations" },
+                ]}
+              />
             )}
           </Labeled>
         )}

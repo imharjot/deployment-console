@@ -13,6 +13,7 @@ import { Button, Chip, Segmented, cx } from "../ui";
 import { LogList, type LoadContext, type LogListHandle, type ServiceTag } from "./log-list";
 import { Facets, Histogram, InsightsPanel, MatchMode, QueryBar, type SavedLogQuery } from "./log-tools";
 import { ROOMY, useMediaQuery, useNarrow } from "./use-media";
+import { Select } from "@/components/select";
 
 const POLL_MS = 2000;
 const MAX_BACKOFF_MS = 15_000;
@@ -441,10 +442,17 @@ export function LogViewer({ env, services, compact, toolbarStart, className, ini
               results.search(srch.q, srch.mode, Number(srch.minutes));
             }}
           >
-            <select value={srch.mode} onChange={(e) => setSrch({ ...srch, mode: e.target.value })} aria-label="Search type" className={FIELD} title="Text = literal match · Pattern = CloudWatch filter pattern syntax">
-              <option value="text">Text</option>
-              <option value="pattern">CloudWatch pattern</option>
-            </select>
+            <Select
+              value={srch.mode}
+              onChange={(v) => setSrch({ ...srch, mode: v })}
+              aria-label="Search type"
+              base={FIELD}
+              title="Text = literal match · Pattern = CloudWatch filter pattern syntax"
+              options={[
+                { value: "text", label: "Text" },
+                { value: "pattern", label: "CloudWatch pattern" },
+              ]}
+            />
             <input
               value={srch.q}
               onChange={(e) => setSrch({ ...srch, q: e.target.value })}
@@ -452,12 +460,18 @@ export function LogViewer({ env, services, compact, toolbarStart, className, ini
               placeholder={srch.mode === "pattern" ? '{ $.level >= 50 }   ?ERROR ?WARN   "slow query" -health' : "exact text to find in CloudWatch"}
               className={cx(FIELD, "min-w-0 font-mono max-md:order-first max-md:basis-full md:min-w-[220px] md:flex-1")}
             />
-            <select value={srch.minutes} onChange={(e) => setSrch({ ...srch, minutes: e.target.value })} aria-label="Time range" className={FIELD}>
-              <option value="15">15 min</option>
-              <option value="60">1 hour</option>
-              <option value="360">6 hours</option>
-              <option value="1440">24 hours</option>
-            </select>
+            <Select
+              value={srch.minutes}
+              onChange={(v) => setSrch({ ...srch, minutes: v })}
+              aria-label="Time range"
+              base={FIELD}
+              options={[
+                { value: "15", label: "15 min" },
+                { value: "60", label: "1 hour" },
+                { value: "360", label: "6 hours" },
+                { value: "1440", label: "24 hours" },
+              ]}
+            />
             <Button size="sm" variant="primary" disabled={results.busy} className="max-md:ml-auto max-md:min-w-24">
               {results.busy ? <Loader2 className="size-3 animate-spin" /> : "Search"}
             </Button>

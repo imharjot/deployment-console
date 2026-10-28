@@ -9,6 +9,7 @@ import { WIDGETS, type Height, type Widget, type Width } from "@/lib/dashboards"
 import { useRegionNow } from "./data";
 import { FrameCtx, WidgetBoundary } from "./frame";
 import { WIDGET_VIEWS } from "./widgets";
+import { Select } from "@/components/select";
 
 // Literal class names (Tailwind only generates what it can read in the source).
 const COLS: Record<Width, string> = {
@@ -38,18 +39,18 @@ function Toolbar({ w, first, last, on }: { w: Widget; first: boolean; last: bool
       <IconButton label="Move down" disabled={last} onClick={() => on.move(w.id, 1)}>
         <ChevronDown className="size-4" />
       </IconButton>
-      <select
+      <Select
         aria-label="Size (columns × rows)"
         title="Size: columns of 12 × rows"
         value={`${w.w}x${w.h}`}
-        onChange={(e) => {
-          const [x, y] = e.target.value.split("x").map(Number);
+        onChange={(v) => {
+          const [x, y] = v.split("x").map(Number);
           on.resize(w.id, x as Width, y as Height);
         }}
-        className="h-8 min-w-0 rounded-md border border-line bg-panel px-1.5 font-mono text-[12.5px] text-fg-2 outline-none hover:border-line-strong focus:border-accent pointer-coarse:h-10"
-      >
-        {sizes.map((s) => <option key={s} value={s}>{s.replace("x", " × ")}</option>)}
-      </select>
+        base="h-8 w-auto rounded-md border border-line bg-panel px-1.5 text-[12.5px] text-fg-2 outline-none hover:border-line-strong focus-visible:border-accent pointer-coarse:h-10"
+        mono
+        options={sizes.map((s) => ({ value: s, label: s.replace("x", " × ") }))}
+      />
       <span className="ml-auto flex items-center gap-0.5">
         <IconButton label="Configure" onClick={() => on.configure(w.id)}>
           <SlidersHorizontal className="size-3.5" />

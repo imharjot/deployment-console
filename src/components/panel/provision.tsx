@@ -19,6 +19,7 @@ import type { ResourceView } from "@/lib/types";
 import { Modal, Portal, enter, exit, popover, swap, usePhone } from "../motion";
 import { useToast } from "../toast";
 import { Button, Skeleton, cx } from "../ui";
+import { Select } from "@/components/select";
 
 type Kind = "clone" | "scale" | "run-task" | "add-host" | "delete-service" | "terminate-host";
 export interface Flow {
@@ -620,15 +621,16 @@ function CloneForm({ flow, info, shell }: FormProps) {
   return (
     <Shell {...shell} body={body} problem={problem}>
       <Field label="Service to copy" error={!srcCheck.ok ? srcCheck.error : undefined} hint={source ? `${source.launchType === "FARGATE" ? "Fargate" : source.launchType}${source.cpu && source.memory ? ` · ${source.cpu / 1024} vCPU · ${source.memory / 1024} GB` : ""} · ${source.image?.split("/").pop() ?? ""}` : undefined}>
-        <select value={src} onChange={(e) => pick(e.target.value)} className={cx(FIELD, "h-10 px-2.5 sm:h-9")}>
-          {envs.map((e) => (
-            <optgroup key={e} label={`${sources.find((s) => s.env === e)?.envLabel ?? e}${e === flow.env ? " (this environment)" : ""}`}>
-              {sources.filter((s) => s.env === e).map((s) => (
-                <option key={`${e}/${s.name}`} value={`${e}/${s.name}`}>{s.display === s.name ? s.name : `${s.display} (${s.name})`}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+        <Select
+          aria-label="Service to copy"
+          value={src}
+          onChange={pick}
+          base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+          options={envs.flatMap((e) => {
+            const group = `${sources.find((s) => s.env === e)?.envLabel ?? e}${e === flow.env ? " (this environment)" : ""}`;
+            return sources.filter((s) => s.env === e).map((s) => ({ value: `${e}/${s.name}`, label: s.display === s.name ? s.name : `${s.display} (${s.name})`, group }));
+          })}
+        />
       </Field>
       <Field label={`New service name in ${flow.env}`} error={nameErr} hint="Also the name of its task-definition family.">
         <input
@@ -652,25 +654,27 @@ function CloneForm({ flow, info, shell }: FormProps) {
       {fargate && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="CPU" error={sizeErr}>
-            <select
-              value={cpu}
-              onChange={(e) => {
-                const c = Number(e.target.value);
+            <Select
+              aria-label="CPU"
+              value={String(cpu)}
+              onChange={(v) => {
+                const c = Number(v);
                 setCpu(c);
                 const mems = fargateMemoryFor(c || source?.cpu || 0);
                 if (mems.length && !mems.includes(memory || source?.memory || 0)) setMemory(mems[0]);
               }}
-              className={cx(FIELD, "h-10 px-2.5 sm:h-9")}
-            >
-              <option value={0}>Same as source{source?.cpu ? ` (${source.cpu / 1024} vCPU)` : ""}</option>
-              {FARGATE_CPU.map((c) => <option key={c} value={c}>{c / 1024} vCPU ({c})</option>)}
-            </select>
+              base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+              options={[{ value: "0", label: `Same as source${source?.cpu ? ` (${source.cpu / 1024} vCPU)` : ""}` }, ...FARGATE_CPU.map((c) => ({ value: String(c), label: `${c / 1024} vCPU (${c})` }))]}
+            />
           </Field>
           <Field label="Memory">
-            <select value={memory} onChange={(e) => setMemory(Number(e.target.value))} className={cx(FIELD, "h-10 px-2.5 sm:h-9")}>
-              <option value={0}>Same as source{source?.memory ? ` (${source.memory / 1024} GB)` : ""}</option>
-              {fargateMemoryFor(effCpu).map((m) => <option key={m} value={m}>{m / 1024} GB</option>)}
-            </select>
+            <Select
+              aria-label="Memory"
+              value={String(memory)}
+              onChange={(v) => setMemory(Number(v))}
+              base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+              options={[{ value: "0", label: `Same as source${source?.memory ? ` (${source.memory / 1024} GB)` : ""}` }, ...fargateMemoryFor(effCpu).map((m) => ({ value: String(m), label: `${m / 1024} GB` }))]}
+            />
           </Field>
         </div>
       )}
@@ -723,9 +727,14 @@ function RunTaskForm({ flow, info, shell }: FormProps) {
       </p>
       {s.containers.length > 1 && (
         <Field label="Container">
-          <select value={container} onChange={(e) => setContainer(e.target.value)} className={cx(FIELD, "h-10 px-2.5 font-mono text-[13px] sm:h-9")}>
-            {s.containers.map((c) => <option key={c} value={c}>{c}{c === s.main ? " (main)" : ""}</option>)}
-          </select>
+          <Select
+            aria-label="Container"
+            value={container}
+            onChange={setContainer}
+            base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+            mono
+            options={s.containers.map((c) => ({ value: c, label: c, hint: c === s.main ? "(main)" : undefined }))}
+          />
         </Field>
       )}
       <Field label="Command (optional)" error={cmdErr} hint="Empty runs the image's own command. Quotes group words; nothing is expanded — start with sh -c '…' if you need a shell. Don't put secrets here: ECS and CloudTrail show it.">
@@ -756,19 +765,27 @@ function AddHostForm({ flow, info, shell }: FormProps) {
   return (
     <Shell {...shell} body={h ? { env: flow.env, from: h.id, count, instanceType: type || undefined } : undefined} problem={!check.ok ? check.error : typeErr}>
       <Field label="Launch like" error={h?.asg && !check.ok ? check.error : undefined} hint={h ? `${h.type} · ${h.state}${h.launchTemplate ? ` · from launch template ${h.launchTemplate}` : " · AMI, subnet, security groups, profile and user data are copied"}` : undefined}>
-        <select value={from} onChange={(e) => setFrom(e.target.value)} className={cx(FIELD, "h-10 px-2.5 sm:h-9")}>
-          {hosts.map((x) => <option key={x.id} value={x.id}>{x.name} ({x.id}){x.asg ? " · Auto Scaling" : ""}</option>)}
-        </select>
+        <Select
+          aria-label="Launch like"
+          value={from}
+          onChange={setFrom}
+          base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+          options={hosts.map((x) => ({ value: x.id, label: `${x.name} (${x.id})`, hint: x.asg ? "Auto Scaling" : undefined }))}
+        />
       </Field>
       <Field label="How many" error={h && !h.asg && !check.ok ? check.error : undefined} hint={`At most ${info.limits.maxHosts} console-created hosts per environment (${existing} now${detail ? ` — ${detail}` : ""}).`}>
         <Count value={count} min={1} max={room} onChange={setCount} label="hosts" />
       </Field>
       <Field label="Instance type" error={typeErr} hint={allowed?.length ? "Limited by provisioning.allowedInstanceTypes." : "Empty: the same type as the source host."}>
         {allowed?.length ? (
-          <select value={type} onChange={(e) => setType(e.target.value)} className={cx(FIELD, "h-10 px-2.5 font-mono text-[13px] sm:h-9")}>
-            <option value="">Same as source{h ? ` (${h.type})` : ""}</option>
-            {allowed.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <Select
+            aria-label="Instance type"
+            value={type}
+            onChange={setType}
+            base={cx(FIELD, "h-10 px-2.5 sm:h-9")}
+            mono
+            options={[{ value: "", label: `Same as source${h ? ` (${h.type})` : ""}` }, ...allowed.map((t) => ({ value: t, label: t }))]}
+          />
         ) : (
           <>
             <input value={type} onChange={(e) => setType(e.target.value.trim())} list="provision-instance-types" placeholder={h?.type ?? "t3a.medium"} spellCheck={false} autoComplete="off" autoCapitalize="off" className={cx(FIELD, "h-10 font-mono text-[13px] sm:h-9", typeErr && "border-down/50")} />

@@ -10,6 +10,7 @@ import { LEVELS, type LogStore } from "@/lib/logstore";
 import type { EnvName, InsightsResult } from "@/lib/types";
 import { popover } from "../motion";
 import { Button, Chip, IconButton, cx } from "../ui";
+import { Select } from "@/components/select";
 
 // ---------- saved + recent searches (per browser) ----------
 const SAVED = "console.logs.saved", RECENT = "console.logs.recent";
@@ -574,13 +575,19 @@ export function InsightsPanel({ env, services, onLines }: { env: EnvName; servic
           className="min-w-0 flex-1 resize-y rounded-lg border border-line bg-panel-2 p-2 font-mono text-[13px] outline-none focus:border-accent"
         />
         <div className="flex flex-wrap items-center gap-2 sm:w-32 sm:flex-col sm:items-stretch">
-          <select value={hours} onChange={(e) => setHours(e.target.value)} aria-label="Time range" className="h-8 rounded-lg border border-line bg-panel-2 px-2 text-xs outline-none focus:border-accent pointer-coarse:h-10">
-            <option value="1">last 1 h</option>
-            <option value="3">last 3 h</option>
-            <option value="24">last 24 h</option>
-            <option value="72">last 3 days</option>
-            <option value="168">last 7 days</option>
-          </select>
+          <Select
+            value={hours}
+            onChange={setHours}
+            aria-label="Time range"
+            base="h-8 rounded-lg border border-line bg-panel-2 px-2 text-xs outline-none hover:border-line-strong focus-visible:border-accent pointer-coarse:h-10"
+            options={[
+              { value: "1", label: "last 1 h" },
+              { value: "3", label: "last 3 h" },
+              { value: "24", label: "last 24 h" },
+              { value: "72", label: "last 3 days" },
+              { value: "168", label: "last 7 days" },
+            ]}
+          />
           <Button size="sm" variant="primary" onClick={run} disabled={busy || !services.length}>
             {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} Run
           </Button>
