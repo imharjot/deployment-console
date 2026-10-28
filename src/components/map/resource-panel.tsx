@@ -19,6 +19,7 @@ import { PinButton } from "../pin-button";
 import { catHue } from "../hue";
 import { Button, Chip, Empty, IconButton, Skeleton, Tabs, copy, cx } from "../ui";
 import { ActionDialog } from "./action-dialog";
+import { CONNECT_PROVIDER, connectTargets } from "./connect";
 import { detailUrl, useResourceActions, useResourceDetail } from "./data";
 import { REMOTE_TEXT, isRemote, isVanishing } from "./chips";
 import { CONFIDENCE, EDGE_FAMILY, EDGE_VERB, FAMILY, HEALTH, HealthDot, healthStyle, iconOf, routingText } from "./kinds";
@@ -198,7 +199,7 @@ export function MapResourcePanel({ r, view, visible, onClose, onSelect, onShowCh
               {tab === "overview" && <Overview r={r} view={view} byKey={byKey} visible={visible} onSelect={onSelect} onShowChildren={onShowChildren} />}
               {tab === "connections" && <Connections r={r} incoming={incoming} outgoing={outgoing} byKey={byKey} visible={visible} onSelect={onSelect} />}
               {tab === "details" && <Details r={r} env={env} />}
-              {tab === "actions" && <Actions r={r} env={env} />}
+              {tab === "actions" && <Actions r={r} env={env} view={view} />}
               {tab === "notes" && <Notes resourceKey={r.key} resourceName={r.name} env={r.env} />}
             </motion.div>
           )}
@@ -207,8 +208,9 @@ export function MapResourcePanel({ r, view, visible, onClose, onSelect, onShowCh
     </div>
   );
 
+  // On phones too it keeps the side sheet's layer (z-50), so its action dialogs (z-85) open above it.
   return phone ? (
-    <Modal onClose={onClose} aria-label={`${r.name} details`} className="h-[90dvh]">
+    <Modal onClose={onClose} z="z-50" aria-label={`${r.name} details`} className="h-[90dvh]">
       {body}
     </Modal>
   ) : (
@@ -765,7 +767,7 @@ function ObjectBrowser({ r, env, section, page, prefix, loading, error, onPrefix
   );
 }
 
-function Actions({ r, env }: { r: Resource; env?: { label: string; protected: boolean } }) {
+function Actions({ r, env, view }: { r: Resource; env?: { label: string; protected: boolean }; view: InventoryView }) {
   const { data, error, isLoading } = useResourceActions(r.key);
   const [open, setOpen] = useState<ActionInfo | null>(null);
   const list = data?.actions ?? [];
@@ -850,7 +852,18 @@ function Actions({ r, env }: { r: Resource; env?: { label: string; protected: bo
           </ul>
         )}
       </Swap>
-      <AnimatePresence>{open && <ActionDialog key={`${open.provider}:${open.id}`} r={r} action={open} env={env} onClose={() => setOpen(null)} />}</AnimatePresence>
+      <AnimatePresence>
+        {open && (
+          <ActionDialog
+            key={`${open.provider}:${open.id}`}
+            r={r}
+            action={open}
+            env={env}
+            choices={open.provider === CONNECT_PROVIDER ? { to: connectTargets(r, view.resources) } : undefined}
+            onClose={() => setOpen(null)}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }

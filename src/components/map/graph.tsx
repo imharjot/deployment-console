@@ -59,11 +59,16 @@ export interface GraphProps {
   onActivate(n: LayoutNode): void;
   onCollapse(groupId: string): void;
   onCollapseParent?(key: string): void;
+  // Drag from an ECS service's handle onto another node: the two resource keys (the page opens Connect to).
+  onConnect?(from: string, to: string): void;
   ref?: Ref<GraphHandle>;
 }
 
 type Win = Box & { z: number };
-type Gesture = { kind: "pan"; sx: number; sy: number; ox: number; oy: number; moved: boolean; onBg: boolean } | { kind: "pinch"; d0: number; mx: number; my: number; v0: View };
+type Gesture =
+  | { kind: "pan"; sx: number; sy: number; ox: number; oy: number; moved: boolean; onBg: boolean }
+  | { kind: "pinch"; d0: number; mx: number; my: number; v0: View }
+  | { kind: "link"; from: string; x: number; y: number }; // a connection being drawn from (x, y), box coordinates
 
 const push = <K, V>(m: Map<K, V[]>, k: K, v: V) => {
   const a = m.get(k);
@@ -81,7 +86,7 @@ function useFrame(vp: Viewport, f: (v: View) => void) {
   useLayoutEffect(() => vp.onFrame((v) => ref.current(v)), [vp]);
 }
 
-export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, context, selected, lanes, envMeta, fitKey, phone = false, alarmed, showAllEdges = false, onShowAllEdges, onActivate, onCollapse, onCollapseParent, ref }: GraphProps) {
+export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, context, selected, lanes, envMeta, fitKey, phone = false, alarmed, showAllEdges = false, onShowAllEdges, onActivate, onCollapse, onCollapseParent, onConnect, ref }: GraphProps) {
   const box = useRef<HTMLDivElement>(null);
   const plane = useRef<HTMLDivElement>(null);
   const [vp] = useState(() => createViewport({ x: 0, y: 0, z: 0.5 }));
@@ -156,6 +161,9 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
   const els = useRef(new Map<string, HTMLElement>());
   const pendingFocus = useRef<string | null>(null);
   const gesture = useRef<Gesture | null>(null);
+  // The connection being dragged: a line in box coordinates and the node under the pointer, drawn outside React.
+  const linkLine = useRef<SVGLineElement>(null);
+  const linkTo = useRef<Element | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
 
   // ---------- the viewport: frames move the plane, commits re-render ----------
@@ -355,10 +363,46 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
   const setGrab = (on: boolean) => {
     if (box.current) box.current.style.cursor = on ? "grabbing" : "grab"; // no React render while panning
   };
+  // ---------- drag to connect ----------
+  const nodeAt = (x: number, y: number) => document.elementFromPoint(x, y)?.closest("[data-node]") ?? null;
+  const drawLink = (x1: number, y1: number, x2: number, y2: number) => {
+    const l = linkLine.current;
+    if (!l) return;
+    for (const [k, v] of [["x1", x1], ["y1", y1], ["x2", x2], ["y2", y2]] as const) l.setAttribute(k, String(v));
+    l.style.display = "";
+  };
+  const markTarget = (el: Element | null) => {
+    if (linkTo.current === el) return;
+    linkTo.current?.removeAttribute("data-link-target");
+    el?.setAttribute("data-link-target", "");
+    linkTo.current = el;
+  };
+  const endLink = () => {
+    if (linkLine.current) linkLine.current.style.display = "none";
+    markTarget(null);
+  };
+
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const t = e.target as Element;
     if (t.closest("[data-overlay]")) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    const handle = onConnect && !pointers.current.size ? t.closest("[data-connect]") : null;
+    const from = handle?.closest("[data-node]")?.getAttribute("data-node");
+    if (handle && from) {
+      const b = box.current!.getBoundingClientRect();
+      const h = handle.getBoundingClientRect();
+      const x = h.left + h.width / 2 - b.left, y = h.top + h.height / 2 - b.top;
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      gesture.current = { kind: "link", from, x, y };
+      try {
+        box.current!.setPointerCapture(e.pointerId); // the click that ends it lands on the map, not the node
+      } catch {
+        /* synthetic pointer */
+      }
+      drawLink(x, y, x, y);
+      setHover(null);
+      return;
+    }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     anim.current?.stop();
     if (pointers.current.size === 2) {
@@ -385,6 +429,13 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const g = gesture.current;
     if (!g) return;
+    if (g.kind === "link") {
+      const b = box.current!.getBoundingClientRect();
+      drawLink(g.x, g.y, e.clientX - b.left, e.clientY - b.top);
+      const over = nodeAt(e.clientX, e.clientY);
+      markTarget(over && over.getAttribute("data-node") !== g.from ? over : null);
+      return;
+    }
     if (g.kind === "pinch") {
       const [a, b] = [...pointers.current.values()];
       if (!a || !b) return;
@@ -413,6 +464,15 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
   const onPointerEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (!pointers.current.delete(e.pointerId)) return;
     const g = gesture.current;
+    if (g?.kind === "link") {
+      gesture.current = null;
+      endLink();
+      const to = e.type === "pointerup" ? nodeAt(e.clientX, e.clientY)?.getAttribute("data-node") : undefined;
+      const nodes = live.current.layout.nodeById;
+      const a = nodes.get(g.from)?.key, b = to ? nodes.get(to)?.key : undefined;
+      if (a && b && a !== b) onConnect?.(a, b);
+      return;
+    }
     if (g?.kind === "pinch") {
       // One finger stays down: carry on as a pan from where it is, so the plane never jumps.
       const rest = [...pointers.current.values()][0];
@@ -524,8 +584,9 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
         if (el) els.current.set(id, el);
         else els.current.delete(id);
       },
+      ...(onConnect ? { connectable: (r?: Resource) => r?.kind === "ecs-service" } : {}),
     }),
-    [onKey, ensureVisible],
+    [onKey, ensureVisible, onConnect],
   );
 
   // ---------- culling & level of detail (from the settled view) ----------
@@ -615,6 +676,11 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
       }}
     >
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_45%,transparent_60%,color-mix(in_srgb,var(--text)_3.5%,transparent))]" />
+      {onConnect && (
+        <svg aria-hidden className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible">
+          <line ref={linkLine} style={{ display: "none" }} stroke="var(--accent)" strokeWidth={2} strokeDasharray="6 5" strokeLinecap="round" />
+        </svg>
+      )}
       <div
         ref={plane}
         className="absolute left-0 top-0 origin-top-left will-change-transform"

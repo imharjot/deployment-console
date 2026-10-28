@@ -242,6 +242,29 @@ check("provision: the copy shows in the overview", (await get("/api/overview?env
 const del = await P("delete-service", { env: "staging", service: "smoke-copy", confirm: "smoke-copy", reason: "smoke cleanup" });
 check("provision: console-created service can be deleted", del.status === 202, del.json.error ?? "");
 
+// --- a new service from an image: staging is host-networked (nothing to borrow subnets from), and production is only
+// ever planned or refused here. The full create → delete round trip runs in src/lib/provision.test.ts.
+const imgs = (await get("/api/provision/images?env=production")).json;
+check("provision: the new-service form lists the region's ECR repositories", imgs.repositories?.length > 0, `${imgs.repositories?.length ?? 0} repositories`);
+const repo0 = imgs.repositories?.find((x) => x.name.endsWith("storefront-api")) ?? imgs.repositories?.[0];
+const tags0 = repo0 ? (await get(`/api/provision/images?env=production&repository=${encodeURIComponent(repo0.name)}`)).json : {};
+check("provision: and a repository's newest tags", tags0.tags?.length > 0 && tags0.tags.every((t, i, a) => !i || (a[i - 1].pushedAt ?? 0) >= (t.pushedAt ?? 0)), `${tags0.tags?.length ?? 0} tags, newest ${tags0.tags?.[0]?.tag}`);
+check("provision: an ECR repository that isn't there is refused", (await get("/api/provision/images?env=production&repository=acme/nothing-here")).status === 404);
+const newBody = { env: "production", name: "smoke-new", image: `${repo0?.uri}:${tags0.tags?.[0]?.tag}`, port: 8080, desired: 0 };
+const np = await P("create", { ...newBody, dryRun: true });
+check(
+  "provision: a new service's plan has its own security group, a borrowed network and a typed confirmation",
+  np.status === 200 && np.json.changes?.some((c) => c.startsWith("Create security group acme-production-smoke-new")) && np.json.changes?.some((c) => /No task role/.test(c)) && np.json.confirm?.expected === "smoke-new" && np.json.confirm?.needReason === true,
+  np.json.error ?? np.json.summary,
+);
+check("provision: a new service in production without a reason is refused", (await P("create", { ...newBody, confirm: "smoke-new" })).status === 400);
+check("provision: nothing created by refused or planned new services", !(await get("/api/overview?env=production")).json.services.some((x) => x.id === "smoke-new"));
+check("provision: a new service needs a service with awsvpc networking to borrow from", (await P("create", { ...newBody, env: "staging", dryRun: true })).status === 409);
+check("provision: unknown fields in a new service are refused", (await P("create", { ...newBody, taskRoleArn: "arn:aws:iam::123456789012:role/admin", dryRun: true })).status === 400);
+const pinfo = (await get("/api/provision?env=production&groups=1")).json;
+check("provision: info says where a new service borrows from, and lists left-behind groups", pinfo.donor?.ok === true && Array.isArray(pinfo.groups), `donor ${pinfo.donor?.donor}, ${pinfo.groups?.length} left`);
+check("provision: a security group the console didn't make is never deleted", [403, 404].includes((await P("delete-security-group", { env: "staging", id: "sg-0123456789abcdef0", confirm: "sg-0123456789abcdef0", reason: "smoke" })).status));
+
 // --- agents & API: operations, tokens, approvals, MCP
 const opsList = await get("/api/ops");
 check("ops: catalog", opsList.status === 200 && opsList.json.operations.length >= 30, `${opsList.json.operations?.length} operations`);

@@ -287,6 +287,113 @@
       }
     },
     {
+      "Sid": "CreateSecurityGroupsTaggedByTheConsole",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateSecurityGroup"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "CreateSecurityGroupsInExistingVpcs",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateSecurityGroup"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:vpc/*"
+    },
+    {
+      "Sid": "TagSecurityGroupsAtCreationOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTags"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": "CreateSecurityGroup"
+        }
+      }
+    },
+    {
+      "Sid": "DeleteOnlyConsoleCreatedSecurityGroups",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DeleteSecurityGroup"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "OpenSecurityGroupsMadeByTheConsole",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupIngress"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "OpenSecurityGroupsTaggedForConnections",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupIngress"
+      ],
+      "Resource": "arn:aws:ec2:REGION:ACCOUNT_ID:security-group/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:ResourceTag/console:connect": "allow"
+        }
+      }
+    },
+    {
+      "Sid": "CreateServiceConnectNamespacesTaggedByTheConsole",
+      "Effect": "Allow",
+      "Action": [
+        "servicediscovery:CreateHttpNamespace",
+        "servicediscovery:TagResource"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/console:created": "true"
+        }
+      }
+    },
+    {
+      "Sid": "ServiceConnectThroughEcs",
+      "Effect": "Allow",
+      "Action": [
+        "servicediscovery:CreateService",
+        "servicediscovery:GetNamespace",
+        "servicediscovery:GetService"
+      ],
+      "Resource": "arn:aws:servicediscovery:REGION:ACCOUNT_ID:*"
+    },
+    {
+      "Sid": "FollowCloudMapOperations",
+      "Effect": "Allow",
+      "Action": [
+        "servicediscovery:GetOperation"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "NeverActOnTheConsoleItself",
       "Effect": "Deny",
       "Action": [

@@ -17,7 +17,7 @@ export const CREATED_TAG = "console:created";
 export const CREATED_FROM_TAG = "console:created-from";
 export const isConsoleCreated = (tags: Record<string, string> | undefined) => tags?.[CREATED_TAG] === "true";
 
-export type ProvisionAction = "clone" | "scale" | "run-task" | "add-host" | "delete-service" | "terminate-host";
+export type ProvisionAction = "clone" | "create" | "scale" | "run-task" | "add-host" | "delete-service" | "delete-security-group" | "terminate-host";
 export type Check = { ok: true } | { ok: false; status: number; error: string };
 type Parsed<T> = { ok: true; value: T } | { ok: false; status: 400; error: string };
 const fail = (status: number, error: string): Check => ({ ok: false, status, error });
@@ -49,6 +49,7 @@ export const NEW_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,254}$/;
 const SERVICE = /^[A-Za-z0-9_-]{1,255}$/;
 const ENV = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const INSTANCE_ID = /^i-[0-9a-f]{8,17}$/;
+const GROUP_ID = /^sg-[0-9a-f]{8,17}$/;
 const INSTANCE_TYPE = /^[a-z][a-z0-9-]*\.[a-z0-9]+$/;
 // [registry[:port]/]repo[/path]:tag, …@sha256:digest or both. An explicit tag or digest is required: "latest" by
 // omission makes the plan lie about what will run.
@@ -90,6 +91,9 @@ export function fargateSizeProblem(cpu: number, memory: number): string | undefi
   if (!mems.includes(memory)) return `${cpu} CPU units allow ${mems[0]}–${mems[mems.length - 1]} MiB memory in steps of ${mems.length > 1 ? mems[1] - mems[0] : mems[0]} MiB, not ${memory}`;
   return undefined;
 }
+
+export const portProblem = (port: number): string | undefined =>
+  Number.isInteger(port) && port >= 1 && port <= 65535 ? undefined : `${port} isn't a TCP port (1–65535)`;
 
 export function instanceTypeProblem(type: string, allowed?: string[]): string | undefined {
   if (!INSTANCE_TYPE.test(type)) return `"${type}" isn't an EC2 instance type (e.g. t3a.medium)`;
@@ -159,6 +163,15 @@ export interface CloneInput extends Confirmable {
   cpu?: number;
   memory?: number;
 }
+export interface CreateInput extends Confirmable {
+  env: string;
+  name: string;
+  image: string;
+  port?: number; // the container's port; none for a worker
+  cpu?: number; // Fargate size, default DEFAULT_SIZE
+  memory?: number;
+  desired: number;
+}
 export interface ScaleInput extends Confirmable {
   env: string;
   service: string;
@@ -179,6 +192,10 @@ export interface AddHostInput extends Confirmable {
 export interface DeleteServiceInput extends Confirmable {
   env: string;
   service: string;
+}
+export interface DeleteGroupInput extends Confirmable {
+  env: string;
+  id: string; // sg-…
 }
 export interface TerminateHostInput extends Confirmable {
   env: string;
@@ -228,17 +245,23 @@ export const parseClone = (b: unknown) =>
     env: env("the id of the environment to create the service in"), sourceEnv: env("the id of the source service's environment"), source: service,
     name: { type: "string", required: true, max: 255 }, image: { type: "string", max: 255 }, desired: { type: "int", required: true }, cpu: { type: "int" }, memory: { type: "int" },
   });
+export const parseCreate = (b: unknown) =>
+  parse<CreateInput>(b, {
+    env: env("the id of the environment to create the service in"), name: { type: "string", required: true, max: 255 }, image: { type: "string", required: true, max: 255 },
+    port: { type: "int" }, cpu: { type: "int" }, memory: { type: "int" }, desired: { type: "int", required: true },
+  });
 export const parseScale = (b: unknown) => parse<ScaleInput>(b, { env: env(), service, desired: { type: "int", required: true } });
 export const parseRunTask = (b: unknown) =>
   parse<RunTaskInput>(b, { env: env(), service, container: { type: "string", re: SERVICE, what: "a container name" }, command: { type: "strings" } });
 export const parseAddHost = (b: unknown) =>
   parse<AddHostInput>(b, { env: env(), from: { type: "string", re: INSTANCE_ID, required: true, what: "an EC2 instance id" }, count: { type: "int", required: true }, instanceType: { type: "string", max: 40 } });
 export const parseDeleteService = (b: unknown) => parse<DeleteServiceInput>(b, { env: env(), service });
+export const parseDeleteGroup = (b: unknown) => parse<DeleteGroupInput>(b, { env: env(), id: { type: "string", re: GROUP_ID, required: true, what: "a security group id (sg-…)" } });
 export const parseTerminateHost = (b: unknown) => parse<TerminateHostInput>(b, { env: env(), id: { type: "string", re: INSTANCE_ID, required: true, what: "an EC2 instance id" } });
 
 // ---------- confirmations ----------
 
-export const DANGER: ProvisionAction[] = ["delete-service", "terminate-host"];
+export const DANGER: ProvisionAction[] = ["delete-service", "delete-security-group", "terminate-host"];
 export interface ConfirmNeed {
   expected: string; // "yes" = one click
   needReason: boolean;
@@ -269,6 +292,8 @@ export interface ServiceFacts {
 }
 
 const disabled = (l: ProvisionLimits): Check => (l.enabled ? OK : fail(403, "provisioning is turned off for this console (console.config.json → provisioning.enabled)"));
+// A new service (or a copy) may be created at all: the rest is checked field by field, by the form and the server alike.
+export const createCheck = (l: ProvisionLimits): Check => disabled(l);
 
 export function scaleCheck(s: ServiceFacts, limits: ProvisionLimits, desired?: number): Check {
   if (s.isSelf) return fail(403, "the console never changes its own service");
@@ -294,6 +319,14 @@ export function runTaskCheck(s: ServiceFacts, limits: ProvisionLimits): Check {
 export function deleteServiceCheck(s: ServiceFacts): Check {
   if (s.isSelf) return fail(403, "the console never deletes its own service");
   if (!s.created) return fail(403, "only services the console created (tag console:created=true) can be deleted here");
+  return OK;
+}
+
+// A security group the console made for a new service, left behind once that service is gone (AWS keeps it while a
+// stopping task still holds a network interface in it).
+export function deleteGroupCheck(g: { created: boolean; usedBy: string[] }): Check {
+  if (!g.created) return fail(403, "only security groups the console created (tag console:created=true) can be deleted here");
+  if (g.usedBy.length) return fail(409, `${g.usedBy.join(", ")} still ${g.usedBy.length === 1 ? "uses" : "use"} this security group — delete ${g.usedBy.length === 1 ? "that service" : "those services"} first`);
   return OK;
 }
 
@@ -466,6 +499,35 @@ export function pickNetwork(source: { service: string; networkMode?: string; lau
   return { ok: true, mode: "awsvpc", from: pick.service, sameAsSource: false, why: `subnets and security groups of ${targetEnv}/${pick.service} (${because})` };
 }
 
+// ---------- a new service from an image ----------
+
+// What a new service borrows from one already running in its environment: subnets and the public-IP setting that go
+// with them (a public subnet without NAT needs a public IP to pull images), the execution role that pulls images and
+// writes logs, and the log group. Never its task role: a new app gets no AWS permissions it wasn't given.
+export interface CreateDonor {
+  service: string;
+  subnets: string[];
+  launchType: string;
+  executionRole?: string;
+  logGroup?: string;
+  isSelf: boolean;
+}
+export type DonorChoice = { ok: true; donor: string; why: string } | { ok: false; error: string };
+
+// Fargate first (its subnets already serve Fargate tasks), then by name; never the console's own service, whose
+// execution role may reach the console's secrets.
+export function pickDonor(env: string, donors: CreateDonor[]): DonorChoice {
+  const ok = donors.filter((d) => d.subnets.length && d.executionRole && d.logGroup && !d.isSelf).sort((a, b) => Number(b.launchType === "FARGATE") - Number(a.launchType === "FARGATE") || a.service.localeCompare(b.service));
+  const pick = ok[0];
+  if (!pick) return { ok: false, error: `no service in ${env} runs with awsvpc networking, an execution role and CloudWatch logs to take subnets, a role and a log group from — copy a service instead` };
+  return { ok: true, donor: pick.service, why: pick.launchType === "FARGATE" ? "it runs on Fargate there" : "the first service there with awsvpc networking" };
+}
+
+export const DEFAULT_SIZE = { cpu: 256, memory: 512 };
+
+// Its own group, named after the cluster and service so two clusters sharing a VPC don't collide ("sg-" is reserved).
+export const groupNameFor = (cluster: string, name: string) => `${cluster}-${name}`.replace(/^sg-/i, "ecs-sg-").slice(0, 255);
+
 // Can the target cluster run what the source runs on? (Only asked for a copy into another environment.)
 export function capacityProblem(spec: { launchType?: string; capacityProviders: string[] }, target: { env: string; capacityProviders: string[]; containerInstances: number }): string | undefined {
   const missing = spec.capacityProviders.filter((p) => !target.capacityProviders.includes(p));
@@ -559,6 +621,46 @@ export function clonePlan(f: CloneFacts): ProvisionPlan {
     changes, warnings,
     estimate: serviceEstimate(f.source.launchType, cpu, memory, Math.max(f.desired, 0), f.source.arm, f.rates),
     confirm: confirmFor("clone", f.env.protected, f.name),
+  };
+}
+
+export interface CreateFacts {
+  env: { id: string; protected: boolean };
+  name: string;
+  image: string;
+  port?: number;
+  cpu: number;
+  memory: number;
+  desired: number;
+  donor: { service: string; why: string; subnets: string[]; assignPublicIp: boolean; vpcId: string; executionRole: string; logGroup: string };
+  group: string; // name of its new security group
+  familyExists: boolean; // a console-created family of that name already exists (an earlier service of that name)
+  rates?: Rates;
+}
+
+export function createPlan(f: CreateFacts): ProvisionPlan {
+  const d = f.donor;
+  const role = d.executionRole.split("/").pop() ?? d.executionRole;
+  const changes = [
+    `Create security group ${f.group} in ${d.vpcId}: no inbound rules, all outbound traffic allowed`,
+    `Register task definition ${f.name} (${f.familyExists ? "a new revision of the family the console created earlier" : "new family"}): one container running ${f.image}${f.port ? ` on port ${f.port}/tcp` : ", no port"}, Fargate ${size(f.cpu, f.memory)}, Linux/x86_64`,
+    `Execution role ${role} (the one ${d.service} uses): pulls the image and writes the logs. No task role — the app gets no AWS permissions`,
+    `Logs: ${d.logGroup} (where ${d.service} logs), stream prefix ${f.name}/`,
+    `Create service ${f.name} in ${f.env.id} on Fargate with ${plural(f.desired, "task")}, circuit breaker on (rolls back if tasks fail to start)`,
+    `Networking: the subnets of ${f.env.id}/${d.service} (${d.why}), ${d.assignPublicIp ? "with" : "without"} a public IP like it`,
+    `${tagLine(f.image)} on the service, its task definition and its security group — tasks inherit them (propagateTags SERVICE)`,
+  ];
+  const warnings = [
+    "Nothing can reach it yet: its security group allows no inbound traffic, and no load balancer sends it requests.",
+    "No variables yet — add them in its Variables tab (a new revision, then a rolling deploy).",
+    `The image must be built for Linux/x86_64 and pullable by ${role}.`,
+  ];
+  return {
+    action: "create", env: f.env.id, risk: "danger",
+    summary: `Create ${f.name} in ${f.env.id} from ${f.image.split("/").pop()} (${plural(f.desired, "task")})`,
+    changes, warnings,
+    estimate: serviceEstimate("FARGATE", f.cpu, f.memory, Math.max(f.desired, 0), false, f.rates),
+    confirm: confirmFor("create", f.env.protected, f.name),
   };
 }
 
@@ -699,19 +801,46 @@ export interface DeleteServiceFacts {
   service: string;
   desired: number;
   family?: string;
+  groups?: string[]; // security groups the console created for it
+  rules?: string[]; // the console's connection rules elsewhere that admit those groups ("sg-db allows sg-x on 5432")
   rates?: Rates;
 }
 
 export function deleteServicePlan(f: DeleteServiceFacts): ProvisionPlan {
+  const groups = f.groups ?? [];
+  const rules = f.rules ?? [];
   return {
     action: "delete-service", env: f.env.id, risk: "danger",
     summary: `Delete ${f.service} from ${f.env.id}`,
     changes: [
       `Set its desired count to 0 (now ${f.desired}), then delete the service (DeleteService, force)`,
+      // A rule naming the group keeps AWS from deleting it; the console's own connection rules go first.
+      ...rules.map((r) => `Remove the console's connection rule ${r}`),
+      ...(groups.length ? [`Delete its security group${groups.length === 1 ? "" : "s"} ${groups.join(", ")} (created with it)`] : []),
       `Keep its task definitions${f.family ? ` (family ${f.family})` : ""} — harmless, and they keep the history; deregister them in AWS if you want them gone`,
     ],
-    warnings: ["Its tasks stop within a minute. This can't be undone — creating it again makes a new service."],
+    warnings: [
+      "Its tasks stop within a minute. This can't be undone — creating it again makes a new service.",
+      ...(groups.length && f.desired > 0 ? ["AWS keeps a security group while a stopping task still uses it: if it does, delete it a minute later from New → Created by the console."] : []),
+    ],
     confirm: confirmFor("delete-service", f.env.protected, f.service),
+  };
+}
+
+export interface DeleteGroupFacts {
+  env: { id: string; protected: boolean };
+  id: string;
+  name: string;
+  vpcId?: string;
+}
+
+export function deleteGroupPlan(f: DeleteGroupFacts): ProvisionPlan {
+  return {
+    action: "delete-security-group", env: f.env.id, risk: "danger",
+    summary: `Delete security group ${f.name} (${f.id})${f.vpcId ? ` in ${f.vpcId}` : ""}`,
+    changes: [`Delete security group ${f.id}, which the console created for a service that is gone`],
+    warnings: ["AWS refuses while something still uses it — a stopping task's network interface, or another security group's rule that allows it. Try again in a minute."],
+    confirm: confirmFor("delete-security-group", f.env.protected, f.id),
   };
 }
 
@@ -741,13 +870,16 @@ export function terminateHostPlan(f: TerminateHostFacts): ProvisionPlan {
 
 // ---------- what the console's AWS identity may do (F06) ----------
 
-// The IAM actions each provisioning action needs (CONSOLE_WRITES in capability-rules.ts). A delete is ECS only, a
-// terminate EC2 only, though both share the "provision.delete" entry; scaling is an UpdateService like the actions.
+// The IAM actions each provisioning action needs (CONSOLE_WRITES in capability-rules.ts). The three deletes share the
+// "provision.delete" entry and need one action each (a service's leftover security group goes later if AWS refuses);
+// scaling is an UpdateService like the actions.
 export function provisionIam(action: ProvisionAction): string[] {
   const of = (write: string) => (Object.hasOwn(CONSOLE_WRITES, write) ? [...CONSOLE_WRITES[write]] : []);
   switch (action) {
     case "clone":
       return of("provision.service");
+    case "create":
+      return of("provision.create");
     case "scale":
       return of("ecs.scale");
     case "run-task":
@@ -755,9 +887,11 @@ export function provisionIam(action: ProvisionAction): string[] {
     case "add-host":
       return of("provision.hosts");
     case "delete-service":
-      return of("provision.delete").filter((a) => a.startsWith("ecs:"));
+      return of("provision.delete").filter((a) => a === "ecs:DeleteService");
+    case "delete-security-group":
+      return of("provision.delete").filter((a) => a === "ec2:DeleteSecurityGroup");
     case "terminate-host":
-      return of("provision.delete").filter((a) => a.startsWith("ec2:"));
+      return of("provision.delete").filter((a) => a === "ec2:TerminateInstances");
   }
 }
 
@@ -799,6 +933,9 @@ export interface ProvisionInfo {
   hostCountDetail?: string;
   capability: Record<ProvisionAction, CapabilityGate>; // F06: what the console's AWS identity may do
   sources?: { env: string; envLabel: string; protected: boolean; name: string; display: string; launchType: string; networkMode?: string; cpu?: number; memory?: number; image?: string; self: boolean }[];
+  donor: DonorChoice; // where a new service would take its subnets, execution role and log group from (pickDonor)
+  // With &groups=1: security groups the console made for services of this env that no service uses any more.
+  groups?: { id: string; name: string; vpcId?: string; madeFor: string }[];
 }
 
 // Tags to put on something the console creates, keeping a source's own tags except AWS-reserved ones and earlier

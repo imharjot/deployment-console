@@ -97,7 +97,7 @@ function recalled(key: string, family: string): number | undefined {
 
 // A tag the console's own ECR doesn't have would fail to pull: say so in the plan (not a refusal — another account's
 // registry or a digest can't be checked here).
-async function tagWarning(image: string, region: string): Promise<string | undefined> {
+export async function tagWarning(image: string, region: string): Promise<string | undefined> {
   const ref = parseImageRef(image);
   if (!ref.ecr || !ref.tag || ref.digest || ref.region !== region) return undefined;
   const cloud = await getCloud(region);
@@ -195,6 +195,9 @@ const deployImage: ProviderAction<In> = {
     return { service: f.service, env: f.env.id, container: f.container, image: i.image, fromRevision: f.td.revision, taskDefinition, requestId };
   },
 };
+
+// The connect actions (ecs-connect.ts) read an ECS service's live tags the same way.
+export { authoritative as ecsServiceTags };
 
 export const ecsImageProvider: Provider = {
   id: "ecs-image",

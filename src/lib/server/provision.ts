@@ -14,27 +14,30 @@
 // The sampler calls reconcileHostReservations() every tick: joined → registered; 15 minutes without → failed, audited,
 // and an issue (console.ts hostIssues).
 import "server-only";
+import { isConsoleRule } from "../connect.ts";
 import { ratesFrom } from "../costs.ts";
 import { canonicalKey } from "../mutation-keys.ts";
 import {
-  JOIN_TIMEOUT_MS, addHostCheck, addHostPlan, capabilityGate, capabilityWarning, capacityProblem, checkConfirm, cloneCheck, clonePlan, commandProblem, countHosts,
-  createdTags, deleteServiceCheck, deleteServicePlan, fargateSizeProblem, hostCountDetail, imageProblem, instanceTypeProblem, isConsoleCreated, limitsOf,
-  newNameProblem, parseAddHost, parseClone, parseDeleteService, parseRunTask, parseScale, parseTerminateHost, pickNetwork, provisionIam, reservationVerdict,
-  runTaskCheck, runTaskPlan, scaleCheck, scalePlan, terminateHostCheck, terminateHostPlan,
-  type Autoscaling, type CapabilityGate, type Check, type Confirmable, type HostCount, type HostReservation, type ProvisionAction, type ProvisionInfo,
+  CREATED_FROM_TAG, DEFAULT_SIZE, JOIN_TIMEOUT_MS, addHostCheck, addHostPlan, capabilityGate, capabilityWarning, capacityProblem, checkConfirm, cloneCheck, clonePlan,
+  commandProblem, countHosts, createCheck, createPlan, createdTags, deleteGroupCheck, deleteGroupPlan, deleteServiceCheck, deleteServicePlan, fargateSizeProblem,
+  groupNameFor, hostCountDetail, imageProblem, instanceTypeProblem, isConsoleCreated, limitsOf, newNameProblem, parseAddHost, parseClone, parseCreate, parseDeleteGroup,
+  parseDeleteService, parseRunTask, parseScale, parseTerminateHost, pickDonor, pickNetwork, portProblem, provisionIam, reservationVerdict, runTaskCheck, runTaskPlan,
+  scaleCheck, scalePlan, terminateHostCheck, terminateHostPlan,
+  type Autoscaling, type CapabilityGate, type Check, type Confirmable, type CreateDonor, type HostCount, type HostReservation, type ProvisionAction, type ProvisionInfo,
   type ProvisionLimits, type ProvisionPlan, type ReservationVerdict, type ServiceFacts,
 } from "../provision.ts";
 import { can, roleFor, type Perm, type User } from "../rbac.ts";
-import type { EnvInfo, RawBox, RawService, RawTaggedHost } from "../types.ts";
+import type { EnvInfo, RawBox, RawSecurityGroup, RawService, RawTaggedHost } from "../types.ts";
 import { writeAudit } from "./audit.ts";
 import { cached, invalidate } from "./cache.ts";
 import { capability } from "./capability.ts";
 import { liveService } from "./console.ts";
 import { getDb, newId } from "./db.ts";
-import { consoleConfig, envInfo, inRegion, listEnvs, metaOf, servicesOf } from "./discovery.ts";
+import { catalog, consoleConfig, envInfo, inRegion, listEnvs, metaOf, servicesOf } from "./discovery.ts";
 import { HttpError, errText, isOutcomeUnknown } from "./errors.ts";
 import { mutate, type MutationActor, type MutationHandle } from "./mutations.ts";
 import { markVerified } from "./operations.ts";
+import { tagWarning } from "./providers/ecs-image.ts";
 import { cloudFor } from "./sources.ts";
 
 export interface Who {
@@ -294,6 +297,110 @@ async function prepareClone(body: unknown, who: Who): Promise<Prepared<CloneResu
 
 export const planClone = (body: unknown, who: Who) => dryRun(prepareClone(body, who));
 export const runClone = (body: unknown, who: Who) => run(prepareClone, body, who);
+
+// ---------- a new service from an image ----------
+
+export interface CreateResult extends CloneResult {
+  securityGroup: string;
+}
+
+// The main container's log group, where a new service's logs go too (the console creates no log groups).
+const logGroupOf = (s: RawService) => s.taskDef?.containers.find((c) => c.name === s.taskDef?.main)?.logGroup ?? s.taskDef?.logGroup;
+// A service being deleted (DRAINING) neither lends its network nor keeps a security group in use.
+const staying = (list: RawService[]) => list.filter((s) => s.status !== "DRAINING");
+const donorsOf = (env: EnvInfo, list: RawService[]): Promise<CreateDonor[]> =>
+  Promise.all(staying(list).map(async (s) => ({
+    service: s.name, subnets: s.subnets, launchType: s.launchType, executionRole: s.taskDef?.executionRoleArn, logGroup: logGroupOf(s), isSelf: (await metaOf(env, s)).self,
+  })));
+// A security group is "made for" <cluster>/<service> (its console:created-from tag): it goes with that service.
+const madeFor = (env: EnvInfo, service: string) => `${env.cluster}/${service}`;
+
+async function prepareCreate(body: unknown, who: Who): Promise<Prepared<CreateResult>> {
+  const i = parsed(parseCreate(body));
+  const lim = limits();
+  const env = await envInfo(i.env);
+  need(who, "provision", env);
+  orThrow(createCheck(lim));
+  problem(newNameProblem(i.name, []));
+  problem(imageProblem(i.image, lim.allowedImageRegistries));
+  if (i.port !== undefined) problem(portProblem(i.port));
+  const cpu = i.cpu ?? DEFAULT_SIZE.cpu;
+  const memory = i.memory ?? DEFAULT_SIZE.memory;
+  problem(fargateSizeProblem(cpu, memory));
+  if (i.desired < 0 || i.desired > lim.maxTasks) throw new HttpError(400, `desired count must be 0–${lim.maxTasks}`);
+  invalidate(`svc:${at(env)}`);
+  const here = await servicesOf(env.cluster, env.region);
+  if (here.some((s) => s.name === i.name)) throw new HttpError(409, `a service named "${i.name}" already exists in ${env.id}`);
+  const cloud = await cloudFor(env);
+  // As for a copy: a revision in someone else's family could change what their service or pipeline runs.
+  const family = await cloud.familyInfo(i.name);
+  if (family && !family.consoleCreated) throw new HttpError(409, `a task-definition family named "${i.name}" already exists and wasn't created by the console — pick another name`);
+  const choice = pickDonor(env.id, await donorsOf(env, here));
+  if (!choice.ok) throw new HttpError(409, choice.error);
+  const donor = here.find((s) => s.name === choice.donor)!;
+  const net = (await cloud.serviceSpec(env.cluster, donor.name)).network;
+  if (!net?.subnets.length) throw new HttpError(409, `couldn't read the subnets of ${donor.name}`);
+  const vpcId = (await cached(`subnet-vpcs:${inRegion(net.subnets.join(","), env.region)}`, 60_000, () => cloud.subnetVpcs(net.subnets))).value[net.subnets[0]];
+  if (!vpcId) throw new HttpError(409, `couldn't find the VPC of ${donor.name}'s subnets`);
+  const executionRole = donor.taskDef!.executionRoleArn!;
+  const logGroup = logGroupOf(donor)!;
+  const group = groupNameFor(env.cluster, i.name);
+  const plan = createPlan({
+    env, name: i.name, image: i.image, port: i.port, cpu, memory, desired: i.desired, group, familyExists: !!family, rates: rates(env.region),
+    donor: { service: donor.name, why: choice.why, subnets: net.subnets, assignPublicIp: net.assignPublicIp, vpcId, executionRole, logGroup },
+  });
+  const missing = await tagWarning(i.image, env.region);
+  if (missing) plan.warnings.push(missing);
+  const tags = createdTags(i.image);
+
+  return {
+    env, plan, input: i, action: "provision.create", target: i.name,
+    keys: [serviceKey(env, i.name), familyKey(env, i.name)],
+    after: () => refresh(env, i.name, true),
+    execute: async (h) => {
+      await h.intent({ image: i.image, port: i.port, cpu, memory, desired: i.desired, donor: donor.name, vpc: vpcId, securityGroup: group });
+      const groupId = await cloud.createSecurityGroup({
+        vpcId, name: group, description: `Tasks of ECS service ${madeFor(env, i.name)}, created by deployment-console`.slice(0, 255),
+        tags: { ...createdTags(madeFor(env, i.name)), Name: group },
+      });
+      let arn: string | undefined;
+      try {
+        arn = await cloud.registerTaskDefinition({
+          family: i.name, image: i.image, port: i.port, cpu: String(cpu), memory: String(memory), executionRole, logs: { group: logGroup, prefix: i.name }, tags,
+        });
+        const requestId = await cloud.createService({
+          cluster: env.cluster, name: i.name, taskDefinition: arn, desired: i.desired, launchType: "FARGATE", capacityProviderStrategy: [],
+          network: { subnets: net.subnets, securityGroups: [groupId], assignPublicIp: net.assignPublicIp }, placementConstraints: [], placementStrategy: [],
+          enableExecuteCommand: false, tags,
+        });
+        if (requestId) h.requestId(requestId);
+        return { ok: true, requestId, env: env.id, service: i.name, taskDefinition: arn, securityGroup: groupId };
+      } catch (e) {
+        if (isOutcomeUnknown(e)) throw e; // the service may exist: the coordinator records "outcome unknown"
+        // Refused: nothing runs in the new group yet, so it goes again. A registered task definition stays, like a copy's.
+        let left = "";
+        await cloud.deleteSecurityGroup(groupId).catch((x) => {
+          left = `, security group ${groupId} was left (delete it from New → Created by the console)`;
+          log("security group not removed after a refused create", { group: groupId, err: errText(x) });
+        });
+        throw new Error(`${errText(e)} — ${arn ? `task definition ${arn.split("/").pop()} was registered, ` : ""}no service was created${left}`);
+      }
+    },
+  };
+}
+
+export const planCreate = (body: unknown, who: Who) => dryRun(prepareCreate(body, who));
+export const runCreate = (body: unknown, who: Who) => run(prepareCreate, body, who);
+
+// ECR repositories of the environment's region and a repository's newest tags, for the new-service form.
+export async function imageChoices(envId: string, repository?: string): Promise<{ repositories?: { name: string; uri: string }[]; tags?: { tag: string; pushedAt?: number }[] }> {
+  const env = await envInfo(envId);
+  const cloud = await cloudFor(env);
+  const repos = (await cached(`ecr-repos:${inRegion("all", env.region)}`, 60_000, () => cloud.repositories())).value;
+  if (repository === undefined) return { repositories: repos };
+  if (!repos.some((r) => r.name === repository)) throw new HttpError(404, `no ECR repository "${repository.slice(0, 80)}" in ${env.region}`);
+  return { tags: (await cached(`ecr-recent:${inRegion(repository, env.region)}`, 30_000, () => cloud.recentImages(repository))).value };
+}
 
 // ---------- scale ----------
 
@@ -638,6 +745,34 @@ export interface RemoveResult {
   operationId: string;
   env: string;
   target: string;
+  groupsLeft?: string[]; // a deleted service's security groups AWS kept (still in use by its stopping tasks)
+}
+
+const groupKey = (env: EnvInfo, id: string) => canonicalKey({ ec2: { region: env.region, id } });
+
+// The security groups the console made for this service and nothing else of the cluster uses (a copy of a new service
+// shares its group): they go with it.
+async function ownGroups(env: EnvInfo, live: RawService, all: RawService[]): Promise<RawSecurityGroup[]> {
+  if (!live.securityGroups.length) return [];
+  const others = new Set(staying(all).filter((s) => s.name !== live.name).flatMap((s) => s.securityGroups));
+  const groups = await (await cloudFor(env)).securityGroups(live.securityGroups);
+  return groups.filter((g) => isConsoleCreated(g.tags) && g.tags?.[CREATED_FROM_TAG] === madeFor(env, live.name) && !others.has(g.id));
+}
+
+// The console's connection rules (Connect, providers/ecs-connect.ts) in the environment's other groups that admit
+// one of `own`: AWS won't delete a group another group's rule names, and they connect nothing once it's gone.
+async function connectionRules(env: EnvInfo, own: string[], svcs: RawService[]): Promise<{ group: string; port: number; from: string; text: string }[]> {
+  if (!own.length) return [];
+  const cat = await catalog(env.id).catch(() => undefined);
+  const ids = [...new Set([...svcs.flatMap((s) => s.securityGroups), ...(cat?.databases ?? []).flatMap((d) => d.securityGroups), ...(cat?.caches ?? []).flatMap((c) => c.securityGroups)])].filter((g) => !own.includes(g));
+  if (!ids.length) return [];
+  const out: { group: string; port: number; from: string; text: string }[] = [];
+  for (const g of await (await cloudFor(env)).securityGroups(ids))
+    for (const r of g.inbound)
+      for (const from of r.groups.filter((x) => own.includes(x)))
+        if (r.fromPort !== undefined && r.fromPort >= 0 && isConsoleRule(r.notes?.[from] ?? (r.groups.length === 1 ? r.description : undefined)))
+          out.push({ group: g.id, port: r.fromPort, from, text: `${g.id} allows ${from} on ${r.fromPort}` });
+  return out;
 }
 
 async function prepareDeleteService(body: unknown, who: Who): Promise<Prepared<RemoveResult>> {
@@ -647,23 +782,82 @@ async function prepareDeleteService(body: unknown, who: Who): Promise<Prepared<R
   const { live, meta } = await freshService(env, i.service);
   orThrow(deleteServiceCheck(facts(live, meta.self)));
   if (live.status === "DRAINING") throw new HttpError(409, `${live.name} is already being deleted`);
-  const plan = deleteServicePlan({ env, service: live.name, desired: live.desired, family: live.taskDef?.family });
+  const svcs = await servicesOf(env.cluster, env.region);
+  const groups = (await ownGroups(env, live, svcs)).map((g) => g.id);
+  const rules = await connectionRules(env, groups, svcs);
+  const plan = deleteServicePlan({ env, service: live.name, desired: live.desired, family: live.taskDef?.family, groups, rules: rules.map((r) => r.text) });
   return {
     env, plan, input: i, action: "provision.delete-service", target: live.name,
-    keys: [serviceKey(env, live.name)],
+    keys: [serviceKey(env, live.name), ...[...new Set([...groups, ...rules.map((r) => r.group)])].map((g) => groupKey(env, g))],
     after: () => refresh(env, live.name, true),
     execute: async (h) => {
       const cloud = await cloudFor(env);
-      await h.intent({ desiredBefore: live.desired, taskDefinition: live.taskDef?.arn });
+      await h.intent({ desiredBefore: live.desired, taskDefinition: live.taskDef?.arn, ...(groups.length ? { securityGroups: groups } : {}), ...(rules.length ? { connectionRules: rules.map((r) => r.text) } : {}) });
       const requestId = await cloud.deleteService(env.cluster, live.name);
       if (requestId) h.requestId(requestId);
-      return { ok: true, requestId, env: env.id, target: live.name };
+      for (const r of rules) {
+        await cloud.revokeIngress(r.group, { port: r.port, fromGroup: r.from }).catch((e) => log("connection rule kept after its service was deleted", { rule: r.text, err: errText(e) }));
+      }
+      // Right away only when no task held a network interface in them; otherwise they wait for New → Created by the console.
+      const groupsLeft: string[] = [];
+      for (const g of groups) {
+        await cloud.deleteSecurityGroup(g).catch((e) => {
+          groupsLeft.push(g);
+          log("security group kept after its service was deleted", { group: g, service: live.name, err: errText(e) });
+        });
+      }
+      return { ok: true, requestId, env: env.id, target: live.name, ...(groupsLeft.length ? { groupsLeft } : {}) };
     },
   };
 }
 
 export const planDeleteService = (body: unknown, who: Who) => dryRun(prepareDeleteService(body, who));
 export const runDeleteService = (body: unknown, who: Who) => run(prepareDeleteService, body, who);
+
+// Security groups the console made for this env's services that no service of its cluster uses any more, in the VPCs
+// its services run in. Cached briefly: the New menu reads it each time it opens.
+async function leftoverGroups(env: EnvInfo, svcs: RawService[]): Promise<RawSecurityGroup[]> {
+  const cloud = await cloudFor(env);
+  const subnets = [...new Set(svcs.flatMap((s) => s.subnets))];
+  if (!subnets.length) return [];
+  const vpcs = [...new Set(Object.values((await cached(`subnet-vpcs:${inRegion(subnets.join(","), env.region)}`, 60_000, () => cloud.subnetVpcs(subnets))).value))];
+  const used = new Set(staying(svcs).flatMap((s) => s.securityGroups));
+  const made = (await cached(`created-groups:${inRegion(vpcs.join(","), env.region)}`, 10_000, () => cloud.createdGroups(vpcs))).value;
+  return made.filter((g) => g.tags?.[CREATED_FROM_TAG]?.startsWith(`${env.cluster}/`) && !used.has(g.id));
+}
+
+async function prepareDeleteGroup(body: unknown, who: Who): Promise<Prepared<RemoveResult>> {
+  const i = parsed(parseDeleteGroup(body));
+  const env = await envInfo(i.env);
+  need(who, "provision", env);
+  invalidate(`svc:${at(env)}`);
+  const svcs = await servicesOf(env.cluster, env.region);
+  const cloud = await cloudFor(env);
+  const notFound = (e: unknown) => ((e as { name?: string }).name === "InvalidGroup.NotFound" ? [] : Promise.reject(e));
+  const g = (await cloud.securityGroups([i.id]).catch(notFound))[0];
+  if (!g) throw new HttpError(404, `security group ${i.id} not found in ${env.region}`);
+  if (!g.tags?.[CREATED_FROM_TAG]?.startsWith(`${env.cluster}/`)) throw new HttpError(404, `security group ${i.id} wasn't made for a service of ${env.id}`);
+  orThrow(deleteGroupCheck({ created: isConsoleCreated(g.tags), usedBy: staying(svcs).filter((s) => s.securityGroups.includes(g.id)).map((s) => s.name) }));
+  const plan = deleteGroupPlan({ env, id: g.id, name: g.name, vpcId: g.vpcId });
+  return {
+    env, plan, input: i, action: "provision.delete-security-group", target: g.id,
+    keys: [groupKey(env, g.id)],
+    retrySafe: true, // deleting a deleted group changes nothing
+    after: () => {
+      invalidate(`created-groups:`);
+      refresh(env, undefined, true);
+    },
+    execute: async (h) => {
+      await h.intent({ name: g.name, vpc: g.vpcId, madeFor: g.tags?.[CREATED_FROM_TAG] });
+      const requestId = await cloud.deleteSecurityGroup(g.id);
+      if (requestId) h.requestId(requestId);
+      return { ok: true, requestId, env: env.id, target: g.id };
+    },
+  };
+}
+
+export const planDeleteGroup = (body: unknown, who: Who) => dryRun(prepareDeleteGroup(body, who));
+export const runDeleteGroup = (body: unknown, who: Who) => run(prepareDeleteGroup, body, who);
 
 async function prepareTerminateHost(body: unknown, who: Who): Promise<Prepared<RemoveResult>> {
   const i = parsed(parseTerminateHost(body));
@@ -697,16 +891,18 @@ export const runTerminateHost = (body: unknown, who: Who) => run(prepareTerminat
 // One table for the route: POST /api/provision/<action>.
 export const PROVISION: Record<string, { plan: (body: unknown, who: Who) => Promise<ProvisionPlan>; run: (body: unknown, who: Who) => Promise<unknown> }> = {
   clone: { plan: planClone, run: runClone },
+  create: { plan: planCreate, run: runCreate },
   scale: { plan: planScale, run: runScale },
   "run-task": { plan: planRunTask, run: runRunTask },
   "add-host": { plan: planAddHost, run: runAddHost },
   "delete-service": { plan: planDeleteService, run: runDeleteService },
+  "delete-security-group": { plan: planDeleteGroup, run: runDeleteGroup },
   "terminate-host": { plan: planTerminateHost, run: runTerminateHost },
 };
 
 // ---------- what the UI needs to draw buttons and forms (no writes, no secrets) ----------
 
-export async function provisionInfo(envId: string, user: User, withSources: boolean): Promise<ProvisionInfo> {
+export async function provisionInfo(envId: string, user: User, withSources: boolean, withGroups = false): Promise<ProvisionInfo> {
   const env = await envInfo(envId);
   const [svcs, hosts] = await Promise.all([servicesOf(env.cluster, env.region), hostsOf(env)]);
   // What the cap counts (R23); when that can't be read, the joined hosts only — the run counts again and fails closed.
@@ -714,7 +910,7 @@ export async function provisionInfo(envId: string, user: User, withSources: bool
   const hostCount = ec2
     ? await hostCountFor(env, hosts, false).catch(() => countHosts({ registered: hosts, tagged: [], reservations: [], now: Date.now() }))
     : countHosts({ registered: hosts, tagged: [], reservations: [], now: Date.now() });
-  const actions: ProvisionAction[] = ["clone", "scale", "run-task", "add-host", "delete-service", "terminate-host"];
+  const actions: ProvisionAction[] = ["clone", "create", "scale", "run-task", "add-host", "delete-service", "delete-security-group", "terminate-host"];
   const services = await Promise.all(
     svcs.map(async (s) => {
       const m = await metaOf(env, s);
@@ -756,5 +952,8 @@ export async function provisionInfo(envId: string, user: User, withSources: bool
     hostCountDetail: hostCountDetail(hostCount),
     capability: Object.fromEntries(actions.map((a) => [a, gateOf(a)])) as Record<ProvisionAction, CapabilityGate>,
     sources,
+    donor: env.kind === "compose" ? { ok: false, error: `${env.id} runs on docker compose` } : pickDonor(env.id, await donorsOf(env, svcs)),
+    // An unreadable list just offers nothing to clean up here; the delete itself reads again.
+    ...(withGroups ? { groups: (await leftoverGroups(env, svcs).catch(() => [])).map((g) => ({ id: g.id, name: g.name, vpcId: g.vpcId, madeFor: g.tags?.[CREATED_FROM_TAG] ?? "" })) } : {}),
   };
 }

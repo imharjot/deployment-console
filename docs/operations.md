@@ -44,8 +44,10 @@ input.
 | `services.start` | change | developer · operator | Starts a stopped service with its remembered count (or 1). Returns the operation id with `verification: accepted`. |
 | `services.switch` | change | developer · operator | Rolls back or forward to another revision; `migrationAck` required when migrations changed or couldn't be checked. Refused when an essential container's image is no longer in ECR. Returns the operation id with `verification: accepted`. |
 | `services.scale` | change | operator · admin | Sets a running service's desired task count without a new deployment (up to the configured maximum). Warns when Application Auto Scaling would override the count. |
+| `services.create` | danger | operator · admin | Creates a new Fargate service from an image, with its own security group, on the subnets, execution role and log group of a service already in the environment (never its task role or variables). |
 | `services.clone` | danger | operator · admin | Creates a new service in an environment as a copy of an existing one (optionally another image or Fargate size). |
-| `services.delete` | danger | operator · admin | Deletes a service the console created (tagged `console:created=true`). Irreversible; name as confirmation and a reason always. |
+| `services.delete` | danger | operator · admin | Deletes a service the console created (tagged `console:created=true`), and the security group the console made for it. Irreversible; name as confirmation and a reason always. |
+| `services.deleteGroup` | danger | operator · admin | Deletes a security group the console made for a service that is gone, once nothing uses it (AWS keeps it while the service's tasks stop). Group id as confirmation and a reason always. |
 | `tasks.run` | change; **danger** with a `command` | developer · operator | Runs one task from a service's task definition outside the service (migrations, smoke tests), optionally with another command. With a command, a token's request always needs a person's approval. |
 
 ## Hosts and databases

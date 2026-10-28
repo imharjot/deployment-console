@@ -113,6 +113,27 @@ export interface Cloud {
   // or not yet (R23: the host cap counts them while they boot).
   taggedHosts(cluster: string): Promise<RawTaggedHost[]>;
   terminateHost(instanceId: string): Promise<string>;
+  // A new service (provision.ts create): a task definition of its own, and its own security group in the
+  // environment's VPC, deleted again with the service — only groups tagged console:created=true (the policy agrees).
+  registerTaskDefinition(spec: NewTaskDefSpec): Promise<string>; // → task definition ARN
+  createSecurityGroup(o: { vpcId: string; name: string; description: string; tags: Record<string, string> }): Promise<string>; // → group id
+  deleteSecurityGroup(id: string): Promise<string>;
+  createdGroups(vpcIds: string[]): Promise<RawSecurityGroup[]>; // tagged console:created=true, with their tags
+  // ECR in this region, for picking a new service's image: repositories, and a repository's newest tags.
+  repositories(): Promise<{ name: string; uri: string }[]>;
+  recentImages(repository: string): Promise<{ tag: string; pushedAt?: number }[]>; // newest push first, at most 50
+  // Connections (providers/ecs-connect.ts): one rule in a security group admitting another group on a TCP port, and
+  // ECS Service Connect. Callers check everything (src/lib/connect.ts) first.
+  authorizeIngress(groupId: string, rule: { port: number; fromGroup: string; description: string }): Promise<string>;
+  revokeIngress(groupId: string, rule: { port: number; fromGroup: string }): Promise<string>;
+  serviceConnectOf(cluster: string, service: string): Promise<ServiceConnectConfig | null>; // null: Service Connect is off
+  clusterNamespace(cluster: string): Promise<string | undefined>; // the cluster's default Service Connect namespace
+  findNamespace(name: string): Promise<string | undefined>; // the ARN of an HTTP Cloud Map namespace of that name
+  createNamespace(name: string, tags: Record<string, string>): Promise<string>; // → its name (ECS takes a name or an ARN), once made
+  // Turns Service Connect on (or keeps it) in `namespace`, adding `expose` to what the service already serves, with
+  // `taskDefinition` in the same UpdateService when given: one deployment.
+  enableServiceConnect(cluster: string, service: string, o: { namespace: string; expose?: ServiceConnectExpose; taskDefinition?: string }): Promise<string>;
+  registerWithPortName(taskDefinitionArn: string, container: string, port: number, name: string): Promise<string>; // → new revision ARN
   // The simulated account answers health probes itself (real ones are plain HTTP, see probes.ts).
   probe?(cluster: string, service: string, url: string): ProbeResult;
   // CONSOLE_REGIONS=all-enabled resolves through this (ec2:DescribeRegions on AWS; the simulated account's MOCK_REGIONS).
@@ -153,6 +174,28 @@ export interface CopySpec {
   cpu?: string; // task size override (Fargate); container limits above it are lowered to fit
   memory?: string;
   streamPrefix?: string; // awslogs-stream-prefix for every awslogs container, so the copy's logs don't mix with the source's
+  tags: Record<string, string>;
+}
+
+export interface ServiceConnectConfig {
+  namespace?: string;
+  services: { portName: string; discoveryName?: string; dnsName?: string; port?: number }[];
+}
+export interface ServiceConnectExpose {
+  portName: string;
+  name: string; // discovery and DNS name
+  port: number;
+}
+
+// One Fargate container from an image, logging to CloudWatch with the execution role a service of the environment uses.
+export interface NewTaskDefSpec {
+  family: string; // = the service's (and its container's) name
+  image: string;
+  port?: number;
+  cpu: string;
+  memory: string;
+  executionRole: string;
+  logs: { group: string; prefix: string };
   tags: Record<string, string>;
 }
 

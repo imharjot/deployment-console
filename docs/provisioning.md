@@ -1,23 +1,59 @@
 # Create & scale
 
-For testing and growth: copy a service (a canary, a load-test copy, a worker for a one-off job), scale it, run a
-one-off task such as a migration, and add EC2 capacity like the hosts you already have — then remove what you created.
-The console only ever deletes what it created itself.
+For testing and growth: start a new service from an image, copy a service (a canary, a load-test copy, a worker for a
+one-off job), scale it, run a one-off task such as a migration, and add EC2 capacity like the hosts you already have —
+then remove what you created. The console only ever deletes what it created itself.
 
 These features need write permissions the read-only policy doesn't have; see [Turn it on](#turn-it-on).
 
 | Action | Where | Role (unprotected · protected env) | Confirmation |
 |---|---|---|---|
-| **Copy a service** | overview → **New**, or a service's **Copy** | operator · admin | one click · new name + reason |
+| **New service** | overview → **New**, or the cloud map's **New service** | operator · admin | one click · new name + reason |
+| **Copy a service** | overview → **New**, a service's **Copy**, or **New service** → *Copy a service* | operator · admin | one click · new name + reason |
 | **Scale** | a service's **Scale** | operator · admin | one click · service name + reason |
 | **Run task** | a service's **Run task** | developer · operator | one click · service name + reason |
 | **Add EC2 host** | overview → **New**, or a host's **Add host like this** | operator · admin | one click · environment id + reason |
 | **Delete service** | a console-created service's **Delete** | operator · admin | service name + reason, always |
+| **Delete security group** | overview → **New** → *Created by the console*, for a group a deleted service left | operator · admin | group id + reason, always |
 | **Terminate host** | a console-created host's **Terminate** | operator · admin | instance id + reason, always |
 
 Every action is two steps: fill in the form, then **Review plan** shows what will happen — every change, warnings and a
 monthly cost estimate — computed by a dry run of the same server code that then acts. Confirm there. The overview
 **New** menu also lists everything the console created in the environment, so cleanup is one click away.
+
+## New service
+
+Start something that doesn't exist yet: one container from an image, on Fargate. Pick the environment, name the
+service (also its task-definition family and its container), then the image — a repository of the environment's region
+and one of its tags, newest first (repositories its services already pull from come first), or a pasted image URI with
+a tag or digest (limited to `provisioning.allowedImageRegistries` when set). Give it the port it listens on (empty for a
+worker), a Fargate size (0.25 vCPU · 0.5 GB by default) and a task count; 0 creates it stopped. The dialog's other mode,
+**Copy a service**, is the copy below.
+
+The plan says exactly what it creates:
+
+- **Its own security group** in the environment's VPC, named `<cluster>-<service>`, with no inbound rules (nothing
+  can reach it yet) and all outbound traffic allowed (the AWS default).
+- **A task definition** with that one container, logging to CloudWatch, Linux/x86_64. It borrows from a service
+  already running in the environment — one with awsvpc networking, an execution role and CloudWatch logs, Fargate ones
+  first, never the console's own — its **execution role** (which pulls the image and writes the logs) and its **log
+  group** (stream prefix `<service>/`). Never its task role: the new app gets no AWS permissions, and no variables or
+  secrets. Add variables afterwards in its **Variables** tab.
+- **The service**, on that service's subnets with its public-IP setting (a public subnet without a NAT gateway needs
+  a public IP to pull images), with the circuit breaker on.
+
+The plan names the service it borrows from. Refused: an environment without such a service (copy one instead — a copy
+keeps the source's networking, host networking included); a name already used in the cluster, or a task-definition
+family of that name the console didn't create; an image without a tag or digest; an invalid Fargate size, a port
+outside 1–65535; more than `provisioning.maxTasks` tasks. If AWS refuses the task definition or the service, the new
+security group is deleted again.
+
+**Delete** (a console-created service's **Delete**) also deletes the security group made for it, unless another
+service uses it (a copy of a new service shares its group), and first removes the console's
+[connection](cloud-map.md#connect-services) rules in other groups that admit it — AWS keeps a group another group's
+rule names. AWS keeps a group while a stopping task still holds a
+network interface in it; such a group is listed under **New → Created by the console** — delete it there a minute
+later.
 
 ## Copy a service
 
@@ -101,8 +137,11 @@ they keep the history; deregister the family in AWS if you want it gone. **Termi
 tasks on it stop and ECS places service tasks on the remaining hosts if they have room (the plan warns when no other
 host is running).
 
-Both work **only on resources tagged `console:created=true`** — never on anything discovered, never on the console's
-own service — and always ask for the name (or instance id) and a reason, even on unprotected environments. They stay
+A new service's security group goes with it (see [New service](#new-service)); **Delete security group** removes one
+AWS kept while the service's tasks stopped, once nothing uses it.
+
+All three work **only on resources tagged `console:created=true`** — never on anything discovered, never on the
+console's own service — and always ask for the name (or id) and a reason, even on unprotected environments. They stay
 available when `provisioning.enabled` is `false`, so a team can always clean up.
 
 ## Always true
@@ -110,7 +149,7 @@ available when `provisioning.enabled` is `false`, so a team can always clean up.
 - Everything is validated before any AWS call; unknown fields in a request are rejected, not ignored.
 - Roles are checked on the server (`provision`: operator, `provision:protected`: admin; run task uses `act` /
   `act:protected`). Buttons are drawn with the same guards and say why they're disabled.
-- **For agents:** copying a service, adding hosts, deleting, terminating and a one-off task with a command are
+- **For agents:** creating or copying a service, adding hosts, deleting, terminating and a one-off task with a command are
   *danger* operations — an API token's request always waits for a person's approval, even in *act* mode. Scaling and a
   one-off task with the task definition's own command are *change*: an *act* token runs them on unprotected
   environments. See [Agents & API](automation.md#tokens-and-modes).
@@ -132,8 +171,8 @@ available when `provisioning.enabled` is `false`, so a team can always clean up.
 
 | Tag | On | Meaning |
 |---|---|---|
-| `console:created=true` | copied services (and their tasks, via `propagateTags`), their task definitions, one-off tasks, new instances and their volumes | made by the console; the only resources it will delete |
-| `console:created-from` | the same | the source: `<env>/<service>` or the source instance id |
+| `console:created=true` | new and copied services (and their tasks, via `propagateTags`), their task definitions, new services' security groups, one-off tasks, new instances and their volumes | made by the console; the only resources it will delete |
+| `console:created-from` | the same | the source: `<env>/<service>` of a copy, the image of a new service, the source instance id — and on a security group, the `<cluster>/<service>` it was made for |
 
 ## Cost estimates
 
@@ -158,16 +197,16 @@ All optional, in `console.config.json`:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `provisioning.enabled` | `true` | `false` turns off copy, scale, run task and add host (delete and terminate stay available) |
+| `provisioning.enabled` | `true` | `false` turns off new services, copy, scale, run task and add host (the deletes and terminate stay available) |
 | `provisioning.maxTasks` | `10` | most tasks a service may be created or scaled to (1–1000) |
 | `provisioning.maxHosts` | `3` | most console-created EC2 hosts per environment (0–100; `0` means no new hosts) |
 | `provisioning.allowedInstanceTypes` | any | instance types new hosts may use, for example `["t3a.medium"]` |
-| `provisioning.allowedImageRegistries` | any (for **Deploy image** on the cloud map: the registry the container already uses) | where the image of a copy may come from when you replace it, and a new image deployed from the [cloud map](cloud-map.md#actions): registry hosts or host/path prefixes, matched on whole path segments (`ghcr.io/acme` allows `ghcr.io/acme/api`, not `ghcr.io/acme-evil/api`). Recommended: your own ECR registry |
+| `provisioning.allowedImageRegistries` | any (for **Deploy image** on the cloud map: the registry the container already uses) | where a new service's image may come from, the image of a copy when you replace it, and a new image deployed from the [cloud map](cloud-map.md#actions): registry hosts or host/path prefixes, matched on whole path segments (`ghcr.io/acme` allows `ghcr.io/acme/api`, not `ghcr.io/acme-evil/api`). Recommended: your own ECR registry |
 
 ## API
 
-Agents and scripts use the same code through the operations `services.clone`, `services.scale`, `tasks.run`,
-`hosts.add`, `services.delete` and `hosts.terminate`, with an API token — see [Operations reference](operations.md)
+Agents and scripts use the same code through the operations `services.create`, `services.clone`, `services.scale`,
+`tasks.run`, `hosts.add`, `services.delete`, `services.deleteGroup` and `hosts.terminate`, with an API token — see [Operations reference](operations.md)
 and [Agents & API](automation.md). For example, the plan for scaling `api` in staging to 3 tasks:
 
 ```bash
@@ -184,17 +223,21 @@ a `reason`.
 
 | Action | Body |
 |---|---|
+| `create` | `{ env, name, image, desired, port?, cpu?, memory? }` (cpu/memory default to 256/512) |
 | `clone` | `{ env, sourceEnv, source, name, desired, image?, cpu?, memory? }` |
 | `scale` | `{ env, service, desired }` |
 | `run-task` | `{ env, service, container?, command?: ["npm", "run", "db:migrate"] }` |
 | `add-host` | `{ env, from: "i-…", count, instanceType? }` |
-| `delete-service` | `{ env, service }` |
+| `delete-service` | `{ env, service }` (its result lists `groupsLeft` when AWS kept the service's security group) |
+| `delete-security-group` | `{ env, id: "sg-…" }` |
 | `terminate-host` | `{ env, id: "i-…" }` |
 
 The plan: `{ action, env, summary, changes[], warnings[], estimate?: { monthlyUsd, note }, confirm: { expected,
 needReason }, risk }`. `GET /api/provision?env=<id>` returns what the UI needs to draw these buttons (limits, role
 gates, services and hosts with the facts the guards read; `&sources=1` adds every service in the region that may be
-copied).
+copied; `&groups=1` adds the security groups the console made for services that are gone). `GET
+/api/provision/images?env=<id>` lists the ECR repositories of the environment's region, and `&repository=<name>` that
+repository's 50 newest tags (from its first 5,000 images: ECR doesn't sort them).
 
 ## Turn it on
 
@@ -208,11 +251,13 @@ Add these statements from `infra/iam-policy.json` to the console's role (see
 | `RunOneOffTasks` | `ecs:RunTask` on your task definitions, only with the request tag `console:created=true` | a one-off task can do whatever the service it copies can do (that's the point of a migration) |
 | `LaunchHostsTaggedByTheConsole`, `LaunchHostsFromExistingSettings`, `TagHostsAtLaunchOnly` | `ec2:RunInstances` (the instance and its volumes must carry `console:created=true`), using existing AMIs, subnets, security groups, key pairs and launch templates; `ec2:CreateTags` only at launch | new EC2 instances, which cost money |
 | `TerminateOnlyConsoleCreatedHosts` | `ec2:TerminateInstances`, only on instances tagged `console:created=true` | terminating hosts the console launched; never anything else |
+| `CreateSecurityGroupsTaggedByTheConsole`, `CreateSecurityGroupsInExistingVpcs`, `TagSecurityGroupsAtCreationOnly` | `ec2:CreateSecurityGroup` (the group must carry `console:created=true`; narrow `vpc/*` to your VPCs if you like), `ec2:CreateTags` only at creation | a new service's own security group, with no inbound rules |
+| `DeleteOnlyConsoleCreatedSecurityGroups` | `ec2:DeleteSecurityGroup`, only on groups tagged `console:created=true` | removing that group with its service; never anything else |
 | `ReadHostUserDataToCopyIt` | `ec2:DescribeInstanceAttribute` | reading hosts' user data, which often holds secrets (it never leaves the server) |
 | `PassInstanceProfileRolesToNewHosts` | `iam:PassRole` to `ec2.amazonaws.com` | new hosts get the same instance profile as the host they copy |
 
-Copying and scaling also use `ServiceActions` (`ecs:UpdateService`) and `EditVariablesNewRevision`
-(`ecs:RegisterTaskDefinition`) with `PassTaskRolesToNewRevisions`. Keep the denies at the end of the policy:
+New services, copying and scaling also use `ServiceActions` (`ecs:UpdateService`) and `EditVariablesNewRevision`
+(`ecs:RegisterTaskDefinition`) with `PassTaskRolesToNewRevisions` (a new service passes the execution role it borrows). Keep the denies at the end of the policy:
 `NeverActOnTheConsoleItself` (no update or delete of the console's own service), `NeverRunTheConsolesTaskDefinition`
 and `NeverCreateAServiceFromTheConsole` (no task or service from the console's task family),
 `NeverPassTheConsolesOwnRole` (nothing else gets the console's role) and `NeverStopOrScaleTheConsolesOwnHost` (no
@@ -227,8 +272,10 @@ and leave these statements out; the rest of the console keeps working.
 ## Limitations
 
 - Copies stay in one region: the source must be in the target environment's region (a copy across regions is refused).
-- No load balancer, Service Connect, service discovery or auto scaling for copies — add those in your infrastructure
-  code if a copy should take real traffic.
+- New services run on Fargate only, Linux/x86_64, with one container and no health check; an environment needs a
+  service with awsvpc networking to borrow subnets from (on host-networked EC2 clusters, copy a service instead).
+- No load balancer, Service Connect, service discovery or auto scaling for new services and copies — add those in your
+  infrastructure code if one should take real traffic.
 - A copy keeps the source's roles and variables; the console doesn't create IAM roles, secrets or log groups.
 - EC2 hosts copied without a launch template don't copy extra volumes, the root volume size or Elastic IPs.
 - Task definitions of deleted copies stay registered (by design).

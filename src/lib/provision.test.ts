@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   DEFAULT_LIMITS, JOIN_TIMEOUT_MS, LAUNCH_GRACE_MS, addHostCheck, addHostPlan, autoscalingWarning, capabilityGate, capabilityWarning, capacityProblem, checkConfirm,
-  clonePlan, cloneCheck, commandProblem, confirmFor, countHosts, createdTags, deleteServiceCheck, deleteServicePlan, fargateMemoryFor, fargateSizeProblem,
-  hostCountDetail, hostEstimate, imageProblem, instanceTypeProblem, isConsoleCreated, limitsOf, newNameProblem, parseAddHost, parseClone, parseRunTask,
-  parseScale, parseTerminateHost, pickNetwork, provisionIam, reservationVerdict, runTaskCheck, runTaskPlan, scaleCheck, scalePlan, serviceEstimate,
-  splitCommand, terminateHostCheck, terminateHostPlan, type CloneFacts, type HostReservation, type ServiceFacts,
+  clonePlan, cloneCheck, commandProblem, confirmFor, countHosts, createCheck, createPlan, createdTags, deleteGroupCheck, deleteGroupPlan, deleteServiceCheck,
+  deleteServicePlan, fargateMemoryFor, fargateSizeProblem, groupNameFor, hostCountDetail, hostEstimate, imageProblem, instanceTypeProblem, isConsoleCreated, limitsOf,
+  newNameProblem, parseAddHost, parseClone, parseCreate, parseDeleteGroup, parseRunTask, parseScale, parseTerminateHost, pickDonor, pickNetwork, portProblem,
+  provisionIam, reservationVerdict, runTaskCheck, runTaskPlan, scaleCheck, scalePlan, serviceEstimate, splitCommand, terminateHostCheck, terminateHostPlan,
+  type CloneFacts, type CreateDonor, type CreateFacts, type HostReservation, type ServiceFacts,
 } from "./provision.ts";
 
 const svc = (o: Partial<ServiceFacts> = {}): ServiceFacts => ({ desired: 2, inProgress: false, isSelf: false, created: false, hasTaskDef: true, ...o });
@@ -371,8 +372,86 @@ test("scale plans warn when Application Auto Scaling will override the count", (
 
 // ---------- what the console's AWS identity may do (F06) ----------
 
+// ---------- a new service from an image ----------
+
+test("new service input: strict fields, a port is a TCP port, the size defaults are a valid Fargate size", () => {
+  const ok = parseCreate({ env: "production", name: "checkout", image: "ghcr.io/acme/checkout:1.0.0", port: 8080, desired: 1, confirm: "yes" });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(parseCreate({ env: "production", name: "checkout", image: "ghcr.io/acme/checkout:1", desired: 1, taskRole: "arn:aws:iam::123456789012:role/admin" }), { ok: false, status: 400, error: "unknown field(s): taskRole" });
+  assert.deepEqual(parseCreate({ env: "production", name: "checkout", desired: 1 }), { ok: false, status: 400, error: "image is required" });
+  assert.deepEqual(parseCreate({ env: "production", name: "checkout", image: "x:1", desired: 1, port: "80" }), { ok: false, status: 400, error: "port must be a whole number" });
+  assert.equal(portProblem(1), undefined);
+  assert.equal(portProblem(65535), undefined);
+  for (const bad of [0, 65536, 80.5, -1]) assert.match(portProblem(bad) ?? "", /isn't a TCP port/, String(bad));
+  assert.equal(fargateSizeProblem(256, 512), undefined, "DEFAULT_SIZE");
+  assert.deepEqual(createCheck(L), { ok: true });
+  assert.equal(createCheck(limitsOf({ enabled: false })).ok, false);
+});
+
+const donor = (o: Partial<CreateDonor> = {}): CreateDonor => ({ service: "api", subnets: ["subnet-a"], launchType: "FARGATE", executionRole: "arn:aws:iam::123456789012:role/exec", logGroup: "/ecs/api", isSelf: false, ...o });
+
+test("new service donor: Fargate first, then by name; it needs subnets, an execution role and a log group; never the console", () => {
+  assert.deepEqual(pickDonor("production", [donor({ service: "worker", launchType: "EC2" }), donor({ service: "web" }), donor({ service: "api" })]), { ok: true, donor: "api", why: "it runs on Fargate there" });
+  assert.deepEqual(pickDonor("production", [donor({ service: "worker", launchType: "EC2" })]), { ok: true, donor: "worker", why: "the first service there with awsvpc networking" });
+  assert.equal(pickDonor("production", [donor({ isSelf: true })]).ok, false, "the console's role may reach its own secrets");
+  for (const missing of [{ subnets: [] }, { executionRole: undefined }, { logGroup: undefined }]) {
+    const c = pickDonor("staging", [donor(missing)]);
+    assert.equal(c.ok, false, JSON.stringify(missing));
+    assert.match(!c.ok ? c.error : "", /no service in staging runs with awsvpc networking, an execution role and CloudWatch logs .* copy a service instead/);
+  }
+});
+
+test("new service security group name: cluster and service, never the reserved sg- prefix, at most 255 characters", () => {
+  assert.equal(groupNameFor("acme-production", "checkout"), "acme-production-checkout");
+  assert.equal(groupNameFor("sg-apps", "web"), "ecs-sg-apps-web");
+  assert.equal(groupNameFor("c".repeat(200), "s".repeat(200)).length, 255);
+});
+
+const createFacts = (o: Partial<CreateFacts> = {}): CreateFacts => ({
+  env: { id: "production", protected: true }, name: "checkout", image: "123456789012.dkr.ecr.us-east-1.amazonaws.com/acme/checkout:1.0.0", port: 8080, cpu: 256, memory: 512, desired: 2,
+  donor: { service: "api", why: "it runs on Fargate there", subnets: ["subnet-prod-a"], assignPublicIp: false, vpcId: "vpc-prod", executionRole: "arn:aws:iam::123456789012:role/acme-ecs-task-execution", logGroup: "/ecs/acme-production/api" },
+  group: "acme-production-checkout", familyExists: false, ...o,
+});
+
+test("new service plan: its own closed security group, the donor's execution role and log group, no task role, a typed confirmation on protected envs", () => {
+  const p = createPlan(createFacts());
+  assert.deepEqual([p.action, p.risk, p.env], ["create", "danger", "production"]);
+  assert.equal(p.summary, "Create checkout in production from checkout:1.0.0 (2 tasks)");
+  const all = p.changes.join("\n");
+  assert.match(all, /Create security group acme-production-checkout in vpc-prod: no inbound rules, all outbound traffic allowed/);
+  assert.match(all, /Register task definition checkout \(new family\): one container running .*checkout:1\.0\.0 on port 8080\/tcp, Fargate 0\.25 vCPU · 0\.5 GB, Linux\/x86_64/);
+  assert.match(all, /Execution role acme-ecs-task-execution \(the one api uses\).*No task role/);
+  assert.match(all, /Logs: \/ecs\/acme-production\/api \(where api logs\), stream prefix checkout\//);
+  assert.match(all, /the subnets of production\/api \(it runs on Fargate there\), without a public IP like it/);
+  assert.match(all, /console:created=true, console:created-from=123456789012\.dkr\.ecr/);
+  assert.ok(p.warnings.some((w) => /Nothing can reach it yet/.test(w)));
+  assert.deepEqual(p.confirm, { expected: "checkout", needReason: true });
+  assert.equal(p.estimate?.monthlyUsd, serviceEstimate("FARGATE", 256, 512, 2).monthlyUsd);
+  const worker = createPlan(createFacts({ port: undefined, env: { id: "staging", protected: false }, familyExists: true, donor: { ...createFacts().donor, assignPublicIp: true }, desired: 0 }));
+  assert.match(worker.changes.join("\n"), /a new revision of the family the console created earlier.*, no port/s);
+  assert.match(worker.changes.join("\n"), /with a public IP like it/);
+  assert.deepEqual(worker.confirm, { expected: "yes", needReason: false });
+  assert.equal(worker.estimate?.monthlyUsd, 0);
+});
+
+test("a deleted service's security groups: deleted with it, and a leftover only when the console made it and nothing uses it", () => {
+  const p = deleteServicePlan({ env: { id: "production", protected: true }, service: "checkout", desired: 2, groups: ["sg-0abc12345678"] });
+  assert.ok(p.changes.some((c) => c === "Delete its security group sg-0abc12345678 (created with it)"));
+  assert.ok(p.warnings.some((w) => /AWS keeps a security group while a stopping task still uses it/.test(w)));
+  assert.equal(deleteServicePlan({ env: { id: "staging", protected: false }, service: "checkout", desired: 0, groups: ["sg-0abc12345678"] }).warnings.length, 1, "no tasks: nothing holds it");
+  assert.deepEqual(deleteGroupCheck({ created: true, usedBy: [] }), { ok: true });
+  assert.deepEqual(deleteGroupCheck({ created: false, usedBy: [] }).ok, false);
+  assert.match((deleteGroupCheck({ created: true, usedBy: ["checkout-copy"] }) as { error: string }).error, /checkout-copy still uses this security group/);
+  const g = deleteGroupPlan({ env: { id: "staging", protected: false }, id: "sg-0abc12345678", name: "acme-staging-checkout", vpcId: "vpc-stg" });
+  assert.deepEqual([g.action, g.risk, g.confirm], ["delete-security-group", "danger", { expected: "sg-0abc12345678", needReason: true }], "a delete: typed and a reason, everywhere");
+  assert.equal(parseDeleteGroup({ env: "staging", id: "sg-prod-api" }).ok, false, "a group id");
+  assert.equal(parseDeleteGroup({ env: "staging", id: "sg-0abc12345678" }).ok, true);
+});
+
 test("provisioning capability: IAM actions per action, denied disables, probably denied warns, unknown says nothing", () => {
   assert.deepEqual(provisionIam("clone"), ["ecs:CreateService", "ecs:RegisterTaskDefinition", "iam:PassRole"]);
+  assert.deepEqual(provisionIam("create"), ["ec2:CreateSecurityGroup", "ec2:CreateTags", "ecs:RegisterTaskDefinition", "ecs:CreateService", "iam:PassRole"]);
+  assert.deepEqual(provisionIam("delete-security-group"), ["ec2:DeleteSecurityGroup"]);
   assert.deepEqual(provisionIam("scale"), ["ecs:UpdateService"]);
   assert.deepEqual(provisionIam("run-task"), ["ecs:RunTask", "iam:PassRole"]);
   assert.deepEqual(provisionIam("add-host"), ["ec2:RunInstances", "ec2:CreateTags", "iam:PassRole"]);
@@ -429,6 +508,15 @@ globalThis.__consoleCloud = Promise.resolve({
   terminateHost: async (id) => {
     st.launched = st.launched.filter((x) => x !== id);
     return "mock-terminate";
+  },
+  // A new service: CreateService can be refused, and a group can be kept a moment (a stopping task's network interface).
+  createService: async (spec) => {
+    if (st.failCreate) throw Object.assign(new Error("InvalidParameterException: subnets can't be used"), { name: "InvalidParameterException" });
+    return base.createService(spec);
+  },
+  deleteSecurityGroup: async (id) => {
+    if (st.groupBusy) throw Object.assign(new Error("DependencyViolation: resource " + id + " has a dependent object"), { name: "DependencyViolation" });
+    return base.deleteSecurityGroup(id);
   },
 });
 globalThis.__consoleCi = Promise.resolve(mockCi());
@@ -557,6 +645,38 @@ out.f67 = {
   desired: (await base.services("acme-staging")).find((s) => s.name === "api").desired, want: apInput.desired,
   logged: logged.some((l) => l.includes("approval bookkeeping failed") && l.includes("disk I/O error")),
 };
+// A new service from an image in production (protected: its name and a reason): its own group, the donor's network,
+// execution role and log group, no task role. Deleted, it takes the group along; kept by AWS, the group is listed and
+// deleted later; a refused CreateService removes the group it just made.
+const apiImage = (await base.services("acme-production")).find((x) => x.name === "api").taskDef.image;
+const createIn = { env: "production", name: "checkout", image: apiImage, port: 8080, desired: 0, reason: "a new service" };
+out.createPlan = await tryIt(() => P.planCreate(createIn, who));
+out.create = await tryIt(() => P.runCreate({ ...createIn, confirm: out.createPlan.confirm?.expected }, who));
+out.createOp = out.create.operationId ? await opRow(out.create.operationId) : null;
+const made = (await base.services("acme-production")).find((x) => x.name === "checkout");
+out.created = made && { sgs: made.securityGroups, subnets: made.subnets, tags: made.tags, launchType: made.launchType, execRole: made.taskDef.executionRoleArn, taskRole: made.taskDef.taskRoleArn ?? null, ports: made.taskDef.ports };
+out.createdGroup = out.create.securityGroup ? (await base.securityGroups([out.create.securityGroup]))[0] ?? null : null;
+out.createInfo = await P.provisionInfo("production", who.user, false, true).then((i) => ({ donor: i.donor, groups: i.groups, gate: i.capability.create }));
+out.createStaging = await tryIt(() => P.planCreate({ env: "staging", name: "checkout", image: apiImage, desired: 0 }, who));
+out.createTaken = await tryIt(() => P.planCreate(createIn, who));
+out.createNoReason = await tryIt(() => P.runCreate({ ...createIn, name: "checkout-x", confirm: "checkout-x", reason: undefined }, who));
+out.deleteNew = await tryIt(() => P.runDeleteService({ env: "production", service: "checkout", confirm: "checkout", reason: "done with it" }, who));
+out.groupGone = out.create.securityGroup ? (await base.securityGroups([out.create.securityGroup])).length === 0 : null;
+const second = { ...createIn, name: "checkout-2", confirm: "checkout-2" };
+out.create2 = await tryIt(() => P.runCreate(second, who));
+st.groupBusy = true;
+out.delete2 = await tryIt(() => P.runDeleteService({ env: "production", service: "checkout-2", confirm: "checkout-2", reason: "done with it" }, who));
+st.groupBusy = false;
+(await import(at("cache.ts"))).invalidate("created-groups:");
+out.leftover = (await P.provisionInfo("production", who.user, false, true)).groups;
+out.deleteGroupPlan = await tryIt(() => P.planDeleteGroup({ env: "production", id: out.create2.securityGroup }, who));
+out.deleteGroup = await tryIt(() => P.runDeleteGroup({ env: "production", id: out.create2.securityGroup, confirm: out.create2.securityGroup, reason: "left by checkout-2" }, who));
+out.deleteGroupOp = out.deleteGroup.operationId ? await opRow(out.deleteGroup.operationId) : null;
+out.deleteForeign = await tryIt(() => P.planDeleteGroup({ env: "production", id: "sg-0123456789abcdef0" }, who));
+st.failCreate = true;
+out.create3 = await tryIt(() => P.runCreate({ ...createIn, name: "checkout-3", confirm: "checkout-3" }, who));
+st.failCreate = false;
+out.groupsAfterRefusal = (await base.createdGroups(["vpc-prod"])).map((g) => g.name);
 console.log(JSON.stringify(out));
 `;
 
@@ -664,6 +784,40 @@ test("R04 across paths: provisioning and console actions lock the same canonical
 test("F31: a one-off task carries a client token derived from its operation id", () => {
   assert.equal(r("task").ok, true, String(r("task").error));
   assert.equal(o.taskToken, `dc-${r("task").operationId}`);
+});
+
+test("a new service through the runner: its own group and the donor's network, deleted with its group; leftovers listed, then deleted", () => {
+  assert.equal(r("createPlan").ok, true, String(r("createPlan").error));
+  assert.deepEqual(r("createPlan").confirm, { expected: "checkout", needReason: true }, "production is protected");
+  assert.equal(r("create").ok, true, String(r("create").error));
+  assert.deepEqual([(o.createOp as R).action, (o.createOp as R).state], ["provision.create", "succeeded"]);
+  const made = o.created as { sgs: string[]; subnets: string[]; tags: Record<string, string>; launchType: string; execRole: string; taskRole: string | null; ports: number[] };
+  assert.deepEqual(made.sgs, [r("create").securityGroup], "only its own group");
+  assert.deepEqual(made.subnets, ["subnet-prod-a", "subnet-prod-b"], "the donor's subnets");
+  assert.deepEqual([made.launchType, made.taskRole, made.ports], ["FARGATE", null, [8080]]);
+  assert.match(made.execRole, /:role\//);
+  assert.equal(made.tags["console:created"], "true");
+  const g = o.createdGroup as { name: string; vpcId: string; inbound: unknown[]; tags: Record<string, string> };
+  assert.deepEqual([g.name, g.vpcId, g.inbound.length], ["acme-production-checkout", "vpc-prod", 0]);
+  assert.deepEqual([g.tags["console:created"], g.tags["console:created-from"]], ["true", "acme-production/checkout"]);
+  const info = o.createInfo as { donor: { ok: boolean; donor?: string }; groups: unknown[]; gate: { enabled: boolean } };
+  assert.deepEqual([info.donor.ok, info.donor.donor, info.groups.length, info.gate.enabled], [true, "api", 0, true], "the group is in use: not a leftover");
+  assert.deepEqual([r("createStaging").ok, r("createStaging").status], [false, 409]);
+  assert.match(String(r("createStaging").error), /no service in staging runs with awsvpc networking/);
+  assert.deepEqual([r("createTaken").status, r("createNoReason").status], [409, 400]);
+  assert.equal(r("deleteNew").ok, true, String(r("deleteNew").error));
+  assert.equal(r("deleteNew").groupsLeft, undefined);
+  assert.equal(o.groupGone, true, "no task held it: deleted with the service");
+  assert.equal(r("create2").ok, true, String(r("create2").error));
+  assert.deepEqual(r("delete2").groupsLeft, [r("create2").securityGroup], "AWS kept it");
+  assert.deepEqual((o.leftover as { id: string; madeFor: string }[]).map((x) => [x.id, x.madeFor]), [[r("create2").securityGroup, "acme-production/checkout-2"]]);
+  assert.deepEqual(r("deleteGroupPlan").confirm, { expected: r("create2").securityGroup, needReason: true });
+  assert.equal(r("deleteGroup").ok, true, String(r("deleteGroup").error));
+  assert.deepEqual([(o.deleteGroupOp as R).action, (o.deleteGroupOp as R).state], ["provision.delete-security-group", "succeeded"]);
+  assert.equal(r("deleteForeign").status, 404, "only groups made for this env's services");
+  assert.equal(r("create3").ok, false);
+  assert.match(String(r("create3").error), /no service was created/);
+  assert.ok(!(o.groupsAfterRefusal as string[]).includes("acme-production-checkout-3"), "the refused create took its group back");
 });
 
 test("F67: a change that went out is never recorded as failed because its approval bookkeeping failed", () => {

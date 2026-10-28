@@ -367,14 +367,15 @@ test("compute: regional providers answer per region (the simulated estate is in 
   ]);
   assert.ok(eb && !eb.tagsUnread);
   assert.equal(c.checkpoints.eks, 1, "the cluster before its workloads");
-  for (const d of c.decls.filter((x) => x.id !== "ecs-image")) assert.deepEqual([d.id, d.scope, d.multiRegionMock], [d.id, "regional", true]);
+  for (const d of c.decls.filter((x) => x.id !== "ecs-image" && x.id !== "ecs-connect")) assert.deepEqual([d.id, d.scope, d.multiRegionMock], [d.id, "regional", true]);
   assert.equal(c.decls.find((d) => d.id === "ecs-image")?.scope, "home");
+  assert.equal(c.decls.find((d) => d.id === "ecs-connect")?.scope, "home");
   for (const d of o.decls) assert.equal(d.scope, "global", d.id);
 });
 
 test("every action says what it needs (iam), what it does, how it is undone and verified, whether a retry is safe, and labels its fields; writes equal the actions' IAM", () => {
   const all = [...o.actions, ...c.actions];
-  assert.equal(all.length, 3 + 1 + 1 + 3 + 1 + 3 + 3 + 2 + 1);
+  assert.equal(all.length, 3 + 1 + 1 + 3 + 1 + 3 + 3 + 2 + 1 + 2); // … + ecs-connect's connect and disconnect
   for (const a of all) {
     const what = `${a.provider}.${a.id}`;
     assert.ok(a.iam?.length, `${what}: iam`);

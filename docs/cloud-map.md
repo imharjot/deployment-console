@@ -63,6 +63,9 @@ Open **Cloud map** in the sidebar (or press `g`), the **Cloud map** link on an e
   under ⌘K). Slim rows load their properties when opened.
 - **Sources footer.** What discovery read; a denied source lists the exact IAM actions to add (Settings →
   Permissions). **Refresh** re-reads the account (rate-limited; developer role and up — viewers don't see the button).
+- **New service.** The toolbar's **New service** (operator role and up) starts a service from an image, or a copy of
+  one, in the environment the map shows — the same dialog and plan as the overview's **New** menu ([Create &
+  scale](provisioning.md#new-service)). Once created the map discovers again and opens it.
 - **Links.** The URL carries the view: `q`, `env`, `kinds`, `problems=1`, `idle=1`, `region`, `layers` (comma list or
   `none`), `conn` (confidences), `lanes` (`env`, `vpc`, `region`, `none`), `view` (`map`, `list`, `table`),
   `edges=all` and `r` (the open resource). A link to a resource that's gone says so.
@@ -385,6 +388,41 @@ even for a token in *act* mode. Deploying new Lambda code or a new ECS image, se
 publishing a test message to a topic are dangerous: new code runs with the resource's role, and a message reaches
 real consumers. A *read* token can't dry-run actions either. A few actions are for **people only** (a download link
 hands out data): API tokens never see them, can't run them and can't even ask for them.
+
+## Connect services
+
+**Connect to** lets one ECS service (A) reach another service, an RDS database or an ElastiCache cache (B) of the same
+environment. Start it from A's panel on the map (Actions → **Connect to**, then pick B), from a service's panel in the
+overview (**Connect to…** opens it here), or drag from the small handle on the right of a service's node onto B.
+
+The plan shows both changes before either happens:
+
+1. **The network.** B's security group gets an inbound rule admitting one of A's security groups on B's port — a group
+   only A uses when there is one (otherwise the plan says who else shares it, since they can reach B too) — with the
+   description `deployment-console: A to B`. Nothing changes when B already admits A, or when both run on one EC2 host
+   with host networking (they talk over 127.0.0.1).
+2. **The address.** A gets a variable — `<B>_URL` unless you name it — holding B's address, through a new task
+   definition revision and a rolling deployment of A, like a save in its **Variables** tab:
+   - a database: `postgres://<endpoint>:5432` (or `mysql://…`), without credentials — add the user and password as
+     secret references in A's Variables tab;
+   - a cache: `rediss://<endpoint>:6379` (`redis://` without in-transit encryption);
+   - a service: its **ECS Service Connect** name, `http://<name>:<port>`. Service Connect is turned on for B in the
+     environment's Cloud Map namespace (named after the cluster and created when there is none; a namespace B, A or
+     the cluster already uses wins), with a new deployment of B — its port mapping is given a name first when it has
+     none. A joins the namespace as a client in the same deployment as its new revision. Both need awsvpc networking;
+     only tasks started after the change resolve the name.
+
+Then the map draws the connection at once. **Disconnect from** undoes both: it removes the rule (only one whose
+description is the console's — a team's own rule stays) and the variable while it still holds B's address. Service
+Connect stays on: other services may use B by that name. Deleting a service the console created removes its
+connection rules too.
+
+Both are dangerous actions for people and agents alike: the name and a reason to confirm, and an agent's request always
+waits for a person. Refused: the console's own service, a service mid-rollout, B in another environment or VPC, B
+tagged `console:protected=true` when A's environment isn't protected, a variable name A already uses for something
+else, and Service Connect with host networking. The shipped IAM policy only changes rules in security groups the console
+created or that you tag **`console:connect=allow`** — the plan warns when B's group has neither, and AWS refuses the
+rule ([permissions](connect-aws.md#what-each-permission-is-for)).
 
 ## Caching and limits
 

@@ -73,6 +73,7 @@ export interface RawContainer {
   image: string;
   essential: boolean;
   ports: number[];
+  portNames?: Record<string, string>; // port → its port mapping's name, for the named ones
   logGroup?: string; // awslogs driver only
   logRegion?: string; // awslogs-region, when the group lives in another region than the service
   logStreamPrefix?: string; // streams are "<prefix>/<container>/<task-id>"
@@ -222,7 +223,9 @@ export interface RawSecurityGroup {
   id: string;
   name: string;
   vpcId?: string;
-  inbound: { fromPort?: number; toPort?: number; groups: string[]; cidrs?: string[]; prefixLists?: string[]; description?: string }[];
+  // description: the first one; notes: each source group's own (connect.ts tells the console's rules by theirs).
+  inbound: { fromPort?: number; toPort?: number; groups: string[]; cidrs?: string[]; prefixLists?: string[]; description?: string; notes?: Record<string, string> }[];
+  tags?: Record<string, string>;
 }
 
 export interface RawTargetHealth {

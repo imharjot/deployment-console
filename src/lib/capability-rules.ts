@@ -18,9 +18,10 @@ export const CONSOLE_WRITES: Record<string, readonly string[]> = {
   "host.power": ["ec2:StartInstances", "ec2:StopInstances"],
   "db.power": ["rds:StartDBInstance", "rds:StopDBInstance"],
   "provision.service": ["ecs:CreateService", "ecs:RegisterTaskDefinition", "iam:PassRole"],
+  "provision.create": ["ec2:CreateSecurityGroup", "ec2:CreateTags", "ecs:RegisterTaskDefinition", "ecs:CreateService", "iam:PassRole"],
   "provision.task": ["ecs:RunTask", "iam:PassRole"],
   "provision.hosts": ["ec2:RunInstances", "ec2:CreateTags", "iam:PassRole"],
-  "provision.delete": ["ecs:DeleteService", "ec2:TerminateInstances"],
+  "provision.delete": ["ecs:DeleteService", "ec2:DeleteSecurityGroup", "ec2:TerminateInstances"],
 };
 
 export type VarReference = "ssm" | "secretsmanager" | "s3";
