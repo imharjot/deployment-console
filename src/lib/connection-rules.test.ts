@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  describeArn, describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, roleArnProblem, scopeKey, signInFailure, staleWrite, suggestHome, withInput, type SavedConnection,
+  credentialsSection, describeArn, describeSignIn, lockedConflicts, parseConnectionInput, parseNewProfile, parseSaved, profileKinds, profileNames, resolveConnection, roleArnProblem, scopeKey, signInFailure, staleWrite, suggestHome, withInput, type SavedConnection,
 } from "./connection-rules.ts";
 
 const saved = (s: Partial<SavedConnection> = {}): SavedConnection => ({ source: "aws", rev: 1, by: "admin@example.com", at: 1, ...s });
@@ -122,6 +122,37 @@ test("profile names: section headers only, default first, sso-session and servic
   const creds = "[default]\naws_access_key_id = AKIAEXAMPLE\n[ci]\naws_secret_access_key = wJalrXUtnFEMI\n";
   assert.deepEqual(profileNames(config, creds), ["default", "ci", "console-readonly", "spaced"]);
   assert.deepEqual(profileNames(), []);
+});
+
+test("profile kinds: how each login lasts, from setting names only, a role_arn before keys as the SDK reads it", () => {
+  const config = [
+    "[default]", "region = eu-west-1",
+    "[profile console-readonly]", "role_arn = arn:aws:iam::123456789012:role/r", "source_profile = default",
+    "[profile ops]", "sso_session = acme",
+    "[profile laptop]", "login_session = arn:aws:iam::123456789012:user/alice",
+    "[profile tool]", "credential_process = /usr/local/bin/creds",
+    "[profile bare]", "region = us-east-1",
+    "[sso-session acme]", "sso_start_url = https://acme.awsapps.com/start",
+  ].join("\n");
+  const creds = ["[default]", "aws_access_key_id = AKIAEXAMPLE", "aws_secret_access_key = wJalrXUtnFEMI", "[ci]", "aws_access_key_id = ASIAEXAMPLE", "aws_session_token = x", "[console-readonly]", "aws_access_key_id = AKIAEXAMPLE2"].join("\n");
+  assert.deepEqual(profileKinds(config, creds), { default: "keys", "console-readonly": "role", ops: "sso", laptop: "login", tool: "process", bare: "other", ci: "temporary-keys" });
+  assert.deepEqual(profileKinds(), {});
+});
+
+test("new profiles: an IAM user's long-term key only, and nothing that could add lines to the credentials file", () => {
+  const ok = { name: "deployment-console", accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" };
+  assert.deepEqual(parseNewProfile({ ...ok, name: " deployment-console " }), ok);
+  assert.equal(credentialsSection(ok), "[deployment-console]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n");
+  assert.match((parseNewProfile({ ...ok, accessKeyId: "ASIAIOSFODNN7EXAMPLE" }) as { error: string }).error, /temporary key/);
+  for (const bad of [
+    { ...ok, name: "" },
+    { ...ok, name: "a]\n[default" },
+    { ...ok, accessKeyId: "AKIAIOSFODNN7EXAMPLE\naws_session_token = x" },
+    { ...ok, accessKeyId: "akiaiosfodnn7example" },
+    { ...ok, secretAccessKey: "short" },
+    { ...ok, secretAccessKey: `${ok.secretAccessKey}\n[x]` },
+    null,
+  ]) assert.ok("error" in parseNewProfile(bad), JSON.stringify(bad));
 });
 
 test("home suggestion: the region with most ECS clusters, the current home on a tie, none without clusters", () => {

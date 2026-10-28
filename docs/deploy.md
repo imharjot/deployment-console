@@ -138,7 +138,7 @@ statements too.
 
 **To connect other accounts** with the console's CloudFormation template ([Connect AWS](connect-aws.md#connect-an-account-with-cloudformation)),
 let the task role switch into the roles it creates, and leave `CONSOLE_SOURCE` out of the task definition (step 6), so
-an admin can pick **Switch into a role** in Settings:
+an admin can pick **Another AWS account, with CloudFormation** in Settings:
 
 ```bash
 aws iam put-role-policy --role-name deployment-console-task --policy-name switch-into-connected-accounts \

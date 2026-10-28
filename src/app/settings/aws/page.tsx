@@ -5,10 +5,10 @@
 // a role in another account can be created from the page with CloudFormation (TemplateSteps).
 // "Test connection" asks AWS who the sign-in is and where its ECS clusters are; saving switches at once
 // (src/lib/server/connection.ts), then the app reloads so nothing of the previous account stays on screen.
-import { CircleCheck, Cloud, Download, ExternalLink, FlaskConical, KeyRound, Loader2, Lock, MapPin, ShieldCheck, TriangleAlert } from "lucide-react";
+import { CircleCheck, Clock, Cloud, Download, ExternalLink, FlaskConical, KeyRound, Loader2, Lock, MapPin, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import { useConfirm } from "@/components/confirm";
 import { hue } from "@/components/hue";
 import { useToast } from "@/components/toast";
@@ -17,7 +17,8 @@ import { ROLE_INFO, useMe } from "@/components/user-menu";
 import { ApiError, postJson, putJson } from "@/lib/client/api";
 import { regionName } from "@/lib/client/region";
 import { CONNECT_ROLE_NAME, CONNECT_STACK_NAME } from "@/lib/connect-template";
-import { describeArn, describeSignIn, roleArnProblem, type ConnectionTest, type ConnectionView, type MachineLogin, type SignIn } from "@/lib/connection-rules";
+import { CloudFormationGuide } from "./cloudformation-guide";
+import { describeArn, describeSignIn, roleArnProblem, type ConnectionTest, type ConnectionView, type MachineLogin, type ProfileKind, type SignIn } from "@/lib/connection-rules";
 
 type Kind = SignIn["kind"];
 type RegionsMode = "home" | "all" | "pick";
@@ -39,13 +40,27 @@ const inputCls = "h-9 w-full rounded-lg border border-line bg-panel-2 px-3 text-
 const account = (id: string) => id.replace(/^(\d{4})(\d{4})(\d{4})$/, "$1-$2-$3");
 const withName = (r: string) => (regionName(r) ? `${r} (${regionName(r)})` : r); // "ap-south-1 (Mumbai)"
 
+// What each kind of AWS CLI profile is, and how long its login lasts (when to sign in again).
+const KIND_LABEL: Record<ProfileKind, string> = { keys: "access key", "temporary-keys": "temporary keys", role: "switches into a role", sso: "IAM Identity Center", login: "aws login", process: "credential process", other: "custom" };
+function lasts(kind: ProfileKind | undefined, name: string): ReactNode {
+  const cmd = (c: string) => <code className="font-mono text-[12.5px]">{c}</code>;
+  if (kind === "keys") return "An access key doesn't expire: no signing in again. Rotate it in IAM now and then, and delete it when the console no longer needs it.";
+  if (kind === "temporary-keys") return "Temporary keys stop working when their session ends: put fresh ones in the profile, or use aws login.";
+  if (kind === "role") return "Switches into a role through another profile, renewed every hour on its own: it works as long as that profile does.";
+  if (kind === "sso") return <>Works until your IAM Identity Center session ends (8 hours by default). Then run {cmd(`aws sso login --profile ${name}`)} and test again.</>;
+  if (kind === "login") return <>Works until your AWS sign-in session ends. Then run {cmd(`aws login --profile ${name}`)} and test again.</>;
+  return "Signs in the way this profile is set up in ~/.aws/config.";
+}
+
 function formOf(v: ConnectionView): Form {
   const s = v.signIn;
   const choice = v.regions.choice;
   const existing = s.kind === "role" && s.externalId !== v.externalId;
+  // Nothing chosen yet on a machine with AWS CLI profiles (a laptop): start from those, not the server's role.
+  const fresh = !v.saved && v.from.signIn === "default" && v.profiles.length > 0;
   return {
     source: v.source,
-    kind: s.kind,
+    kind: fresh ? "profile" : s.kind,
     profile: s.kind === "profile" ? s.profile : (v.profiles[0] ?? ""),
     roleSetup: existing ? "existing" : "template",
     roleArn: s.kind === "role" ? s.roleArn : "",
@@ -176,56 +191,58 @@ function Editor({ view }: { view: ConnectionView }) {
       {form.source === "aws" && (
         <>
           <section className="rounded-2xl border border-line bg-panel p-5 shadow-card">
-            <Head icon={<KeyRound className="size-[18px]" />} tone="hue-indigo" title="Sign-in">
-              {lockHint(locked.signIn, <>Who the console is when it calls AWS. It never stores keys: each way starts from a login the machine running it already has. <Link href="/docs/connect-aws" className="text-accent hover:underline">Connect AWS</Link> shows how to make a read-only one.</>)}
+            <Head icon={<KeyRound className="size-[18px]" />} tone="hue-indigo" title="How it signs in to AWS">
+              {lockHint(locked.signIn, <>Pick the one that fits where the console runs. Its database never holds AWS keys. <Link href="/docs/connect-aws" className="text-accent hover:underline">Connect AWS</Link> has the details.</>)}
             </Head>
             {locked.signIn ? (
               <p className="mt-3 text-[14px] text-fg-2 first-letter:uppercase">{describeSignIn(view.signIn)}</p>
             ) : (
               <div className="mt-4 space-y-3">
                 <div className="grid gap-1.5">
-                  <Choice name="conn-signin" value="profile" picked={form.kind} onPick={(v) => set({ kind: v })} title="Saved profile">
-                    A profile in ~/.aws/config on the machine running the console. Best on a laptop.
+                  <Choice name="conn-signin" value="profile" picked={form.kind} onPick={(v) => set({ kind: v })} title="AWS CLI profile on this computer">
+                    A login you set up with the AWS CLI on the computer running the console (aws configure, aws login or SSO), or add one here with an access key. Best when the console runs on your laptop.
                   </Choice>
-                  <Choice name="conn-signin" value="chain" picked={form.kind} onPick={(v) => set({ kind: v })} title="Machine's own login">
-                    What the machine already signs in as (AWS&apos;s default credentials): its ECS task role or EC2 instance profile, or a laptop&apos;s default profile. Best when the console runs on AWS.
+                  <Choice name="conn-signin" value="role" picked={form.kind} onPick={(v) => set({ kind: v })} title="Another AWS account, with CloudFormation">
+                    Give this console read-only access to any AWS account by creating one CloudFormation stack there. No keys, and the access renews itself every hour.
+                  </Choice>
+                  <Choice name="conn-signin" value="chain" picked={form.kind} onPick={(v) => set({ kind: v })} title="This server's AWS role">
+                    When the console runs on AWS (ECS or EC2), it uses the role AWS gives the server. Nothing to set up, and AWS renews it on its own.
                     <MachineWho machine={machine} />
                   </Choice>
-                  <Choice name="conn-signin" value="role" picked={form.kind} onPick={(v) => set({ kind: v })} title="Switch into a role">
-                    The machine&apos;s own login switches into an IAM role: one you create here in a couple of minutes, in any account, or one you already have.
-                  </Choice>
                 </div>
-                {form.kind === "profile" &&
-                  (view.profiles.length ? (
-                    <label className="block max-w-sm">
-                      <span className="eyebrow mb-1 block">Profile in ~/.aws/config</span>
-                      <select className={inputCls} value={form.profile} onChange={(e) => set({ profile: e.target.value })}>
-                        {view.profiles.map((p) => (
-                          <option key={p} value={p}>
-                            {p}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : (
-                    <p className="text-[13.5px] text-fg-3">No profiles in this machine&apos;s AWS config files. Add one with <code className="font-mono">aws configure</code>, or use the machine&apos;s own login.</p>
-                  ))}
+                {form.kind === "profile" && (
+                  <div className="space-y-3">
+                    {view.profiles.length ? (
+                      <label className="block max-w-sm">
+                        <span className="eyebrow mb-1 block">Profile</span>
+                        <select className={inputCls} value={form.profile} onChange={(e) => set({ profile: e.target.value })}>
+                          {view.profiles.map((p) => (
+                            <option key={p} value={p}>
+                              {p} · {KIND_LABEL[view.profileKinds[p] ?? "other"]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <p className="text-[13.5px] text-fg-3">
+                        No AWS CLI profiles on this computer yet. {view.canAddProfile ? "Add one below, or run aws login in a terminal and reload." : "Run aws configure or aws login where the console runs, then reload."}
+                      </p>
+                    )}
+                    {form.profile && view.profiles.includes(form.profile) && (
+                      <p className="flex items-start gap-1.5 text-[13px] text-fg-3">
+                        <Clock className="mt-0.5 size-3.5 flex-none" />
+                        <span>{lasts(view.profileKinds[form.profile], form.profile)}</span>
+                      </p>
+                    )}
+                    {view.canAddProfile && <AddProfile onAdded={(name) => { set({ profile: name }); void mutate("/api/connection"); }} />}
+                  </div>
+                )}
                 {form.kind === "role" && (
                   <div className="space-y-3">
-                    <Segmented<RoleSetup>
-                      id="conn-role-setup"
-                      size="sm"
-                      value={form.roleSetup}
-                      onChange={(v) => set({ roleSetup: v })}
-                      options={[
-                        { value: "template", label: "Create it with CloudFormation" },
-                        { value: "existing", label: "Use a role you have" },
-                      ]}
-                    />
                     {form.roleSetup === "template" && <TemplateSteps home={form.home} externalId={view.externalId} machine={machine} />}
                     <div className={cx("grid gap-3", form.roleSetup === "existing" && "sm:grid-cols-[2fr_1fr]")}>
                       <label className="block">
-                        <span className="eyebrow mb-1 block">Role ARN</span>
+                        <span className="eyebrow mb-1 block">{form.roleSetup === "template" ? "RoleArn from the stack's Outputs" : "Role ARN"}</span>
                         <input
                           className={cx(inputCls, "font-mono text-[13px]")}
                           value={form.roleArn}
@@ -250,10 +267,13 @@ function Editor({ view }: { view: ConnectionView }) {
                       )}
                       {form.roleSetup === "existing" && (
                         <p className="text-[13px] text-fg-3 sm:col-span-2">
-                          The machine&apos;s own login{machine.data?.identity ? ` (${describeArn(machine.data.identity.arn)})` : ""} asks for the role, so it needs sts:AssumeRole on it, and the role&apos;s trust policy must name it. The external ID is only for a role whose trust policy asks for one.
+                          This machine&apos;s AWS login{machine.data?.identity ? ` (detected: ${describeArn(machine.data.identity.arn)})` : ""} switches into the role, so it needs sts:AssumeRole on it, and the role&apos;s trust policy must name it. The external ID is only for a role whose trust policy asks for one.
                         </p>
                       )}
                     </div>
+                    <button type="button" className="text-[13px] text-accent hover:underline" onClick={() => set({ roleSetup: form.roleSetup === "template" ? "existing" : "template" })}>
+                      {form.roleSetup === "template" ? "Already have a role? Enter it yourself" : "Create the role with CloudFormation instead"}
+                    </button>
                   </div>
                 )}
               </div>
@@ -453,9 +473,10 @@ function Choice<T extends string>({ name, value, picked, onPick, title, children
   );
 }
 
-// Switch into a role → Create it with CloudFormation: the template comes from this console (GET /api/connection/template)
-// with its own login and external ID filled in, so the admin only uploads it in the account to connect and pastes back
-// the role's ARN. No template hosting, no keys.
+// Another AWS account, with CloudFormation: the setup file (a CloudFormation template, GET /api/connection/template)
+// comes from this console with its own login and external ID filled in, so the admin only creates a stack from it in
+// the account to connect and pastes back the role's ARN. No template hosting, no keys; the details sit behind "What's
+// in the setup file?".
 function TemplateSteps({ home, externalId, machine }: { home: string; externalId: string; machine: { data?: MachineLogin; error?: unknown } }) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -477,65 +498,148 @@ function TemplateSteps({ home, externalId, machine }: { home: string; externalId
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
-      toast.push({ tone: "error", title: "Couldn't make the template", body: e instanceof Error ? e.message : String(e) });
+      toast.push({ tone: "error", title: "Couldn't make the setup file", body: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
     }
   }
   return (
-    <ol className="space-y-3 rounded-xl border border-line bg-panel-2 p-4 text-[13.5px] leading-relaxed">
-      <li className="space-y-2">
-        <p>
-          <span className="font-medium">1. Download the template.</span> It creates a read-only role that only this console can switch into: the role trusts{" "}
-          {who ? `${describeArn(who.arn)} in account ${account(who.account)}` : "this console's own login"}, and only with this console&apos;s external ID.
-        </p>
-        {machine.data?.error && <p className="text-degraded">{machine.data.error}</p>}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={download} disabled={busy || !who}>
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-            Download template
-          </Button>
-          <span className="text-fg-3">
-            External ID <code className="font-mono text-[12.5px] text-fg-2">{externalId}</code>
-          </span>
-          <CopyButton text={externalId} label="Copy" />
-        </div>
+    <ol className="space-y-2.5 rounded-xl border border-line bg-panel-2 p-4 text-[13.5px] leading-relaxed">
+      <li className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <span>
+          <span className="font-medium">1.</span> Download the setup file this console made for itself.
+        </span>
+        <Button size="sm" onClick={download} disabled={busy || !who}>
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+          Download setup file
+        </Button>
       </li>
+      {machine.data?.error && <li className="text-degraded">{machine.data.error}</li>}
       <li className="space-y-2">
-        <p>
-          <span className="font-medium">2. Create the stack in the account to connect.</span> Sign in to that account and open CloudFormation, then choose Create stack, With new resources, and
-          Upload a template file. Pick the downloaded file, keep the values it fills in, tick the IAM acknowledgement on the last page and submit.
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span>
+            <span className="font-medium">2.</span> Sign in to the AWS account you want to connect, and create a stack from the file there.
+          </span>
           <a href={`https://console.aws.amazon.com/cloudformation/home?region=${home}#/stacks/create`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-accent hover:underline">
             Open CloudFormation <ExternalLink className="size-3.5" />
           </a>
-          <span className="text-fg-3">or with the AWS CLI, from the file&apos;s folder:</span>
-          <CopyButton text={cli} label="Copy commands" />
         </div>
+        <details open>
+          <summary className="cursor-pointer text-accent">What to do on each AWS screen</summary>
+          <div className="mt-2">
+            <CloudFormationGuide file={file} stack={CONNECT_STACK_NAME} role={CONNECT_ROLE_NAME} />
+          </div>
+        </details>
       </li>
       <li>
-        <span className="font-medium">3. Paste the role&apos;s ARN below.</span> When the stack shows CREATE_COMPLETE, copy RoleArn from its Outputs tab, then test the connection. Deleting the stack
-        later cuts the console off.
+        <span className="font-medium">3.</span> Paste the stack&apos;s RoleArn output below, then test the connection.
+      </li>
+      <li className="flex items-start gap-1.5 text-fg-3">
+        <Clock className="mt-1 size-3.5 flex-none" />
+        <span>Access renews itself every hour, so nobody signs in again. It works as long as this machine&apos;s AWS login does; delete the stack to disconnect.</span>
+      </li>
+      <li>
+        <details>
+          <summary className="cursor-pointer text-accent">What&apos;s in the setup file?</summary>
+          <div className="mt-2 space-y-2 text-fg-3">
+            <p>
+              A CloudFormation template for one read-only IAM role, {CONNECT_ROLE_NAME}. The role lets in only this machine&apos;s AWS login
+              {who ? ` (detected: ${describeArn(who.arn)} in account ${account(who.account)})` : ""}, and only together with a code this console made for itself,
+              its external ID. Without both, nobody can use the role.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span>
+                External ID <code className="font-mono text-[12.5px] text-fg-2">{externalId}</code>
+              </span>
+              <CopyButton text={externalId} label="Copy" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span>Prefer the AWS CLI? From the file&apos;s folder:</span>
+              <CopyButton text={cli} label="Copy commands" />
+            </div>
+          </div>
+        </details>
       </li>
     </ol>
   );
 }
 
-// Who the machine's own login is here, or why there is none.
+// AWS CLI profile → Add a profile with an access key, on a console run locally (view.canAddProfile): the key is checked
+// with AWS and saved to this computer's ~/.aws/credentials, the way aws configure saves it (POST /api/connection/profiles).
+function AddProfile({ onAdded }: { onAdded: (name: string) => void }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [f, setF] = useState({ name: "deployment-console", accessKeyId: "", secretAccessKey: "" });
+  if (!open)
+    return (
+      <button type="button" className="inline-flex items-center gap-1 text-[13.5px] text-accent hover:underline" onClick={() => setOpen(true)}>
+        <Plus className="size-3.5" /> Add a profile with an access key
+      </button>
+    );
+  async function save() {
+    setBusy(true);
+    try {
+      const r = await postJson<{ name: string; identity: { account: string; arn: string } }>("/api/connection/profiles", f);
+      toast.push({ tone: "ok", title: `Saved profile ${r.name}`, body: `AWS says it's ${describeArn(r.identity.arn)} in account ${account(r.identity.account)}.` });
+      setF((x) => ({ ...x, accessKeyId: "", secretAccessKey: "" }));
+      setOpen(false);
+      onAdded(r.name);
+    } catch (e) {
+      toast.push({ tone: "error", title: "Couldn't save the profile", body: e instanceof ApiError ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-3 rounded-xl border border-line bg-panel-2 p-4">
+      <p className="text-[14px] font-medium">Add a profile with an access key</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="block">
+          <span className="eyebrow mb-1 block">Profile name</span>
+          <input className={inputCls} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} spellCheck={false} autoComplete="off" />
+        </label>
+        <label className="block">
+          <span className="eyebrow mb-1 block">Access key ID</span>
+          <input className={cx(inputCls, "font-mono text-[13px]")} value={f.accessKeyId} onChange={(e) => setF({ ...f, accessKeyId: e.target.value })} placeholder="AKIA…" spellCheck={false} autoComplete="off" />
+        </label>
+        <label className="block">
+          <span className="eyebrow mb-1 block">Secret access key</span>
+          <input type="password" className={cx(inputCls, "font-mono text-[13px]")} value={f.secretAccessKey} onChange={(e) => setF({ ...f, secretAccessKey: e.target.value })} spellCheck={false} autoComplete="off" />
+        </label>
+      </div>
+      <p className="text-[13px] text-fg-3">
+        AWS checks the key first. It&apos;s then saved to ~/.aws/credentials on this computer, the way aws configure saves it, so the AWS CLI can use it too; the console never
+        shows the secret again or keeps it anywhere else. An access key doesn&apos;t expire: use an IAM user with only the console&apos;s policy, not your own.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="primary" onClick={save} disabled={busy || !f.name.trim() || !f.accessKeyId.trim() || !f.secretAccessKey.trim()}>
+          {busy ? <Loader2 className="size-3.5 animate-spin" /> : <ShieldCheck className="size-3.5" />}
+          Check and save
+        </Button>
+        <Button size="sm" onClick={() => setOpen(false)} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Who the machine's own login is, as AWS answers for this machine's credentials (never a fixed name), or why there is
+// none.
 function MachineWho({ machine }: { machine: { data?: MachineLogin; error?: unknown } }) {
   const { data, error } = machine;
-  if (error) return <span className="mt-1 block text-degraded">Couldn&apos;t check who that is here: {(error as Error).message}</span>;
+  if (error) return <span className="mt-1 block text-degraded">Couldn&apos;t ask AWS who this machine&apos;s login is: {(error as Error).message}</span>;
   if (!data)
     return (
       <span className="mt-1 flex items-center gap-1.5">
-        <Loader2 className="size-3 animate-spin" /> Checking who that is here…
+        <Loader2 className="size-3 animate-spin" /> Asking AWS who this machine&apos;s login is…
       </span>
     );
   if (data.identity)
     return (
       <span className="mt-1 block text-fg-2" title={data.identity.arn}>
-        Here: <span className="font-medium">{describeArn(data.identity.arn)}</span> in account {account(data.identity.account)}
+        Detected from this machine&apos;s AWS credentials: <span className="font-medium">{describeArn(data.identity.arn)}</span> in account {account(data.identity.account)}
       </span>
     );
   return <span className="mt-1 block text-degraded">{data.error}</span>;

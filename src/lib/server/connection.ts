@@ -12,16 +12,17 @@
 // - syncConnection(): the sampler's tick picks up a save made by another console sharing the database.
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
-  describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, sameSignIn, scopeKey, signInFailure, suggestHome, withInput,
-  type ConnectionInput, type ConnectionTest, type ConnectionView, type EffectiveConnection, type MachineLogin, type SavedConnection, type SignIn,
+  credentialsSection, describeSignIn, lockedConflicts, parseConnectionInput, parseNewProfile, parseSaved, profileKinds, profileNames, resolveConnection, sameSignIn, scopeKey, signInFailure, suggestHome, withInput,
+  type ConnectionInput, type ConnectionTest, type ConnectionView, type EffectiveConnection, type MachineLogin, type NewProfile, type SavedConnection, type SignIn,
 } from "../connection-rules.ts";
 import { connectTemplate, trustedPrincipalOf } from "../connect-template.ts";
 import type { PolicyDocument } from "../permissions.ts";
 import { writeAudit } from "./audit.ts";
+import { authMode } from "./auth/config.ts";
 import { invalidate } from "./cache.ts";
 import { connectionCredentials, credentialsFor } from "./connection-credentials.ts";
 import { bumpGeneration, connectionState, generation } from "./connection-state.ts";
@@ -171,15 +172,61 @@ export async function forgetAccountData(t: Db, now: number): Promise<void> {
   await t.run("UPDATE approval_grants SET invalidated_at = ?, invalidation_reason = ? WHERE consumed_at IS NULL AND invalidated_at IS NULL", [now, SWITCHED]);
 }
 
-// The profiles this console can use: section headers of the AWS config and credentials files. Only the names leave
-// this function.
-export async function listProfiles(): Promise<string[]> {
+// The machine's AWS config and credentials files, where the SDK reads them. Only profile names and kinds (from setting
+// names, never values: profileKinds) leave this module.
+const awsFiles = () => {
   const dir = join(homedir(), ".aws");
-  const [config, credentials] = await Promise.all([
-    readFile(process.env.AWS_CONFIG_FILE?.trim() || join(dir, "config"), "utf8").catch(() => ""),
-    readFile(process.env.AWS_SHARED_CREDENTIALS_FILE?.trim() || join(dir, "credentials"), "utf8").catch(() => ""),
-  ]);
+  return { config: process.env.AWS_CONFIG_FILE?.trim() || join(dir, "config"), credentials: process.env.AWS_SHARED_CREDENTIALS_FILE?.trim() || join(dir, "credentials") };
+};
+async function readAwsFiles(): Promise<{ config: string; credentials: string }> {
+  const f = awsFiles();
+  const [config, credentials] = await Promise.all([readFile(f.config, "utf8").catch(() => ""), readFile(f.credentials, "utf8").catch(() => "")]);
+  return { config, credentials };
+}
+
+// The profiles this console can use.
+export async function listProfiles(): Promise<string[]> {
+  const { config, credentials } = await readAwsFiles();
   return profileNames(config, credentials);
+}
+
+// Only a console run locally by one person may save an access key (AUTH_MODE=dev, which it serves on a local address
+// only): on a shared server the keys would sit where every admin's request writes, so it uses its AWS role or a role
+// made with CloudFormation instead.
+const mayAddProfile = () => {
+  const m = authMode();
+  return m.ok && m.mode === "dev";
+};
+
+// Settings → AWS connection → Add a profile: an IAM user's access key saved to this machine's credentials file the way
+// `aws configure` saves it (the file kept to its owner), for the console and the AWS CLI alike. AWS must accept the key
+// first; a root user's key is refused, and an existing profile is never overwritten. The console keeps nothing of it:
+// the audit log names the profile and the identity, never the key.
+export async function addProfile(body: unknown, by: { email: string; ip?: string }): Promise<{ name: string; identity: { account: string; arn: string } }> {
+  if (!mayAddProfile())
+    throw new HttpError(403, "Saving an access key works only on a console running on your own computer (AUTH_MODE=dev). On a shared server, use its AWS role or connect an account with CloudFormation.");
+  const eff = settingsChoosesSignIn();
+  const p = parseNewProfile(body);
+  if ("error" in p) throw new HttpError(400, p.error);
+  if ((await listProfiles()).includes(p.name)) throw new HttpError(409, `There's already a profile named "${p.name}": pick another name.`);
+  let identity: { account: string; arn: string };
+  try {
+    const probe = await (await import("./aws.ts")).probeConnection(async () => ({ accessKeyId: p.accessKeyId, secretAccessKey: p.secretAccessKey }), eff.home);
+    identity = { account: probe.account, arn: probe.arn };
+  } catch (e) {
+    throw new HttpError(400, `AWS didn't accept this access key: ${errText(e)}`);
+  }
+  if (/:root$/.test(identity.arn)) throw new HttpError(400, "That's the account root user's access key. Make an IAM user for the console instead, and delete the root user's keys.");
+  await audited({ action: "connection.profile.add", user: by.email, ip: by.ip, params: { profile: p.name, identity: identity.arn } }, () => saveProfile(awsFiles().credentials, p));
+  return { name: p.name, identity };
+}
+
+// Appends a profile to a credentials file kept to its owner, as aws configure keeps it (folder 0700, file 0600).
+export async function saveProfile(file: string, p: NewProfile): Promise<void> {
+  await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+  const now = await readFile(file, "utf8").catch(() => "");
+  await appendFile(file, `${now && !now.endsWith("\n") ? "\n" : ""}${now ? "\n" : ""}${credentialsSection(p)}`, { mode: 0o600 });
+  await chmod(file, 0o600);
 }
 
 const lockedMessage = (vars: string[]) =>
@@ -343,7 +390,7 @@ export async function saveConnection(body: unknown, by: { email: string; ip?: st
 export async function connectionView(): Promise<ConnectionView> {
   const s = connectionState();
   const eff = effectiveConnection();
-  const [regions, profiles] = await Promise.all([consoleRegions(), listProfiles()]);
+  const [regions, files] = await Promise.all([consoleRegions(), readAwsFiles()]);
   let identity: ConnectionView["identity"];
   let identityError: string | undefined;
   try {
@@ -364,7 +411,9 @@ export async function connectionView(): Promise<ConnectionView> {
     saved: s.saved ? { by: s.saved.by, at: s.saved.at } : null,
     ...(identity ? { identity } : {}),
     ...(identityError ? { identityError } : {}),
-    profiles,
+    profiles: profileNames(files.config, files.credentials),
+    profileKinds: profileKinds(files.config, files.credentials),
+    canAddProfile: mayAddProfile() && !eff.locked.source && !eff.locked.signIn,
     externalId: await externalId(),
     ...(s.scope ? { scopeSince: s.scope.since } : {}),
   };

@@ -83,24 +83,33 @@ start the console.
 Open **Settings → AWS connection** (admins), then:
 
 1. **Account:** choose **Your AWS account**.
-2. **Sign-in:** choose **Saved profile** and pick `console-readonly`. The list shows the profile names in this machine's
-   `~/.aws/config` and `~/.aws/credentials`; nothing else is read from them, and the console never stores keys.
+2. **How it signs in:** choose **AWS CLI profile on this computer** and pick `console-readonly`. The list shows the
+   profiles in this machine's `~/.aws/config` and `~/.aws/credentials`, each with its kind (read from the setting names,
+   never their values), and says how long the chosen one's login lasts. The console's database never holds keys.
 3. Choose **Test connection**. It shows the account and identity AWS signed you in as, and how many ECS clusters
    each enabled region has, then suggests the region with most of them as the home region.
 4. Pick the **home region** (the region your ECS clusters run in), and whether to read **all enabled regions** too.
 5. Choose **Save and switch**. The console switches at once, no restart: the next request reads your account.
 
-The other sign-ins:
+The three ways, by where the console runs, and when each needs signing in again:
 
-- **Machine's own login** (the AWS SDK's default credentials): whatever the machine running the console already signs
-  in as. That is its ECS task role or EC2 instance profile on AWS, and the default profile on a laptop. The page shows
-  who it is before you pick it. Running the console on ECS or EC2, pick this one: nothing to paste, no keys.
-- **Switch into a role**: the machine's own login assumes an IAM role and renews the session before it ends, so a role
-  ARN alone signs nothing in. Create the role from the page (below), or choose **Use a role you have** and give its ARN
-  (`arn:aws:iam::123456789012:role/name`, not a user's) and an external ID if its trust policy asks for one: that role's
-  trust policy must name the machine's own login, which needs `sts:AssumeRole` on it. The role holds the console's
-  policy; `sts:AssumeRole` belongs to whoever assumes it, so the generated policies don't include it. Use it for another
-  account, or for a role narrower than the machine's own.
+| Choice | Use it when | How long it lasts |
+|---|---|---|
+| **AWS CLI profile on this computer** | the console runs on your laptop | an access key: until it's deleted; `aws login` or IAM Identity Center (SSO): until that session ends, then run `aws login --profile …` or `aws sso login --profile …` again; a profile that switches into a role: renewed every hour, as long as its source profile works |
+| **Another AWS account, with CloudFormation** | you want read-only access to an account, no keys ([below](#connect-an-account-with-cloudformation)) | renewed every hour on its own, as long as the machine's own AWS login works |
+| **This server's AWS role** | the console runs on AWS (ECS task role, EC2 instance profile) | AWS renews it; nothing to sign in again |
+
+- **AWS CLI profile → Add a profile with an access key** appears on a console run locally by one person
+  (`AUTH_MODE=dev`). AWS checks the key first; it's then saved to `~/.aws/credentials` (or `AWS_SHARED_CREDENTIALS_FILE`)
+  the way `aws configure` saves it, owner-only, so the AWS CLI can use it too. Only an IAM user's long-term key (`AKIA…`)
+  is taken, never a root user's, and an existing profile is never overwritten; the console never shows the secret again,
+  and the audit log names only the profile and the identity. Use an IAM user that holds only the console's policy.
+- **This server's AWS role** is the AWS SDK's default credentials: on a laptop, that's the default profile. The page
+  shows what it detects, read from the machine's credentials each time.
+- **Already have a role?** Under the CloudFormation choice, enter its ARN (`arn:aws:iam::123456789012:role/name`, not a
+  user's) and an external ID if its trust policy asks for one. Its trust policy must name the machine's own AWS login,
+  which needs `sts:AssumeRole` on it; `sts:AssumeRole` belongs to whoever switches, so the generated policies don't
+  include it.
 
 ### Connect an account with CloudFormation
 
@@ -108,19 +117,26 @@ The way monitoring and security products reach their customers' accounts, from t
 keys change hands, each session lasts an hour, every use shows in the account's CloudTrail, and deleting the stack cuts
 the console off.
 
-1. **Sign-in → Switch into a role → Create it with CloudFormation → Download template.** The console fills in the
+1. **How it signs in → Another AWS account, with CloudFormation → Download setup file.** The console fills in the
    template ([`infra/connect-aws-role.json`](../infra/connect-aws-role.json), generated from the read-only policy) with
    its own login and its **external ID**: a random value made once per console, kept with its settings, and shown to
-   admins only.
-2. In the account to connect, open CloudFormation (**Open CloudFormation** on the page) → **Create stack → With new
-   resources** → **Upload a template file**, pick the file, keep the values it fills in, tick the IAM acknowledgement
-   and submit. Or with the AWS CLI, from the file's folder (**Copy commands** on the page):
+   admins only (under **What's in the setup file?**).
+2. Sign in to the account to connect and open CloudFormation (**Open CloudFormation** on the page; it shows each screen,
+   drawn, with what to do and why):
+   - **Create stack:** choose **Upload a template file** (it defaults to Amazon S3 URL; the file is on your computer),
+     then **Choose file** and select it. Next.
+   - **Specify stack details:** type a stack name, such as `deployment-console-access`, and keep the parameters the
+     console filled in. Next.
+   - **Configure stack options** and **Review:** leave the options, tick **I acknowledge that AWS CloudFormation might
+     create IAM resources with custom names** (the stack creates one IAM role) and **Submit**.
+
+   Or with the AWS CLI, from the file's folder (**Copy commands** on the page):
 
    ```bash
    aws cloudformation deploy --template-file deployment-console-access.json --stack-name deployment-console-access --capabilities CAPABILITY_NAMED_IAM
    ```
 
-3. When the stack shows `CREATE_COMPLETE`, copy **RoleArn** from its **Outputs** into **Role ARN**, then **Test
+3. When the stack shows `CREATE_COMPLETE`, copy **RoleArn** from its **Outputs** into the page, then **Test
    connection** and **Save and switch**.
 
 The stack creates the role `deployment-console-access` (change **RoleName** to make another) with the read-only
