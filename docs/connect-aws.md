@@ -83,7 +83,7 @@ start the console.
 Open **Settings → AWS connection** (admins), then:
 
 1. **Account:** choose **Your AWS account**.
-2. **Sign-in:** choose **Profile** and pick `console-readonly`. The list shows the profile names in this machine's
+2. **Sign-in:** choose **Saved profile** and pick `console-readonly`. The list shows the profile names in this machine's
    `~/.aws/config` and `~/.aws/credentials`; nothing else is read from them, and the console never stores keys.
 3. Choose **Test connection**. It shows the account and identity AWS signed you in as, and how many ECS clusters
    each enabled region has, then suggests the region with most of them as the home region.
@@ -92,12 +92,19 @@ Open **Settings → AWS connection** (admins), then:
 
 The other sign-ins:
 
-- **Default credentials**, the AWS SDK's usual chain: the ECS task role or EC2 instance profile the console runs with,
-  or this machine's default profile.
-- **Assume a role**: give its ARN (and an external ID if its trust policy asks for one). The console assumes it with
-  its default credentials and renews the session before it ends. Those credentials need `sts:AssumeRole` on the role,
-  and the role's trust policy must name them. The role holds the console's policy; `sts:AssumeRole` belongs to whoever
-  assumes it, so the generated policies don't include it.
+- **Machine's own login** (the AWS SDK's default credentials): whatever the machine running the console already signs
+  in as. That is its ECS task role or EC2 instance profile on AWS, and the default profile on a laptop. The page shows
+  who it is before you pick it. Running the console on ECS or EC2, pick this one: nothing to paste, no keys.
+- **Switch into a role**: give the role's ARN (`arn:aws:iam::123456789012:role/name`, not a user's), and an external ID
+  if its trust policy asks for one. The machine's own login assumes it and renews the session before it ends, so the
+  ARN alone signs nothing in: that login needs `sts:AssumeRole` on the role, and the role's trust policy must name it.
+  The role holds the console's policy; `sts:AssumeRole` belongs to whoever assumes it, so the generated policies don't
+  include it. Use it for a role in another account, or one narrower than the machine's own.
+
+A machine with no AWS login at all (a host outside AWS, with no keys or profiles) says so on the page: on AWS, give the
+console a task role or an instance profile; anywhere else, set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` where it
+runs, for an IAM user that holds the console's policy. Keys in the environment decide the sign-in, so the page then
+offers no other.
 
 When the account or the home region changes, the console forgets what it learned about the previous one, so it can't
 act on the new one's same-named services: remembered task counts ("Start" after "Stop"), state history, the costs

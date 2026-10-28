@@ -10,9 +10,11 @@ First public version (0.1.0). What the console can do today:
 
 ### Latest additions
 - **Settings → AWS connection**: an admin connects the console to an AWS account without editing `.env` or
-  restarting. They pick the simulated account or theirs, and the sign-in: a profile from `~/.aws`, the default
-  credentials, or a role to assume (no keys are ever stored). **Test connection** shows who AWS signs in as and where
-  the ECS clusters are, then suggests the home region; saving switches at once. Every AWS call, Cloud, cache fill and
+  restarting. They pick the simulated account or theirs, and the sign-in: a saved profile from `~/.aws`, the machine's
+  own login (the default credentials; the page shows who that is), or a role to switch into (no keys are ever stored).
+  Each choice says what it means, regions show their names (`ap-south-1 (Mumbai)`), and a user's ARN where a role's
+  belongs, or a machine with no AWS login, gets a plain answer saying what to do. **Test connection** shows who AWS
+  signs in as and where the ECS clusters are, then suggests the home region; saving switches at once. Every AWS call, Cloud, cache fill and
   background write of the previous connection is retired. A new account or home region forgets what would act on the
   old one's same-named services: remembered task counts, state history, the costs snapshot, pending host launches and
   approvals. An environment variable that is set (`CONSOLE_SOURCE`, `AWS_REGION`, `AWS_PROFILE`, `CONSOLE_REGIONS`)

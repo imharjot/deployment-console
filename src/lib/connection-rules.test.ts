@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, scopeKey, staleWrite, suggestHome, withInput, type SavedConnection,
+  describeArn, describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, roleArnProblem, scopeKey, signInFailure, staleWrite, suggestHome, withInput, type SavedConnection,
 } from "./connection-rules.ts";
 
 const saved = (s: Partial<SavedConnection> = {}): SavedConnection => ({ source: "aws", rev: 1, by: "admin@example.com", at: 1, ...s });
@@ -77,6 +77,34 @@ test("connection input: profiles must exist, roles must be role ARNs, regions mu
     [],
   ]) assert.equal(parseConnectionInput(bad, profiles).ok, false, JSON.stringify(bad));
   assert.deepEqual(parseConnectionInput({ source: "aws", regions: "all-enabled" }), { ok: true, value: { source: "aws", regions: "all-enabled" } });
+  // The page's words, not the field's: a user's ARN where a role's belongs is the usual mistake.
+  assert.match((parseConnectionInput({ source: "aws", signIn: { kind: "role", roleArn: "arn:aws:iam::123456789012:user/ops/alice" } }) as { error: string }).error, /^That's the ARN of the IAM user alice, and only a role can be assumed/);
+});
+
+test("role ARNs: a user's or a session's ARN says what to enter instead", () => {
+  assert.equal(roleArnProblem(" arn:aws:iam::123456789012:role/console-readonly "), undefined);
+  assert.equal(roleArnProblem("arn:aws-us-gov:iam::123456789012:role/path/console-readonly"), undefined);
+  assert.match(roleArnProblem("arn:aws:iam::123456789012:user/alice")!, /IAM user alice.*use a saved profile or the machine's own login/);
+  assert.match(roleArnProblem("arn:aws:sts::123456789012:assumed-role/console-readonly/alice@example.com")!, /session of the role console-readonly.*try arn:aws:iam::123456789012:role\/console-readonly /);
+  for (const bad of ["", "console-readonly", "arn:aws:iam::1234:role/r", "arn:aws:iam::123456789012:group/ops"]) assert.equal(roleArnProblem(bad), "Enter a role's ARN, such as arn:aws:iam::123456789012:role/name.", bad);
+});
+
+test("identity ARNs read as who they are", () => {
+  assert.equal(describeArn("arn:aws:iam::123456789012:user/ops/alice"), "user alice");
+  assert.equal(describeArn("arn:aws:sts::123456789012:assumed-role/deployment-console-task/0f1e2d3c"), "role deployment-console-task");
+  assert.equal(describeArn("arn:aws:iam::123456789012:root"), "the account's root user");
+  assert.equal(describeArn("arn:aws:sts::123456789012:federated-user/bob"), "federated user bob");
+  assert.equal(describeArn("not an arn"), "not an arn");
+});
+
+test("sign-in failures: a machine with no AWS login says what to do; anything else keeps AWS's words", () => {
+  const none = { name: "CredentialsProviderError", message: "Could not load credentials from any providers" };
+  const detail = "CredentialsProviderError: Could not load credentials from any providers";
+  assert.match(signInFailure({ kind: "chain" }, none, detail), /^This machine has no AWS login of its own\. On AWS, give the console an ECS task role/);
+  assert.match(signInFailure({ kind: "role", roleArn: "arn:aws:iam::123456789012:role/r" }, none, detail), /^Switching into a role starts from this machine's own login, and it has none/);
+  assert.match(signInFailure({ kind: "profile", profile: "console-readonly" }, none, detail), /^The profile console-readonly gives this machine no AWS credentials/);
+  assert.equal(signInFailure({ kind: "chain" }, { name: "InvalidClientTokenId", message: "The security token included in the request is invalid." }, "InvalidClientTokenId: invalid"), "Couldn't sign in to AWS: InvalidClientTokenId: invalid");
+  assert.equal(signInFailure({ kind: "chain" }, null, "timed out"), "Couldn't sign in to AWS: timed out");
 });
 
 test("connection: a damaged stored row counts as no choice", () => {
@@ -98,6 +126,7 @@ test("home suggestion: the region with most ECS clusters, the current home on a 
   assert.equal(suggestHome([{ region: "us-east-1", clusters: 0 }, { region: "eu-west-1" }]), undefined);
   assert.equal(scopeKey("aws", "123456789012", "eu-west-1"), "aws:123456789012:eu-west-1");
   assert.equal(describeSignIn({ kind: "role", roleArn: "arn:aws:iam::123456789012:role/r", externalId: "secret-ish" }), "role arn:aws:iam::123456789012:role/r (external ID set)");
+  assert.equal(describeSignIn({ kind: "chain" }), "the machine's own login");
 });
 
 test("a write from a page loaded before a switch is stale; reads, sign-in, own preferences and token callers aren't", () => {

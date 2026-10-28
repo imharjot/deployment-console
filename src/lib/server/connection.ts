@@ -1,7 +1,8 @@
 // Settings → AWS connection: which account the console reads and how it signs in, changed without a restart.
 // - loadConnection() (instrumentation.ts, before anything reads AWS) reads the saved choice; resolveConnection()
 //   (src/lib/connection-rules.ts) lets every environment variable that is set decide its part.
-// - testConnection() asks AWS who a candidate signs in as and where its ECS clusters are, with its own clients.
+// - testConnection() asks AWS who a candidate signs in as and where its ECS clusters are, with its own clients;
+//   machineLogin() asks who the machine's own login is, for the page to show beside that choice.
 // - saveConnection() is admin only and audited. It refuses while changes are running, and only saves what AWS answers
 //   for. It then switches: the generation moves on (connection-state.ts) and the caches are dropped.
 // - ensureScope(): when the account or the home region (which names the environments) is new, the data the console
@@ -12,8 +13,8 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-  describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, sameSignIn, scopeKey, suggestHome, withInput,
-  type ConnectionInput, type ConnectionTest, type ConnectionView, type EffectiveConnection, type SavedConnection,
+  describeSignIn, lockedConflicts, parseConnectionInput, parseSaved, profileNames, resolveConnection, sameSignIn, scopeKey, signInFailure, suggestHome, withInput,
+  type ConnectionInput, type ConnectionTest, type ConnectionView, type EffectiveConnection, type MachineLogin, type SavedConnection, type SignIn,
 } from "../connection-rules.ts";
 import { writeAudit } from "./audit.ts";
 import { invalidate } from "./cache.ts";
@@ -187,6 +188,8 @@ async function checkedInput(body: unknown): Promise<ConnectionInput> {
   return parsed.value;
 }
 
+const signInError = (e: unknown, s: SignIn) => signInFailure(s, e as { name?: unknown; message?: unknown } | null, errText(e));
+
 // Settings' "Test connection": the candidate's identity and its ECS clusters per enabled region. Changes nothing.
 export async function testConnection(body: unknown): Promise<ConnectionTest> {
   const input = await checkedInput(body);
@@ -196,7 +199,23 @@ export async function testConnection(body: unknown): Promise<ConnectionTest> {
     const p = await (await import("./aws.ts")).probeConnection(credentialsFor(next.signIn, next.home), next.home, { regions: true });
     return { ok: true, source: "aws", identity: { account: p.account, arn: p.arn }, regions: p.regions, suggestedHome: suggestHome(p.regions ?? [], next.home), problems: p.problems };
   } catch (e) {
-    return { ok: false, source: "aws", error: errText(e) };
+    return { ok: false, source: "aws", error: signInError(e, next.signIn) };
+  }
+}
+
+// Who the machine's own login (the SDK's default chain) is, shown beside that choice in Settings. Only while Settings
+// chooses the sign-in: an environment that pins it (or the simulated account) decides who the console is, and the
+// page offers no choice.
+export async function machineLogin(): Promise<MachineLogin> {
+  const eff = effectiveConnection();
+  const pinned = [...new Set([eff.locked.source, eff.locked.signIn].filter((v): v is string => !!v))];
+  if (pinned.length) throw new HttpError(409, lockedMessage(pinned));
+  const chain: SignIn = { kind: "chain" };
+  try {
+    const p = await (await import("./aws.ts")).probeConnection(credentialsFor(chain, eff.home), eff.home);
+    return { identity: { account: p.account, arn: p.arn } };
+  } catch (e) {
+    return { error: signInError(e, chain) };
   }
 }
 
@@ -245,7 +264,7 @@ export async function saveConnection(body: unknown, by: { email: string; ip?: st
       const p = await (await import("./aws.ts")).probeConnection(credentialsFor(next.signIn, next.home), next.home);
       identity = { account: p.account, arn: p.arn };
     } catch (e) {
-      throw new HttpError(400, `AWS didn't accept this connection: ${errText(e)}`);
+      throw new HttpError(400, signInError(e, next.signIn));
     }
   }
   const key = scopeKey(next.source, identity.account, next.source === "mock" ? MOCK_REGIONS[0] : next.home);
@@ -292,7 +311,7 @@ export async function connectionView(): Promise<ConnectionView> {
     const i = await currentIdentity();
     identity = i && { account: i.account, arn: i.arn };
   } catch (e) {
-    identityError = errText(e);
+    identityError = signInError(e, eff.signIn);
   }
   return {
     source: eff.source,
