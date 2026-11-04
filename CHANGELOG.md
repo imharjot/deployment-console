@@ -15,6 +15,11 @@ First public version (0.1.0). What the console can do today:
   it: the request to centre waits for the map to mount, and the map keeps following the node while its layout fills in
   until you pan or zoom. Resources' search keeps a usable width, the Logs query bar takes its own row on narrower
   screens, the map's controls hint shows only where it fits, and segmented choices never wrap mid-word.
+- **More polish:** every page uses the same width, so the left edge stays put as you move between pages (Activity,
+  Automation, Releases and Notes were narrower). A docker compose environment's Activity shows the CI runs of its
+  declared workloads' repositories (it was empty). Environments' health-check URLs truncate with "…" instead of being
+  cut at the card's edge, and wide tables scroll. On short screens the sidebar's last items fade out at the edge
+  instead of being cut, so it reads as scrollable.
 - **Public repository safeguards:** protected `master` requires pull requests, up-to-date CI and resolved reviews;
   force pushes and deletion are blocked. All files have a maintainer code owner, with the branch and review policy
   documented in `CONTRIBUTING.md` and the GitHub ruleset definitions recorded in `.github/rulesets/`.

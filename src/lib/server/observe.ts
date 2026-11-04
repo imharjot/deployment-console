@@ -12,7 +12,7 @@ import type { ActivityItem, CiRun, EnvInfo, EnvName, InsightsResult, Observabili
 import { cached } from "./cache.ts";
 import { deployClassifier, migrationsChanged } from "./ci.ts";
 import { auditLog, events, overview, settle } from "./console.ts";
-import { catalog, consoleConfig, envInfo, listEnvs, servicesOf, type Catalog } from "./discovery.ts";
+import { catalog, consoleConfig, envInfo, listEnvs, servicesOf, workloadsOf, type Catalog } from "./discovery.ts";
 import { errText } from "./errors.ts";
 import { cloudFor, getCi, type Cloud, type MetricSpec } from "./sources.ts";
 
@@ -242,7 +242,12 @@ export async function activity(envId: EnvName): Promise<ActivityItem[]> {
   const env = await envInfo(envId);
   const cat = await catalog(env.id);
   const items: ActivityItem[] = [];
-  const repos = env.branch ? apps(cat).filter((m) => m.repo) : [];
+  // Services with a repo, plus the declared workloads that name one (a docker compose env has no ECS services, so its
+  // CI runs on the env's branch come only from these). One entry per repo.
+  const declared = Object.values(workloadsOf(consoleConfig().config, env.id))
+    .filter((w) => w.repo)
+    .map((w) => ({ name: w.name, repo: w.repo }));
+  const repos = env.branch ? [...apps(cat).filter((m) => m.repo), ...declared].filter((m, i, all) => all.findIndex((x) => x.repo === m.repo) === i) : [];
   const [ciR, evR, auR, cls] = await Promise.all([
     Promise.all(repos.map((m) => settle(recentRuns(m.repo!, env.branch!).then((runs) => ({ m, runs }))))),
     Promise.all(apps(cat).map((m) => settle(events(env.id, m.id).then((ev) => ({ m, ev }))))),

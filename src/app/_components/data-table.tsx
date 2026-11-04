@@ -57,7 +57,8 @@ export function DataTable<T>({ rows, rowKey, columns, label, fresh, still, rowCl
   rowClassName?(row: T): string | false | undefined;
 }) {
   return (
-    <div className="@container">
+    // overflow-x-auto: a row that's still wider than the card (a long URL, a narrow window) scrolls instead of being cut.
+    <div className="@container overflow-x-auto">
       <table aria-label={label} className="w-full text-[14px] @max-2xl:block">
         <thead className="eyebrow border-b border-line text-left @max-2xl:hidden">
           <tr>
