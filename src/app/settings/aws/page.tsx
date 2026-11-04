@@ -12,7 +12,7 @@ import useSWR, { mutate } from "swr";
 import { useConfirm } from "@/components/confirm";
 import { hue } from "@/components/hue";
 import { useToast } from "@/components/toast";
-import { Button, CopyButton, Empty, Segmented, Skeleton, TimeAgo, cx } from "@/components/ui";
+import { Button, CopyButton, Empty, PasswordInput, Segmented, Skeleton, TimeAgo, cx } from "@/components/ui";
 import { ROLE_INFO, useMe } from "@/components/user-menu";
 import { ApiError, postJson, putJson } from "@/lib/client/api";
 import { regionName } from "@/lib/client/region";
@@ -610,7 +610,7 @@ function AddProfile({ onAdded }: { onAdded: (name: string) => void }) {
         </label>
         <label className="block">
           <span className="eyebrow mb-1 block">Secret access key</span>
-          <input type="password" className={cx(inputCls, "font-mono text-[13px]")} value={f.secretAccessKey} onChange={(e) => setF({ ...f, secretAccessKey: e.target.value })} spellCheck={false} autoComplete="off" />
+          <PasswordInput className={cx(inputCls, "font-mono text-[13px]")} value={f.secretAccessKey} onChange={(e) => setF({ ...f, secretAccessKey: e.target.value })} spellCheck={false} autoComplete="off" />
         </label>
       </div>
       <p className="text-[13px] text-fg-3">

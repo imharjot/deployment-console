@@ -11,7 +11,7 @@ import { nameProblem, parseDotenv, type VarChanges, type VarSource } from "@/lib
 import type { ResourceView } from "@/lib/types";
 import { useConfirm } from "../confirm";
 import { useToast } from "../toast";
-import { Button, Chip, Empty, Skeleton, copy, cx } from "../ui";
+import { Button, Chip, Empty, PasswordInput, Skeleton, copy, cx } from "../ui";
 
 // Another service reading the same SSM parameter, secret or env file (b-discovery-variables).
 interface Consumer {
@@ -396,18 +396,20 @@ function Editor({ data, draft, setDraft, url, r, onDone }: { data: VarsView; dra
                   )}
                   {(isNew || changed) && !d.deleted && <span className="size-1.5 flex-none rounded-full bg-accent" title={isNew ? "new" : "changed"} />}
                 </div>
-                <input
-                  value={d.value}
-                  onChange={(e) => update(d.id, { value: e.target.value })}
-                  disabled={d.deleted || !!d.lockedWhy}
-                  title={d.lockedWhy}
-                  type={secret ? "password" : "text"}
-                  placeholder={secret ? "new secret value" : "value"}
-                  aria-label={`Value of ${d.name || "new variable"}`}
-                  spellCheck={false}
-                  autoComplete="off"
-                  className="h-9 w-full min-w-0 rounded-lg border border-line bg-panel-2 px-2.5 font-mono text-[13.5px] text-fg outline-none focus:border-line-strong disabled:opacity-60"
-                />
+                {(() => {
+                  const props = {
+                    value: d.value,
+                    onChange: (e: React.ChangeEvent<HTMLInputElement>) => update(d.id, { value: e.target.value }),
+                    disabled: d.deleted || !!d.lockedWhy,
+                    title: d.lockedWhy,
+                    placeholder: secret ? "new secret value" : "value",
+                    "aria-label": `Value of ${d.name || "new variable"}`,
+                    spellCheck: false,
+                    autoComplete: "off",
+                    className: "h-9 w-full min-w-0 rounded-lg border border-line bg-panel-2 px-2.5 font-mono text-[13.5px] text-fg outline-none focus:border-line-strong disabled:opacity-60",
+                  };
+                  return secret ? <PasswordInput {...props} /> : <input type="text" {...props} />;
+                })()}
                 <div className="flex min-w-0 items-center justify-end gap-1.5">
                   <SourceChip v={d} />
                   {d.lockedWhy ? (

@@ -290,7 +290,8 @@ const serviceColumns = (e: Env): Column<Svc>[] => [
       ),
   },
   // Truncated with a tooltip on the wide table; wraps on cards (no hover on touch).
-  { key: "health", header: "Health check", label: "Health", className: "font-mono text-[12px] text-fg-2 @max-2xl:[overflow-wrap:anywhere] @min-2xl:max-w-[260px] @min-2xl:truncate", cell: (s) => s.healthcheck && <span title={s.healthcheck}>{s.healthcheck}</span> },
+  // Truncated on the text itself: a table cell ignores max-width and overflow, so the URL was cut mid-word with no "…".
+  { key: "health", header: "Health check", label: "Health", className: "whitespace-nowrap font-mono text-[12px] text-fg-2", cell: (s) => s.healthcheck && <span title={s.healthcheck} className="@max-2xl:whitespace-normal @max-2xl:[overflow-wrap:anywhere] @min-2xl:block @min-2xl:max-w-[260px] @min-2xl:truncate">{s.healthcheck}</span> },
 ];
 
 function EnvCard({ e, i, clean }: { e: Env; i: number; clean: boolean }) {

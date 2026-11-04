@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import type { InputHTMLAttributes, ReactNode } from "react";
 import { pop } from "@/components/motion";
-import { LogoMark } from "@/components/ui";
+import { LogoMark, PasswordInput } from "@/components/ui";
 
 export function AuthCard({ title, subtitle, children, footer }: { title: string; subtitle?: ReactNode; children: ReactNode; footer?: ReactNode }) {
   return (
@@ -25,14 +25,14 @@ export function AuthCard({ title, subtitle, children, footer }: { title: string;
   );
 }
 
+const FIELD =
+  "h-10 w-full rounded-lg border border-line bg-panel-2 px-3 text-[14.5px] text-fg outline-none transition-colors placeholder:text-fg-3 focus:border-accent focus:bg-panel read-only:text-fg-2 disabled:opacity-60 pointer-coarse:h-11";
+
 export function Field({ label, hint, className, ...input }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: ReactNode }) {
   return (
     <label className={className ?? "block"}>
       <span className="mb-1.5 block text-[13.5px] font-medium text-fg-2">{label}</span>
-      <input
-        {...input}
-        className="h-10 w-full rounded-lg border border-line bg-panel-2 px-3 text-[14.5px] text-fg outline-none transition-colors placeholder:text-fg-3 focus:border-accent focus:bg-panel read-only:text-fg-2 disabled:opacity-60 pointer-coarse:h-11"
-      />
+      {input.type === "password" ? <PasswordInput {...input} className={FIELD} /> : <input {...input} className={FIELD} />}
       {hint && <span className="mt-1.5 block text-[12.5px] leading-snug text-fg-3">{hint}</span>}
     </label>
   );

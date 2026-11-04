@@ -582,7 +582,9 @@ export function Shell({ children }: { children: ReactNode }) {
         <Link href="/" className={cx("mb-6 flex items-center", collapsed ? "justify-center" : "px-2")} title="Deployment Console">
           <Brand subtitle={subtitle} collapsed={collapsed} />
         </Link>
-        <nav className="min-h-0 space-y-px overflow-y-auto no-scrollbar">
+        {/* Scrolls on short screens (scrollbar hidden): the faded bottom edge says there's more, and the padding keeps the
+            last item clear of the fade when everything fits. */}
+        <nav className="min-h-0 space-y-px overflow-y-auto pb-5 no-scrollbar [mask-image:linear-gradient(to_bottom,black_calc(100%-1.25rem),transparent)]">
           {PAGES.map((n, i) => {
             const active = pathOf(n.href) === "/" ? path === "/" : path.startsWith(pathOf(n.href));
             return (
