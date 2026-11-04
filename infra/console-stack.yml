@@ -411,7 +411,15 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubDeployRepo}:ref:refs/heads/${GitHubDeployBranch}
+              # Both subject formats GitHub issues: the classic repo:owner/name:… and, for repositories that opted in,
+              # the immutable repo:owner@<id>/name@<id>:…. Owner, name and branch must match either way.
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubDeployRepo}:ref:refs/heads/${GitHubDeployBranch}
+                  - !Sub
+                    - repo:${Owner}@*/${Name}@*:ref:refs/heads/${GitHubDeployBranch}
+                    - Owner: !Select [0, !Split ["/", !Ref GitHubDeployRepo]]
+                      Name: !Select [1, !Split ["/", !Ref GitHubDeployRepo]]
       Policies:
         - PolicyName: deploy-console
           PolicyDocument:
