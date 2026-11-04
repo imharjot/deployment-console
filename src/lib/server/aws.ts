@@ -34,7 +34,7 @@ import {
 } from "@aws-sdk/client-elastic-load-balancing-v2";
 import { ApplicationAutoScalingClient, DescribeScalableTargetsCommand, DescribeScalingPoliciesCommand } from "@aws-sdk/client-application-auto-scaling";
 import { GetCallerIdentityCommand, STSClient } from "@aws-sdk/client-sts";
-import { IAMClient, SimulatePrincipalPolicyCommand } from "@aws-sdk/client-iam";
+import { IAMClient, SimulatePrincipalPolicyCommand, type ContextEntry } from "@aws-sdk/client-iam";
 import {
   allPages, appendMetrics, cachesOf, chunk, clientToken, clusterTasks, dbOf, decisionsOf, ECS_DIMENSION, ecrTarget, ecsResourceId, ENV_FILE_CHANGED,
   eventOf, isPreconditionFailed, lastPart, lbConfigOf, mainHint, mapLimit, ms, primaryTaskDef, revisionOf, SCALABLE_BATCH, scalableTargetsOf, SECRET_CHANGED,
@@ -264,6 +264,16 @@ async function ssmParam(k: Clients, name: string) {
 export function awsCloud(region: string, born?: number): Cloud {
   return retire(cloudOf(region), born);
 }
+
+// What the console's own writes always carry, so the IAM simulation judges the policy's conditional statements the way
+// AWS will: everything it creates is tagged console:created=true (the policy requires that tag), and the roles it passes
+// go to ECS tasks. Context keys an action doesn't use are ignored. Power on hosts and databases (console:power on the
+// resource) can't be known this way and stays "probably".
+const SIMULATION_CONTEXT: ContextEntry[] = [
+  { ContextKeyName: "aws:RequestTag/console:created", ContextKeyValues: ["true"], ContextKeyType: "string" },
+  { ContextKeyName: "aws:TagKeys", ContextKeyValues: ["console:created"], ContextKeyType: "stringList" },
+  { ContextKeyName: "iam:PassedToService", ContextKeyValues: ["ecs-tasks.amazonaws.com"], ContextKeyType: "string" },
+];
 
 function cloudOf(region: string): Cloud {
   const k = clientsFor(region);
@@ -1035,7 +1045,7 @@ function cloudOf(region: string): Cloud {
           for (const ActionNames of chunk(list, 100)) {
             let Marker: string | undefined;
             do {
-              const r = await k.iam.send(new SimulatePrincipalPolicyCommand({ PolicySourceArn: source, ActionNames, ResourceArns: [res], Marker, MaxItems: 1000 }), t());
+              const r = await k.iam.send(new SimulatePrincipalPolicyCommand({ PolicySourceArn: source, ActionNames, ResourceArns: [res], ContextEntries: SIMULATION_CONTEXT, Marker, MaxItems: 1000 }), t());
               for (const [a, d] of Object.entries(decisionsOf(r.EvaluationResults ?? [], res !== "*"))) (seen[a] ??= []).push(d);
               Marker = r.IsTruncated ? r.Marker : undefined;
             } while (Marker);

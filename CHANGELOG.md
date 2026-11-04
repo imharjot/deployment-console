@@ -14,6 +14,10 @@ First public version (0.1.0). What the console can do today:
   documented in `CONTRIBUTING.md` and the GitHub ruleset definitions recorded in `.github/rulesets/`.
 - **Fargate:** the task definition template and the stack set `HOSTNAME=0.0.0.0`. Fargate sets `HOSTNAME` to the
   task's own name, so the server listened only there and the container health check on `127.0.0.1` failed.
+- **AWS permission check without false alarms:** the IAM simulation now carries the context the console's writes always
+  send (`console:created=true`, roles passed to ECS tasks) and judges S3 object writes on a real env file. Before, a
+  policy that allows them under those conditions (the console's own) showed "probably denied" on the Variables editor,
+  New service, Run task and Copy.
 - **Deploy with one CloudFormation stack** (`infra/console-stack.yml`): roles, log group, task definition, the
   console's own security group, target group, listener rule, service (one task, circuit breaker), and optionally a
   database ingress rule and a GitHub Actions role. **`.github/workflows/deploy.yml`** deploys the console after CI
