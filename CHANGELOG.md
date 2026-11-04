@@ -9,6 +9,9 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Public repository safeguards:** protected `master` requires pull requests, up-to-date CI and resolved reviews;
+  force pushes and deletion are blocked. All files have a maintainer code owner, with the branch and review policy
+  documented in `CONTRIBUTING.md` and the GitHub ruleset definitions recorded in `.github/rulesets/`.
 - **Deploy with one CloudFormation stack** (`infra/console-stack.yml`): roles, log group, task definition, the
   console's own security group, target group, listener rule, service (one task, circuit breaker), and optionally a
   database ingress rule and a GitHub Actions role. **`.github/workflows/deploy.yml`** deploys the console after CI
