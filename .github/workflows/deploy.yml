@@ -1,0 +1,82 @@
+# Deploys the console itself to ECS after CI passes on master (infra/console-stack.yml creates the service and the
+# GitHub role this assumes). Does nothing until the repository variable AWS_DEPLOY_ROLE_ARN is set, so forks and
+# copies of this repository never try to deploy anywhere.
+#
+# Repository variables (Settings → Secrets and variables → Actions → Variables; none of them are secret):
+#   AWS_DEPLOY_ROLE_ARN   the stack's DeployRoleArn output
+#   AWS_REGION            e.g. eu-west-1
+#   ECS_CLUSTER           the stack's ClusterName
+#   ECS_SERVICE           the stack's ServiceName (default deployment-console; also the task family and container)
+#   ECR_REPOSITORY        default deployment-console
+#   CPU_ARCHITECTURE      ARM64 (default) or X86_64, as in the stack
+#
+# The image is tagged with the commit, so the console shows its own commits, release diffs and rollbacks.
+name: deploy
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # GitHub OIDC → AWS, no keys
+  contents: read
+
+concurrency:
+  group: deploy-console
+  cancel-in-progress: false # never interrupt a rollout half-way
+
+jobs:
+  deploy:
+    if: vars.AWS_DEPLOY_ROLE_ARN != '' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ${{ (vars.CPU_ARCHITECTURE || 'ARM64') == 'ARM64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    # No `environment:` here: it would change the OIDC subject to repo:…:environment:… and the stack's role trusts the branch.
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE || 'deployment-console' }}
+      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'deployment-console' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }} # exactly the commit CI passed
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the image (native on the task's CPU)
+        id: image
+        env:
+          IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.SHA }}
+        run: |
+          docker build --build-arg VERSION="${SHA::7}" -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "uri=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Register a task-definition revision with the new image
+        id: taskdef
+        env:
+          IMAGE: ${{ steps.image.outputs.uri }}
+        run: |
+          aws ecs describe-task-definition --task-definition "$ECS_SERVICE" --query taskDefinition > td.json
+          jq --arg name "$ECS_SERVICE" --arg img "$IMAGE" '
+            (.containerDefinitions[] | select(.name == $name) | .image) = $img
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' td.json > td-new.json
+          echo "arn=$(aws ecs register-task-definition --cli-input-json file://td-new.json --query taskDefinition.taskDefinitionArn --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Roll out and wait until it is steady
+        env:
+          TASKDEF: ${{ steps.taskdef.outputs.arn }}
+        run: |
+          aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "$ECS_SERVICE" --task-definition "$TASKDEF" --query service.serviceName --output text
+          aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "$ECS_SERVICE"
+          # The circuit breaker rolls a failed rollout back; services-stable is then satisfied by the old revision.
+          running=$(aws ecs describe-services --cluster "${{ vars.ECS_CLUSTER }}" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)
+          if [ "$running" != "$TASKDEF" ]; then echo "::error::the new revision didn't stay up; ECS rolled back to $running"; exit 1; fi
+          echo "deployed $TASKDEF"

@@ -46,9 +46,24 @@ export const FAIL_CLOSED_CONFIG: ConsoleConfig = { provisioning: { enabled: fals
 const g = globalThis as { __consoleConfigFile?: { current?: LoadedConfig; good?: LoadedConfig } };
 const S = (g.__consoleConfigFile ??= {});
 
-// CONSOLE_CONFIG, else ./console.config.json, else (demo only) the bundled example. Re-read when the file changes.
-// An empty CONSOLE_CONFIG (as in .env.example) counts as unset.
+// CONSOLE_CONFIG_JSON (the file's content in a variable, for containers: an ECS env file or secret, no image rebuild),
+// else CONSOLE_CONFIG, else ./console.config.json, else (demo only) the bundled example. Re-read when it changes. An
+// unparseable variable fails closed like an unreadable file (it can't have a last good version: it is the deployment).
+// An empty CONSOLE_CONFIG or CONSOLE_CONFIG_JSON (as in .env.example) counts as unset.
+const INLINE = "CONSOLE_CONFIG_JSON";
+const g2 = globalThis as { __consoleConfigInline?: string };
+
 export function consoleConfig(): LoadedConfig {
+  const inline = process.env.CONSOLE_CONFIG_JSON?.trim();
+  if (inline) {
+    if (S.current?.file === INLINE && g2.__consoleConfigInline === inline) return S.current;
+    g2.__consoleConfigInline = inline;
+    try {
+      return (S.current = S.good = { file: INLINE, mtime: 0, ...parseConfig(JSON.parse(inline)) });
+    } catch (e) {
+      return (S.current = { file: INLINE, mtime: 0, config: FAIL_CLOSED_CONFIG, errors: [`${INLINE}: ${errText(e)} — failing closed: every environment is protected and provisioning is off until it is fixed`], failClosed: true });
+    }
+  }
   const file =
     process.env.CONSOLE_CONFIG || (existsFile("console.config.json") ? "console.config.json" : sourceKind() === "mock" ? "examples/demo.console.config.json" : undefined);
   if (!file) return (S.current = { mtime: 0, config: {}, errors: [] });
