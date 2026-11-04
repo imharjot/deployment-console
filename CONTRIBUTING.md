@@ -29,6 +29,38 @@ Because `AUTH_MODE=dev` makes every caller an admin, `npm run dev` listens on **
 `-H 0.0.0.0`; to try the console from a phone or another machine, use `AUTH_MODE=session` and sign in. If you start a
 second dev server (say against a real account), bind it to `127.0.0.1` too.
 
+## Branches and review
+
+`master` is the protected default branch. Fork the repository, create a focused branch such as `fix/log-pagination`
+or `feat/new-integration`, and open a pull request against `master`.
+
+- Every change goes through a pull request, including changes by administrators. Direct pushes, force pushes and
+  branch deletion are blocked.
+- The GitHub Actions checks `verify`, `postgres` and `smoke` must pass against the latest `master` before merging.
+  Checks from other apps do not satisfy this requirement. Resolve all review conversations too.
+- Changes need one approving review, including the code owner's approval. `.github/CODEOWNERS` assigns all files
+  to `@imharjot`, including workflows and the ownership file itself. New commits dismiss stale approvals, and the
+  most recent push needs approval from someone other than its pusher.
+- Repository administrators may bypass the review requirement **through a pull request only**. This lets the sole
+  maintainer merge their own work, since GitHub does not allow self-approval. The separate `Protect master` ruleset
+  still requires CI, resolved conversations and a linear history, and still blocks direct pushes and deletion.
+- Pull requests are squash merged. GitHub removes merged source branches automatically.
+
+Workflows from all external contributors need a maintainer's approval before they run. Review workflow changes and
+the code they execute before approving a run. The default workflow token is read-only and cannot approve pull
+requests. Secret scanning and push protection help prevent supported credentials from entering the repository;
+never commit credentials or real deployment configuration.
+
+### Maintaining the repository rules
+
+The active GitHub rulesets are recorded in `.github/rulesets/`. These JSON files document the settings; committing a
+change to them does **not** apply it automatically. Maintainers must update the live rulesets in
+[repository settings](https://github.com/imharjot/deployment-console/settings/rules), then keep these files in sync.
+Repository administrators are GitHub's built-in role ID `5`; app ID `15368` is GitHub Actions.
+
+Keep required check names synchronized with `.github/workflows/ci.yml`. The deployment workflow is deliberately not
+a required check: it runs after CI passes on `master`, after a pull request has been merged.
+
 ## Before you open a pull request
 
 ```bash
@@ -40,8 +72,8 @@ npm run build
 npm run smoke       # end-to-end, against the running `npm run dev`; ends with "all checks passed"
 ```
 
-CI (`.github/workflows/ci.yml`) runs typecheck, lint, the unit tests, the build and the Postgres suites on every pull
-request; run the smoke suite yourself.
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, the unit tests, the build, the Postgres suites and the smoke suite
+on every pull request. Run the relevant suites locally too, so failures are caught before review.
 
 **Postgres suites.** `npm test` runs the DB and coordinator suites on in-memory SQLite. `npm run test:pg`
 (`scripts/pg-test.mjs`) runs them again on a real Postgres 16, where transactions, advisory-lock migrations and
