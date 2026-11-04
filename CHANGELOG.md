@@ -9,6 +9,9 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Deploy workflow keeps your AWS account out of public logs:** the deploy role and cluster are repository secrets
+  (masked by GitHub), the account id is masked wherever it appears, and the workflow is switched on by the
+  `DEPLOY_ENABLED` variable. It also refuses a run whose code doesn't come from the repository itself.
 - **Polish from the first real use:** charts keep their y-axis labels in a gutter beside the plot (they sat on the
   lines and deploy markers) and no longer jump while you hover (the hover time never wraps the title; legend values
   keep their width). Every password and secret field has a show/hide eye. *Show on the map* from a resource lands on
@@ -32,7 +35,7 @@ First public version (0.1.0). What the console can do today:
 - **Deploy with one CloudFormation stack** (`infra/console-stack.yml`): roles, log group, task definition, the
   console's own security group, target group, listener rule, service (one task, circuit breaker), and optionally a
   database ingress rule and a GitHub Actions role. **`.github/workflows/deploy.yml`** deploys the console after CI
-  passes on master (OIDC, no keys; idle until `AWS_DEPLOY_ROLE_ARN` is set). **`CONSOLE_CONFIG_JSON`** carries the
+  passes on master (OIDC, no keys; idle until `DEPLOY_ENABLED` is `true`). **`CONSOLE_CONFIG_JSON`** carries the
   config file's content in a variable, so containers change it without a new image.
 - **Background sync follows who's using the console**: every `CONSOLE_SYNC_MINUTES` (default 5) while someone is signed
   in and active, paused after 15 minutes with nobody, and at once on the first request after that. A change being

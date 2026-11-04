@@ -70,7 +70,8 @@ aws cloudformation create-stack --stack-name deployment-console --template-body 
 - Settings that aren't secret and that you want to change without a new image, such as the
   [config file](configuration.md) as `CONSOLE_CONFIG_JSON`, go in an S3 env file: `EnvironmentFileArn`.
 - **Deploy from GitHub Actions.** Set `GitHubDeployRepo` (`owner/repo`) and `GitHubOidcProviderArn`, then the
-  repository variables listed in [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml). After CI passes on
+  repository secrets and variables listed in [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) (the role
+  and the cluster are secrets: a public repository's Actions logs are public, and the workflow masks your account id). After CI passes on
   `master` it builds the image on the task's CPU, tags it with the commit and rolls it out. The role trusts only that
   repository and branch, pushes only to its ECR repository, updates only this service, and passes only this stack's
   roles. New images replace `ImageUri` outside CloudFormation: when you update the stack, pass the image that is running.
