@@ -9,6 +9,10 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **AWS permission check without false alarms:** the IAM simulation now carries the context the console's writes always
+  send (`console:created=true`, roles passed to ECS tasks) and judges S3 object writes on a real env file. Before, a
+  policy that allows them under those conditions (the console's own) showed "probably denied" on the Variables editor,
+  New service, Run task and Copy.
 - **Deploy with one CloudFormation stack** (`infra/console-stack.yml`): roles, log group, task definition, the
   console's own security group, target group, listener rule, service (one task, circuit breaker), and optionally a
   database ingress rule and a GitHub Actions role. **`.github/workflows/deploy.yml`** deploys the console after CI
