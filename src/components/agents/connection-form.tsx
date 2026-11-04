@@ -8,7 +8,7 @@ import { ExternalLink, KeyRound, Loader2, LogIn } from "lucide-react";
 import Link from "next/link";
 import { useId, useMemo, useState, type FormEvent, type InputHTMLAttributes, type ReactNode } from "react";
 import useSWR from "swr";
-import { Button, Chip, cx } from "@/components/ui";
+import { Button, Chip, PasswordInput, cx } from "@/components/ui";
 import { ELIGIBILITY_NOTE } from "@/lib/agents/chatgpt/info";
 import type { ConnectionView, EndpointEntry } from "@/lib/agents/connection-rules";
 import { postJson } from "@/lib/client/api";
@@ -32,7 +32,11 @@ export function FormField({ label, hint, children, className }: { label: string;
 }
 
 export function TextInput({ label, hint, className, ...input }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: ReactNode }) {
-  return <FormField label={label} hint={hint} className={className}>{(id, hintId) => <input id={id} aria-describedby={hintId} {...input} className={INPUT} />}</FormField>;
+  return (
+    <FormField label={label} hint={hint} className={className}>
+      {(id, hintId) => (input.type === "password" ? <PasswordInput id={id} aria-describedby={hintId} {...input} className={INPUT} /> : <input id={id} aria-describedby={hintId} {...input} className={INPUT} />)}
+    </FormField>
+  );
 }
 
 // The ChatGPT plan sign-in (GET /api/agents/oauth/chatgpt is 404 unless the flag is on).

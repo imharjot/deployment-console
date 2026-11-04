@@ -103,6 +103,9 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
   const [hover, setHover] = useState<string | null>(null);
   const [kbd, setKbd] = useState<string | null>(null); // node with keyboard focus
   const [keep, setKeep] = useState<string | null>(null); // last focused node: stays rendered when panned away
+  // The node centerOn() last centred, followed through layout and size changes (a fuller inventory, the panel opening)
+  // until the person pans or zooms: otherwise a ?r= link can land on an empty part of the canvas.
+  const follow = useRef<{ id: string; right?: number; minZoom?: number } | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
   const [selEdge, setSelEdge] = useState<string | null>(null);
   const still = useReducedMotion() ?? false;
@@ -252,6 +255,7 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
   // Automatic fits: a new filter set (fitKey) starts fresh; otherwise refit on resize / new layout until touched.
   useLayoutEffect(() => {
     touched.current = false;
+    follow.current = null;
   }, [fitKey]);
   useLayoutEffect(() => {
     if (!touched.current) fit();
@@ -260,6 +264,7 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
   const zoomAt = useCallback(
     (cx: number, cy: number, factor: number, commit = true) => {
       touched.current = true;
+      follow.current = null;
       anim.current?.stop();
       const lo = minZoom();
       vp.update((v) => {
@@ -316,27 +321,42 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
     }
   });
 
+  // Centre a node in the canvas (minus `right`, the width a side panel covers). false when it can't yet: no such node,
+  // or the canvas not measured — the follow effect below retries when either arrives.
+  const centre = useCallback(
+    (id: string, opts?: { minZoom?: number; right?: number }) => {
+      const n = live.current.layout.nodeById.get(id);
+      const { size: s } = live.current;
+      if (!n || !s.w || !s.h) return false;
+      touched.current = true;
+      const v = vp.get();
+      const z = Math.min(Z_MAX, Math.max(v.z, opts?.minZoom ?? 0.8));
+      const w = Math.max(160, s.w - (opts?.right ?? 0));
+      goTo({ z, x: w / 2 - (n.x + n.w / 2) * z, y: s.h / 2 - (n.y + n.h / 2) * z });
+      return true;
+    },
+    [goTo, vp],
+  );
+  useEffect(() => {
+    const f = follow.current;
+    if (f && centre(f.id, f)) setKeep(f.id);
+  }, [centre, layout, size.w, size.h]);
+
   useImperativeHandle(
     ref,
     () => ({
       centerOn(id, opts) {
-        const n = live.current.layout.nodeById.get(id);
-        const { size: s } = live.current;
-        const v = vp.get();
-        if (!n || !s.w) return;
-        touched.current = true;
-        const z = Math.min(Z_MAX, Math.max(v.z, opts?.minZoom ?? 0.8));
-        const w = Math.max(160, s.w - (opts?.right ?? 0));
-        goTo({ z, x: w / 2 - (n.x + n.w / 2) * z, y: s.h / 2 - (n.y + n.h / 2) * z });
-        setKeep(id);
+        follow.current = { id, ...opts };
+        if (centre(id, opts)) setKeep(id);
       },
       focusNode: moveFocus,
       fit() {
         touched.current = false;
+        follow.current = null;
         fit(true);
       },
     }),
-    [fit, goTo, moveFocus, vp],
+    [fit, centre, moveFocus],
   );
 
   // ---------- pointer & wheel ----------
@@ -351,6 +371,7 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
         zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.01), false);
       } else {
         touched.current = true;
+        follow.current = null;
         anim.current?.stop();
         vp.update((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
         vp.commitSoon(150); // a wheel stream has no end event
@@ -418,6 +439,7 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
       }
       gesture.current = { kind: "pinch", d0: Math.hypot(b.x - a.x, b.y - a.y) || 1, mx: (a.x + b.x) / 2 - r.left, my: (a.y + b.y) / 2 - r.top, v0: vp.get() };
       touched.current = true;
+      follow.current = null;
       return;
     }
     if (pointers.current.size > 2) return;
@@ -450,6 +472,7 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
     if (!g.moved && Math.abs(dx) + Math.abs(dy) > 5) {
       // Only a real drag captures the pointer: a plain click still reaches the node or edge under it.
       g.moved = touched.current = true;
+      follow.current = null;
       try {
         box.current!.setPointerCapture(e.pointerId);
       } catch {
@@ -763,7 +786,7 @@ export const Graph = memo(function Graph({ layout, byKey, edgeById, matches, con
       </div>
 
       <Legend support={supportOn} />
-      <div className="pointer-events-none absolute bottom-3 right-4 hidden font-mono text-[11px] text-fg-3 lg:block">
+      <div className="pointer-events-none absolute bottom-3 right-4 hidden rounded-md bg-canvas/80 px-1.5 py-0.5 font-mono text-[11px] text-fg-3 backdrop-blur-sm xl:block">
         {dense && !showAllEdges ? "dense map: hover a resource to see its connections · " : ""}
         {touch ? "drag to pan · pinch to zoom · tap to open" : "drag to pan · ⌘ scroll to zoom · Tab / arrows to move · Enter to open"}
       </div>

@@ -121,7 +121,7 @@ export function ResourceTable({ resources, envs, regions, filters: f, onFilters,
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-none flex-wrap items-center gap-2">
-        <SearchField value={f.q} onChange={(q) => set({ q })} label="Search resources by name, key, tag or endpoint" placeholder="Search…" className="flex-1 sm:max-w-72" />
+        <SearchField value={f.q} onChange={(q) => set({ q })} label="Search resources by name, key, tag or endpoint" placeholder="Search…" className="min-w-[11rem] flex-1 sm:max-w-72" />
         <button type="button" onClick={() => setMore((m) => !m)} aria-expanded={more} className="press flex h-10 flex-none items-center gap-1.5 rounded-lg border border-line bg-panel px-3 text-[14px] text-fg-2 sm:hidden">
           <SlidersHorizontal className="size-4" /> Filters{activeCount ? ` · ${activeCount}` : ""}
         </button>

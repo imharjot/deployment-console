@@ -109,6 +109,9 @@ export function combine(states: CapState[]): CapState {
 export const SERVICE_SCOPED_ACTIONS: readonly string[] = ["ecs:CreateService", "ecs:DeleteService", "ecs:UpdateService"];
 // ECS actions whose IAM resource is a task definition (a new revision of the family, for RegisterTaskDefinition).
 export const TASK_DEFINITION_ACTIONS: readonly string[] = ["ecs:RegisterTaskDefinition", "ecs:RunTask"];
+// S3 object writes: the Variables editor saves env files with these, and a policy scopes them to the env-file bucket
+// (arn:…:s3:::bucket/*), so against "*" they look denied. Simulated against a real env file of the sampled service.
+export const ENV_FILE_ACTIONS: readonly string[] = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"];
 
 // Writes outside ECS whose IAM resource is the resource they act on, by its ARN type (arnType). The rest stay against
 // "*": RunInstances, CreateTags and PassRole name resources the request creates or picks, and S3 objects, API Gateway
@@ -134,7 +137,7 @@ const PLACES_PER_TYPE = 5;
 export interface SimulationCluster {
   cluster: string;
   clusterArn?: string;
-  services: { name: string; family?: string; taskDefinitionArn?: string }[];
+  services: { name: string; family?: string; taskDefinitionArn?: string; envFile?: string }[];
 }
 
 // What simulationTargets reads of a cloud-map inventory row.
@@ -165,6 +168,7 @@ export function simulationTargets(clusters: SimulationCluster[], self?: { cluste
     if (!s) continue;
     for (const a of SERVICE_SCOPED_ACTIONS) add(a, `arn:${m[1]}:ecs:${m[2]}:${m[3]}:service/${m[4]}/${s.name}`);
     if (s.taskDefinitionArn?.startsWith("arn:")) for (const a of TASK_DEFINITION_ACTIONS) add(a, s.taskDefinitionArn);
+    if (s.envFile?.startsWith("arn:")) for (const a of ENV_FILE_ACTIONS) add(a, s.envFile);
   }
   const places = new Map<string, Map<string, string>>(); // ARN type → "env@region" → the first ARN there
   for (const r of [...rows].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {

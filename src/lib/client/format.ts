@@ -57,6 +57,14 @@ export function stamp(ms: number | string | undefined) {
   return `${dateFmt.format(d)} ${timeFmt.format(d)}${z ? ` ${z}` : ""}`;
 }
 
+// stamp() without the date when it's today: for compact places such as a chart's hover time.
+export function stampShort(ms: number) {
+  const d = new Date(ms);
+  if (d.toDateString() !== new Date().toDateString()) return stamp(ms);
+  const z = zone(ms);
+  return `${timeFmt.format(d)}${z ? ` ${z}` : ""}`;
+}
+
 export const shortSha = (s?: string) => (s ? s.slice(0, 7) : "—");
 export const repoName = (r: string) => r.split("/").pop() ?? r;
 

@@ -6,7 +6,7 @@ import useSWR, { useSWRConfig } from "swr";
 import { Modal } from "@/components/motion";
 import { IntegrationIcon, type IntegrationList } from "@/components/ticket-button";
 import { useToast } from "@/components/toast";
-import { Button, Chip, Empty, IconButton, Segmented, Skeleton, Switch, TimeAgo, cx } from "@/components/ui";
+import { Button, Chip, Empty, IconButton, PasswordInput, Segmented, Skeleton, Switch, TimeAgo, cx } from "@/components/ui";
 import { ApiError } from "@/lib/client/api";
 import type { EnvFilter } from "@/lib/plugins/events";
 import type { IntegrationView } from "@/lib/plugins/types";
@@ -395,9 +395,8 @@ function SecretInput({ id, state, required, wasSaved, placeholder, autoFocus, on
   }
   return (
     <div className="flex gap-2">
-      <input
+      <PasswordInput
         id={id}
-        type="password"
         value={state.value}
         placeholder={placeholder ?? (wasSaved ? "new value" : "")}
         autoFocus={autoFocus || wasSaved}

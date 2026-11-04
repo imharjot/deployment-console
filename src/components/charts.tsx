@@ -4,7 +4,7 @@
 import { motion } from "motion/react";
 import { memo, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
 import { asOf, nearestIndex, niceScale, rateDisplay, timePath, withUnit, xOf, yFloor, yOf, type Frame, type HoverStore, type Point } from "@/lib/chart-scale";
-import { stamp } from "@/lib/client/format";
+import { stamp, stampShort } from "@/lib/client/format";
 import type { MetricSeries, ObsChart, Observability } from "@/lib/types";
 import { EASE } from "./motion";
 import { cx } from "./ui";
@@ -54,6 +54,12 @@ function useWidth(initial: number, min: number) {
   return [ref, w] as const;
 }
 
+// Room right of the plot for the y-axis labels, so they never sit on the lines or the deploy markers.
+const AXIS_W = 46;
+const axisLabel = (x: number, y: number, text: string) => (
+  <text x={x + 6} y={y} dominantBaseline="middle" className="fill-[var(--text-3)] text-[10.5px] tabular-nums">{text}</text>
+);
+
 const sorted = (pts: [number, number][]): Point[] => (pts.every((p, i) => !i || pts[i - 1][0] <= p[0]) ? (pts as Point[]) : ([...pts].sort((a, b) => a[0] - b[0]) as Point[]));
 
 // One metric of one resource (overview and map panels). `range` is the time the x axis spans; by default from the
@@ -71,8 +77,9 @@ export function MetricChart({ series, color = "var(--text-2)", height = 150, ran
   const unit = series.unit;
   const top = Math.max(0, ...pts.filter((p) => p[0] >= r[0] && p[0] <= r[1]).map((p) => p[1]).filter(Number.isFinite));
   const scale = useMemo(() => niceScale(top, { floor: yFloor(unit) }), [top, unit]);
-  const frame: Frame = { range: r, width: w, height, max: scale.max, pad: 6 };
-  const { line, area } = useMemo(() => timePath(pts, { range: [r0, r1], width: w, height, max: scale.max, pad: 6 }), [pts, r0, r1, w, height, scale.max]);
+  const pw = Math.max(120, w - AXIS_W); // the plot; the labels get the gutter to its right
+  const frame: Frame = { range: r, width: pw, height, max: scale.max, pad: 6 };
+  const { line, area } = useMemo(() => timePath(pts, { range: [r0, r1], width: pw, height, max: scale.max, pad: 6 }), [pts, r0, r1, pw, height, scale.max]);
   const hv = hover !== null ? pts[hover] : undefined;
   const last = pts[pts.length - 1];
   const old = asOf(pts, r[1]);
@@ -81,7 +88,7 @@ export function MetricChart({ series, color = "var(--text-2)", height = 150, ran
   return (
     <div className="min-w-0 rounded-2xl border border-line bg-panel p-4 shadow-card">
       <div className="mb-3 flex items-baseline justify-between gap-3">
-        <div className="text-[14px] font-medium text-fg-2">{series.label}</div>
+        <div className="min-w-0 truncate text-[14px] font-medium text-fg-2" title={series.label}>{series.label}</div>
         <div className="text-right">
           <div className="font-display text-[26px] leading-none tabular-nums">{hv ? fmt(hv[1]) : last ? fmt(last[1]) : "—"}</div>
           {!hv && last && old !== undefined && <div className="mt-1 text-[11.5px] text-degraded">as of {stamp(old)}</div>}
@@ -94,7 +101,8 @@ export function MetricChart({ series, color = "var(--text-2)", height = 150, ran
         onPointerMove={(e) => {
           if (pts.length < 1) return;
           const b = e.currentTarget.getBoundingClientRect();
-          const i = nearestIndex(pts, r[0] + ((e.clientX - b.left) / b.width) * (r[1] - r[0]));
+          const x = Math.min(pw, Math.max(0, e.clientX - b.left));
+          const i = nearestIndex(pts, r[0] + (x / pw) * (r[1] - r[0]));
           setHover(i < 0 ? null : i);
         }}
       >
@@ -110,8 +118,8 @@ export function MetricChart({ series, color = "var(--text-2)", height = 150, ran
             </defs>
             {scale.ticks.slice(1).map((v) => (
               <g key={v}>
-                <line x1="0" x2={w} y1={yOf(v, frame)} y2={yOf(v, frame)} stroke="var(--border)" />
-                <text x="0" y={yOf(v, frame) - 3} className="fill-[var(--text-3)] text-[10.5px]">{withUnit(v, unit, true)}</text>
+                <line x1="0" x2={pw} y1={yOf(v, frame)} y2={yOf(v, frame)} stroke="var(--border)" />
+                {axisLabel(pw, yOf(v, frame), withUnit(v, unit, true))}
               </g>
             ))}
             <motion.path d={area} fill={`url(#${id})`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6, ease: EASE }} />
@@ -124,7 +132,7 @@ export function MetricChart({ series, color = "var(--text-2)", height = 150, ran
             )}
           </svg>
         )}
-        <div className="mt-1.5 flex justify-between gap-2 text-[11px] text-fg-3">
+        <div className="mt-1.5 flex justify-between gap-2 text-[11px] text-fg-3" style={{ width: pw }}>
           <span>{stamp(r[0])}</span>
           <span>{hv ? stamp(hv[0]) : old !== undefined || !live ? stamp(r[1]) : "now"}</span>
         </div>
@@ -169,7 +177,8 @@ function Crosshair({ store, series, frame }: { store: HoverStore; series: { id: 
 
 function HoverStamp({ store }: { store: HoverStore }) {
   const t = useHover(store);
-  return t === null ? null : <div className="font-mono text-[11.5px] text-fg-3">{stamp(t)}</div>;
+  // Always rendered (empty when idle) and never wrapping, so hovering never changes the card's height.
+  return <div className="shrink-0 whitespace-nowrap font-mono text-[11.5px] text-fg-3">{t === null ? "\u00a0" : stampShort(t)}</div>;
 }
 
 function Legend({ store, chart, series, unit, off, toggle }: { store: HoverStore; chart: ObsChart; series: { id: string; label: string; points: Point[] }[]; unit: string; off: Set<string>; toggle(id: string): void }) {
@@ -184,7 +193,7 @@ function Legend({ store, chart, series, unit, off, toggle }: { store: HoverStore
           <button key={s.id} type="button" aria-pressed={!off.has(s.id)} onClick={() => toggle(s.id)} className={cx("press inline-flex items-center gap-1.5 rounded text-[12px] pointer-coarse:min-h-10 pointer-coarse:px-1", off.has(s.id) && "opacity-35")}>
             <svg width="10" height="6" aria-hidden className="flex-none"><line x1="0" x2="10" y1="3" y2="3" stroke={color} strokeWidth="2" strokeDasharray={dash} /></svg>
             <span className="text-fg-2">{s.label}</span>
-            {p && <span className="font-mono tabular-nums text-fg">{withUnit(p[1], unit)}</span>}
+            <span className="inline-block min-w-[7ch] font-mono tabular-nums text-fg">{p ? withUnit(p[1], unit) : "—"}</span>
           </button>
         );
       })}
@@ -211,7 +220,8 @@ export const MultiChart = memo(function MultiChart({ chart, deploys = EMPTY_DEPL
   const shown = useMemo(() => disp.series.filter((s) => !off.has(s.id)), [disp, off]);
   const top = useMemo(() => Math.max(0, ...shown.flatMap((s) => s.points.filter((p) => p[0] >= t0 && p[0] <= t1).map((p) => p[1])).filter(Number.isFinite)), [shown, t0, t1]);
   const scale = useMemo(() => niceScale(top, { floor: yFloor(disp.unit) }), [top, disp.unit]);
-  const frame = useMemo<Frame>(() => ({ range: [t0, t1], width: w, height, max: scale.max, pad: 4 }), [t0, t1, w, height, scale.max]);
+  const pw = Math.max(120, w - AXIS_W); // the plot; the labels get the gutter to its right
+  const frame = useMemo<Frame>(() => ({ range: [t0, t1], width: pw, height, max: scale.max, pad: 4 }), [t0, t1, pw, height, scale.max]);
   const paths = useMemo(() => shown.map((s) => ({ ...s, ...timePath(s.points, frame) })), [shown, frame]);
   const empty = !chart.series.length || chart.series.every((s) => s.points.length < 1);
   const toggle = (id: string) =>
@@ -224,13 +234,14 @@ export const MultiChart = memo(function MultiChart({ chart, deploys = EMPTY_DEPL
   const move = (e: PointerEvent<HTMLDivElement>) => {
     if (empty) return;
     const b = e.currentTarget.getBoundingClientRect();
-    hover.set(t0 + ((e.clientX - b.left) / b.width) * (t1 - t0));
+    const x = Math.min(pw, Math.max(0, e.clientX - b.left));
+    hover.set(t0 + (x / pw) * (t1 - t0));
   };
 
   return (
     <div className="min-w-0 rounded-2xl border border-line bg-panel p-4 shadow-card">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <div className="text-[14px] font-medium">
+      <div className="mb-3 flex h-5 items-center justify-between gap-2">
+        <div className="min-w-0 truncate text-[14px] font-medium" title={chart.title}>
           {chart.title}
           {disp.unit !== chart.unit && <span className="ml-1.5 text-[12px] font-normal text-fg-3">per minute (under 1 per second)</span>}
         </div>
@@ -249,8 +260,8 @@ export const MultiChart = memo(function MultiChart({ chart, deploys = EMPTY_DEPL
             </defs>
             {scale.ticks.slice(1).map((v) => (
               <g key={v}>
-                <line x1="0" x2={w} y1={yOf(v, frame)} y2={yOf(v, frame)} stroke="var(--border)" />
-                <text x={w} y={yOf(v, frame) - 3} textAnchor="end" className="fill-[var(--text-3)] text-[10.5px]">{withUnit(v, disp.unit, true)}</text>
+                <line x1="0" x2={pw} y1={yOf(v, frame)} y2={yOf(v, frame)} stroke="var(--border)" />
+                {axisLabel(pw, yOf(v, frame), withUnit(v, disp.unit, true))}
               </g>
             ))}
             {deploys.filter((d) => d.at >= t0 && d.at <= t1).map((d) => {

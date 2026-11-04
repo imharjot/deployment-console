@@ -6,7 +6,8 @@ import type { ReactNode } from "react";
 
 const WIDTH = { narrow: "max-w-[900px]", default: "max-w-[1200px]", wide: "max-w-[1400px]" } as const;
 
-export function Page({ width = "default", className, children }: { width?: keyof typeof WIDTH; className?: string; children: ReactNode }) {
+// Wide by default: pages are centred, so one width for all of them keeps the left edge still as you move between pages.
+export function Page({ width = "wide", className, children }: { width?: keyof typeof WIDTH; className?: string; children: ReactNode }) {
   return <div className={clsx("mx-auto w-full space-y-6 px-4 pb-12 pt-5 sm:px-6 sm:pt-7", WIDTH[width], className)}>{children}</div>;
 }
 

@@ -60,7 +60,7 @@ export default function NotesPage() {
   const state = !ready || (isLoading && !data) ? "loading" : error && !data ? "error" : notes.length ? "list" : filtered ? "none" : "empty";
 
   return (
-    <Page width="narrow">
+    <Page>
       <PageHeader
         title="Notes"
         description="What people wrote about resources: changes and why, special traffic, quirks, links. Everyone signed in can read them; developers and up write them in a resource's Notes tab."

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
   actionsFor, ALL_WRITE_ACTIONS, combine, combineTargets, CONSOLE_WRITES, decide, denialIsFinal, ECS_WRITE_ACTIONS, OBSERVED_TTL_MS, RESOURCE_TYPED_ACTIONS, roleArnFromCaller,
-  SERVICE_SCOPED_ACTIONS, simulationFailureNote, simulationTargets, TASK_DEFINITION_ACTIONS,
+  ENV_FILE_ACTIONS, SERVICE_SCOPED_ACTIONS, simulationFailureNote, simulationTargets, TASK_DEFINITION_ACTIONS,
 } from "./capability-rules.ts";
 
 const NOW = 1_800_000_000_000;
@@ -72,6 +72,18 @@ test("simulationTargets: per cluster, the first service that isn't the console's
   assert.deepEqual(simulationTargets([prod])["ecs:UpdateService"], ["arn:aws:ecs:eu-west-1:123456789012:service/acme-production/deployment-console"], "not on ECS: no service is the console");
   assert.deepEqual(simulationTargets([{ cluster: "", services: [{ name: "web" }] }]), {}, "a compose environment has no cluster ARN");
   assert.deepEqual(simulationTargets([{ ...prod, services: [prod.services[0]] }], { cluster: "acme-production", family: "acme-console" }), {}, "only the console itself: simulate against *");
+});
+
+test("simulationTargets: S3 object writes against the sampled service's env file, never the console's own", () => {
+  const file = "arn:aws:s3:::acme-env/production/api.env";
+  const prod = { cluster: "acme-production", clusterArn: "arn:aws:ecs:eu-west-1:123456789012:cluster/acme-production", services: [
+    { name: "deployment-console", family: "acme-console", envFile: "arn:aws:s3:::acme-env/production/console.env" },
+    { name: "api", family: "acme-api", envFile: file },
+  ] };
+  const t = simulationTargets([prod], { cluster: "acme-production", family: "acme-console" });
+  for (const a of ENV_FILE_ACTIONS) assert.deepEqual(t[a], [file], a);
+  const none = simulationTargets([{ ...prod, services: [{ name: "api", family: "acme-api" }] }], { cluster: "acme-production", family: "acme-console" });
+  for (const a of ENV_FILE_ACTIONS) assert.equal(none[a], undefined, `${a}: no env file, simulated against *`);
 });
 
 test("simulationTargets: other writes, against the first resource of their type in each environment and region of the inventory", () => {

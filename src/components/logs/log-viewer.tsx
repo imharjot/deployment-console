@@ -380,7 +380,7 @@ export function LogViewer({ env, services, compact, toolbarStart, className, ini
           ]}
         />
         <QueryBar
-          className="max-md:order-last max-md:basis-full"
+          className="max-xl:order-last max-xl:basis-full"
           value={query}
           onChange={setQuery}
           error={parsed.ok ? null : parsed.error}

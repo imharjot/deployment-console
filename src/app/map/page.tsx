@@ -157,11 +157,17 @@ function CloudMap({ view }: { view: MapInventory }) {
   // Connect to: from a drag between nodes (both keys), or ?connect=1 beside ?r= (an overview service panel's link).
   const [connecting, setConnecting] = useState<{ from: string; to?: string } | null>(null);
   const [canvas, setCanvas] = useState({ w: 0, h: 0 });
-  const graph = useRef<GraphHandle>(null);
+  const graph = useRef<GraphHandle | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
   const pending = useRef<{ kind: "center" | "focus"; key: string } | null>(null);
   const [tick, setTick] = useState(0); // wakes the pending-work effect when nothing else changed
+  // Every mount of the graph wakes the pending work: a "centre on" queued before it existed (a ?r= link) or lost to a
+  // remount still happens.
+  const graphRef = useCallback((h: GraphHandle | null) => {
+    graph.current = h;
+    if (h) setTick((t) => t + 1);
+  }, []);
   const queue = useCallback((kind: "center" | "focus", key: string) => {
     pending.current = { kind, key };
     setTick((t) => t + 1);
@@ -366,10 +372,16 @@ function CloudMap({ view }: { view: MapInventory }) {
       return;
     }
     if (node !== p.key && p.kind === "center") return reveal(p.key); // expand its group first; runs again after
+    if (!graph.current) return; // the graph isn't mounted yet: graphRef's tick brings this back when it is
     pending.current = null;
     requestAnimationFrame(() => {
-      if (p.kind === "center") graph.current?.centerOn(node, { right: phone ? 0 : Math.min(PANEL_W, window.innerWidth * 0.5) });
-      else graph.current?.focusNode(node);
+      const g = graph.current;
+      if (!g) {
+        pending.current = p; // unmounted in between (a remount): the next mount's tick retries
+        return;
+      }
+      if (p.kind === "center") g.centerOn(node, { right: phone ? 0 : Math.min(PANEL_W, window.innerWidth * 0.5) });
+      else g.focusNode(node);
     });
   }, [layout, byKey, visible, reveal, phone, tick]);
 
@@ -614,7 +626,7 @@ function CloudMap({ view }: { view: MapInventory }) {
           <Swap id={filtered.resources.length ? "map" : "none"} className="h-full" bodyClassName="h-full">
             {filtered.resources.length ? (
               <Graph
-                ref={graph}
+                ref={graphRef}
                 layout={layout}
                 byKey={byKey}
                 edgeById={edgeById}

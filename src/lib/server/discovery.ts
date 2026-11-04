@@ -7,7 +7,7 @@ import "server-only";
 import type { ConsoleConfig } from "../console-config.ts";
 import { PROXY_IMAGE, aliasTarget, attribute, envTagDecides, envTagOf, envsFromClusters, inferEdges, parseImageRef, placement, stageWordsOf, workloadGraph, type HostRef, type NodeRef, type SgRule } from "../discover.ts";
 import { clusterSkip, configWarnings, healthcheckProblem, unassignedOf, type DiscoveryWarning } from "../discovery-rules.ts";
-import { simulationTargets, type SampleRow } from "../capability-rules.ts";
+import { simulationTargets, type SampleRow, type SimulationCluster } from "../capability-rules.ts";
 import { regionalIds } from "../regions.ts";
 import type { EdgeKind, EnvInfo, RawBox, RawCache, RawCluster, RawDb, RawService, TopoEdge, TopoNode } from "../types.ts";
 import { cached } from "./cache.ts";
@@ -15,7 +15,7 @@ import { generation, isConnectionChanged } from "./connection-state.ts";
 import { consoleConfig } from "./config-check.ts";
 import { HttpError, errText } from "./errors.ts";
 import { consoleRegions } from "./regions.ts";
-import { getCi, getCloud, homeRegion } from "./sources.ts";
+import { cloudFor, getCi, getCloud, homeRegion } from "./sources.ts";
 
 // ---------- config file ----------
 
@@ -216,7 +216,14 @@ export async function simulationTargetsNow(rows: SampleRow[] = []): Promise<Reco
   for (const e of await listEnvs()) {
     if (!e.cluster || !e.clusterArn) continue;
     const services = await servicesOf(e.cluster, e.region).catch(() => [] as RawService[]);
-    const sampled = services.map((x) => ({ name: x.name, family: x.taskDef?.family, taskDefinitionArn: x.taskDef?.arn }));
+    const sampled: SimulationCluster["services"] = services.map((x) => ({ name: x.name, family: x.taskDef?.family, taskDefinitionArn: x.taskDef?.arn }));
+    // The service simulationTargets will pick (the first that isn't the console) also lends one of its env files, so
+    // S3 object writes are judged on the bucket the Variables editor saves to. One task-definition read per cluster.
+    const pick = sampled.find((x) => !(self && self.cluster === e.cluster && x.family === self.family));
+    if (pick?.taskDefinitionArn) {
+      const env = await cloudFor(e).then((c) => c.containerEnv(pick.taskDefinitionArn!)).catch(() => []);
+      pick.envFile = env.flatMap((c) => c.files)[0];
+    }
     clusters.push({ cluster: e.cluster, clusterArn: e.clusterArn, services: sampled });
   }
   return simulationTargets(clusters, self, rows, process.env.CONSOLE_SELF_INSTANCE?.trim() || undefined);
