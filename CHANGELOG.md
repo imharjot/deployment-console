@@ -9,6 +9,13 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Background sync follows who's using the console**: every `CONSOLE_SYNC_MINUTES` (default 5) while someone is signed
+  in and active, paused after 15 minutes with nobody, and at once on the first request after that. A change being
+  verified still gets its 30-second checks until it settles. **Refresh now** on the overview drops cached AWS reads and
+  syncs at once (`POST /api/sync`, once per 15 s); `GET /api/sync` shows the last and next sync. Pages you have open still
+  read AWS live. The CI watcher follows the same pace.
+- **Cloud map refresh** within 20 s of the last one now says "Refreshed a moment ago" instead of reporting a
+  re-discovery that didn't happen (the server answers the current map inside that gap).
 - **Connect services**: **Connect to** on a service's panel (or a drag from one node to another on the cloud map)
   lets a service reach another service, a database or a cache of its environment. The plan shows both changes first:
   an inbound rule in the other side's security group admitting this service's group on its port, described

@@ -443,11 +443,14 @@ function CloudMap({ view }: { view: MapInventory }) {
   async function refresh() {
     setBusy(true);
     try {
+      const before = view.generatedAt;
       const v = await refreshInventory();
       await mutate(INVENTORY_KEY, v, { revalidate: false });
-      toast.push({ tone: "ok", title: "Account discovered again", body: `${v.resources.length.toLocaleString()} resources, ${v.edges.length.toLocaleString()} connections.` });
+      // The server re-discovers at most once per 20 s and answers the current map inside that gap: say so.
+      if (v.generatedAt === before) toast.push({ tone: "info", title: "Refreshed a moment ago", body: "This is the latest discovery. Try again in a few seconds." });
+      else toast.push({ tone: "ok", title: "Account discovered again", body: `${v.resources.length.toLocaleString()} resources, ${v.edges.length.toLocaleString()} connections.` });
     } catch (e) {
-      toast.push({ tone: "error", title: e instanceof ApiError && e.status === 429 ? "Refreshed a moment ago" : "Couldn't refresh", body: (e as Error).message }, 8000);
+      toast.push({ tone: "error", title: "Couldn't refresh", body: (e as Error).message }, 8000);
     } finally {
       setBusy(false);
     }

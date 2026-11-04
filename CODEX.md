@@ -112,7 +112,10 @@ first. License: Apache-2.0 (LICENSE).
   the accessibility tree. On an enabled button `tip` is a plain title, so the button stays its layout's own element.
   Nothing calls `window.prompt`: ask in the page (the log query bar's name field). `TimeAgo` re-renders only when its
   label changes (`useClockAt` with `agoChangesAt`, whole minutes at most), never on the shared 1 s clock.
-- Views, guarded actions and the background sampler: `src/lib/server/console.ts`; the guards themselves are pure
+- Views, guarded actions and the background sampler: `src/lib/server/console.ts` (paced by `src/lib/sync-rules.ts`: every
+  `CONSOLE_SYNC_MINUTES` while a person used the console in the last 15 min — `markActive()` in `proxy.ts` via
+  `src/lib/server/presence.ts`, which also wakes it — every 30 s while an operation awaits verification, paused
+  otherwise; `syncNow()` behind `POST /api/sync`; the CI watcher in `events.ts` follows the same pace); the guards themselves are pure
   (`src/lib/actions.ts`, `src/lib/status.ts`, view rules in `src/lib/overview-rules.ts`) and shared with the UI so
   buttons and server never disagree. Console actions answer "AWS accepted" with an operation id; the sampler marks ECS
   operations verified (or "did not stabilise" after 15 min), shown on the cards, `services.get` and the audit log.
