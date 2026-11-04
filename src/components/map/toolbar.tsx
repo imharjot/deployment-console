@@ -3,7 +3,7 @@
 // search plus a Filters sheet on phones. And the footer that says which sources were read (and what is missing),
 // per region when the console watches several.
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, ChevronDown, ChevronRight, CircleSlash, Hourglass, Layers as LayersIcon, Lock, RotateCcw, ShieldAlert, SlidersHorizontal, Spline } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, CircleSlash, Hourglass, Layers as LayersIcon, Lock, RefreshCw, RotateCcw, ShieldAlert, SlidersHorizontal, Spline } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { LaneBy } from "@/lib/inventory/layout";
@@ -382,7 +382,7 @@ export function regionSummary(providers: ProviderStatus[], regions: string[]) {
         if (r.region === region) {
           if (r.state === "ok") ok++;
           else if (r.state === "denied") denied++;
-          else if (r.state === "error") error++;
+          else if (r.state === "error" && !r.refreshing) error++; // a restored read being refreshed isn't a failure
           count += r.count;
         }
     return { region, ok, denied, error, count };
@@ -396,7 +396,10 @@ export function ProvidersFooter({ providers, truncated, id, regions }: { provide
   const built = providers.filter((p) => !isPlanned(p));
   const planned = providers.length - built.length;
   const by = (s: ProviderStatus["state"]) => built.filter((p) => p.state === s);
-  const denied = by("denied"), errors = by("error"), disabled = by("disabled"), ok = by("ok");
+  // After a restart the map shows the last saved read while the first new one runs: those sources are "refreshing",
+  // not failing.
+  const refreshing = built.filter((p) => p.refreshing);
+  const denied = by("denied"), errors = by("error").filter((p) => !p.refreshing), disabled = by("disabled"), ok = by("ok");
   const notes = truncated ?? [];
   const attention = denied.length + errors.length;
   const order: ProviderStatus["state"][] = ["denied", "error", "disabled", "skipped", "ok"];
@@ -410,6 +413,7 @@ export function ProvidersFooter({ providers, truncated, id, regions }: { provide
           <span className="font-medium text-fg">{ok.length}</span> of {built.length} sources read
         </span>
         {denied.length > 0 && <Chip tone="bad"><ShieldAlert className="size-3" /> {denied.length} denied</Chip>}
+        {refreshing.length > 0 && <Chip tone="muted"><RefreshCw className="size-3 animate-spin" /> {refreshing.length} refreshing</Chip>}
         {errors.length > 0 && <Chip tone="warn"><AlertTriangle className="size-3" /> {errors.length} error{errors.length === 1 ? "" : "s"}</Chip>}
         {disabled.length > 0 && <Chip tone="muted"><CircleSlash className="size-3" /> {disabled.length} off</Chip>}
         {planned > 0 && <Chip tone="muted"><Hourglass className="size-3" /> {planned} coming</Chip>}
@@ -442,7 +446,7 @@ export function ProvidersFooter({ providers, truncated, id, regions }: { provide
                   <li key={p.id} className="flex flex-col gap-1 px-4 py-2 sm:flex-row sm:items-baseline sm:gap-3">
                     <span className="flex min-w-0 items-baseline gap-2 sm:w-56 sm:flex-none">
                       <span className="truncate font-medium text-fg">{p.label}</span>
-                      <span className={cx(p.state === "denied" ? "text-down" : p.state === "error" ? "text-degraded" : "text-fg-3")}>{isPlanned(p) ? "coming soon" : STATE_TEXT[p.state]}</span>
+                      <span className={cx(p.state === "denied" ? "text-down" : p.state === "error" && !p.refreshing ? "text-degraded" : "text-fg-3")}>{isPlanned(p) ? "coming soon" : p.refreshing ? "refreshing" : STATE_TEXT[p.state]}</span>
                     </span>
                     <span className="min-w-0 flex-1 text-fg-2 [overflow-wrap:anywhere]">
                       {p.state === "ok" && (

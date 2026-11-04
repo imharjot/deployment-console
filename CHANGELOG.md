@@ -9,6 +9,9 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **No false "errors" right after a restart:** the cloud map shows the last saved read while the first new one runs;
+  those sources now read as *refreshing* (footer, Settings → AWS permissions, completeness counts) instead of
+  "61 errors" and "61 sources failing".
 - **Deploy workflow keeps your AWS account out of public logs:** the deploy role and cluster are repository secrets
   (masked by GitHub), the account id is masked wherever it appears, and the workflow is switched on by the
   `DEPLOY_ENABLED` variable. It also refuses a run whose code doesn't come from the repository itself.

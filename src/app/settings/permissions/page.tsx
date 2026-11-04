@@ -412,7 +412,7 @@ function RegionRows({ regions }: { regions: RegionStatus[] }) {
       {regions.map((r) => (
         <li key={r.region} className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-[13px]">
           <span className="w-28 flex-none font-mono text-[12.5px] text-fg-2">{r.region}</span>
-          <span className={cx(r.state === "denied" ? "text-down" : r.state === "error" || r.partial ? "text-degraded" : "text-fg-3")}>
+          <span className={cx(r.state === "denied" ? "text-down" : (r.state === "error" && !r.refreshing) || r.partial ? "text-degraded" : "text-fg-3")}>
             {STATE[r.state].label}{r.state === "ok" ? ` · ${num(r.count)}` : ""}{r.partial ? " · cut short" : ""}
           </span>
           {r.state !== "ok" && (r.missing?.length || r.error) ? <span className="min-w-0 basis-full truncate pl-[7.5rem] text-[12px] text-fg-3" title={r.missing?.join(", ") || r.error}>{r.missing?.join(", ") || r.error}</span> : null}
@@ -454,7 +454,7 @@ function ProviderCard({ p, status, counts, write, multiRegion, off }: { p: Provi
           <div className="mt-2 flex flex-wrap gap-1">{(status.missing?.length ? status.missing : ["(unknown action)"]).map((a) => <Chip key={a} mono tone="bad">{a}</Chip>)}</div>
         </div>
       )}
-      {status?.state === "error" && status.error && <p className="mt-3 rounded-xl border border-degraded/25 bg-degraded/8 p-3 text-[13px] leading-relaxed text-degraded [overflow-wrap:anywhere]">{status.error}</p>}
+      {status?.state === "error" && !status.refreshing && status.error && <p className="mt-3 rounded-xl border border-degraded/25 bg-degraded/8 p-3 text-[13px] leading-relaxed text-degraded [overflow-wrap:anywhere]">{status.error}</p>}
       {write?.missing.length ? (
         <p className="mt-3 text-[13px] leading-relaxed text-fg-2">
           Its actions need {write.missing.map((a, i) => <span key={a}>{i ? ", " : ""}<code className="font-mono text-[12.5px]">{a}</code></span>)} — the map disables them until the full policy grants {write.missing.length === 1 ? "it" : "them"}.

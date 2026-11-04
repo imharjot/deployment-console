@@ -339,6 +339,7 @@ export interface ProviderStatus {
   regions?: RegionStatus[]; // one row per region the provider ran in (multi-region and global providers)
   partial?: boolean; // the deadline cut a run short: what it listed before the cut is shown (R18)
   notes?: string[]; // "skipped in ap-east-1: not offered in this region"
+  refreshing?: boolean; // shown from the last saved read while the first read after a restart runs: not a failure
 }
 
 export interface RegionStatus {
@@ -350,6 +351,7 @@ export interface RegionStatus {
   missing?: string[];
   partial?: boolean;
   at: number;
+  refreshing?: boolean; // see ProviderStatus.refreshing
 }
 
 // How much of the account the current map actually covers (Settings, the map's footer, agents).

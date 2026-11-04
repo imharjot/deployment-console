@@ -125,6 +125,7 @@ export interface RunOutcome {
   partial?: boolean; // the deadline cut it short (its checkpoint is shown)
   truncated?: boolean; // it hit the per-type cap: more exist than were listed
   stale?: boolean; // served from an older or persisted run, not this build
+  refreshing?: boolean; // the persisted run shown after a restart: stale, but nothing failed
   missing?: string[]; // IAM actions AWS refused
 }
 
@@ -172,7 +173,8 @@ export function completeness(runs: RunOutcome[], view: CompletenessInput): Inven
   for (const r of runs) {
     const s = r.state === "ok" && r.partial ? "partial" : r.state;
     const was = worst.get(r.id);
-    if (!was || WORST[s] > WORST[was]) worst.set(r.id, s);
+    // A run restored after a restart is "from an older read" (stale, below), not a failing provider.
+    if (!r.refreshing && (!was || WORST[s] > WORST[was])) worst.set(r.id, s);
     if (r.truncated) for (const t of r.covers?.length ? r.covers : [r.id]) capped.add(`${t}@${r.region}`);
     for (const m of r.missing ?? []) denied.add(m);
     if (r.stale) stale.add(`${r.id}@${r.region}`);
@@ -338,6 +340,7 @@ export function aggregate(p: { id: string; label: string }, runs: RunStatus[], o
     ...(missing.length ? { missing } : {}),
     ...(times.length ? { ms: Math.max(...times) } : {}),
     ...(runs.some((r) => r.status.partial) ? { partial: true } : {}),
+    ...(bad.length && bad.every((r) => r.status.refreshing) ? { refreshing: true } : {}),
     ...(notes.length ? { notes } : {}),
     ...(multi ? { regions: runs.map((r) => r.status) } : {}),
   };

@@ -480,7 +480,7 @@ async function assemble(plan: Plan, pending: string[], quick = false): Promise<B
   // there: it doesn't make the map incomplete (aggregate() lists it in the provider's notes).
   const outcomes: RunOutcome[] = runs.map((r) => ({
     id: r.id, region: r.region, state: r.scp && r.region !== plan.home ? "skipped" : r.status.state, covers: providerById(r.id)?.covers, partial: r.status.partial,
-    truncated: r.truncated, stale: !!r.from, missing: r.scp && r.region !== plan.home ? undefined : r.status.missing,
+    truncated: r.truncated, stale: !!r.from, refreshing: r.status.refreshing, missing: r.scp && r.region !== plan.home ? undefined : r.status.missing,
   }));
 
   const rules = await sgRules(results, plan, notes, quick ? RESTORE_SG_WAIT : DEADLINE);
@@ -601,7 +601,7 @@ function restoreOnce(): Promise<Built | undefined> {
       if (s.runs.has(key)) continue; // a build already got further
       s.runs.set(key, {
         key, id: x.provider, region: x.region, result: x.result, notes: [], at: x.at, startedAt: 0, ranAt: 0, rerun: true, from: "persisted",
-        status: { ...x.status, region: x.region, state: "error", count: x.result.resources.length, at: x.at, error: `from ${hhmm(x.at)} UTC — refreshing` },
+        status: { ...x.status, region: x.region, state: "error", count: x.result.resources.length, at: x.at, error: `from ${hhmm(x.at)} UTC — refreshing`, refreshing: true },
       });
     }
     const b = await assemble(plan, [], true);
