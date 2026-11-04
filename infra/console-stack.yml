@@ -334,6 +334,9 @@ Resources:
             - { Name: CONSOLE_SYNC_MINUTES, Value: !Ref SyncMinutes }
             - { Name: CONSOLE_ACTIVITY_BUDGET, Value: !Ref ActivityBudget }
             - { Name: NEXT_MANUAL_SIG_HANDLE, Value: "true" }
+            # Fargate sets HOSTNAME to the task's own name, which overrides the image's 0.0.0.0: Next.js would then
+            # listen on that name only, and the health check on 127.0.0.1 would fail.
+            - { Name: HOSTNAME, Value: 0.0.0.0 }
             - !If [HasGitHubOwner, { Name: GITHUB_OWNER, Value: !Ref GitHubOwner }, !Ref AWS::NoValue]
           EnvironmentFiles: !If
             - HasEnvFile

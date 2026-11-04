@@ -195,6 +195,7 @@ Start from `infra/task-definition.json` and change:
 | `GITHUB_OWNER` | your GitHub organisation or user, or remove it |
 | `CONSOLE_CONFIG` (not in the template) | add it only if you ship a `console.config.json` in the image or on a volume (see below). If it points at a missing file, **Settings → Environments** shows an error. |
 | `CONSOLE_SELF` | replace `CONSOLE_CLUSTER` with your cluster, e.g. `acme-tools/deployment-console` (cluster/task family). The console also finds itself through the ECS task metadata endpoint, but with this set it never has to refuse changes while that endpoint is unavailable. |
+| `HOSTNAME` | keep `0.0.0.0` (in the template). Fargate sets `HOSTNAME` to the task's own name, and without this the server listens only on that name and the container health check on `127.0.0.1` fails |
 | `CONSOLE_TRUSTED_PROXIES` (not in the template) | leave it out behind one ALB (the default, `1`); add it with the value `2` if CloudFront sits in front of the ALB |
 | `secrets` | remove `GITHUB_TOKEN` if you don't use it; add `OIDC_CLIENT_SECRET` if you do |
 | role names | only if you named the roles differently |
