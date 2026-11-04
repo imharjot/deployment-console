@@ -20,6 +20,7 @@ export interface Me {
   loginMethods: { password: boolean; sso: { label: string } | null };
   via: "session" | "alb" | "dev" | null;
   hasPassword: boolean;
+  mfa?: { required: boolean; enabled: boolean; since: number | null; recoveryLeft: number }; // console sessions only
 }
 
 // Same key and options as the shell, so SWR shares one request.

@@ -1,15 +1,15 @@
-// Accept an invite or a password-reset link: set the password (and name), end old sessions, sign in.
+// Accept an invite or a password-reset link: set the password (and name), end old sessions, then the authenticator step.
 import { cleanName } from "@/lib/authn";
 import { hashPassword, passwordProblem } from "@/lib/password";
 import { auditOrFail } from "@/lib/server/auth/audit";
 import { loginMethods } from "@/lib/server/auth/config";
 import { ipFail, ipWait, limits, retryText } from "@/lib/server/auth/limits";
 import { deleteUserSessions } from "@/lib/server/auth/sessions";
-import { signIn } from "@/lib/server/auth/signin";
+import { afterPassword } from "@/lib/server/auth/mfa";
 import { redeemLink } from "@/lib/server/auth/tokens";
 import { getDb } from "@/lib/server/db";
 import { HttpError } from "@/lib/server/errors";
-import { handle, ipOf, json, readJson } from "@/lib/server/http";
+import { handle, ipOf, readJson } from "@/lib/server/http";
 
 export const POST = handle<RouteContext<"/api/auth/invite/[token]">>(async (req, ctx) => {
   const { token } = await ctx.params;
@@ -35,5 +35,5 @@ export const POST = handle<RouteContext<"/api/auth/invite/[token]">>(async (req,
     return l;
   });
 
-  return signIn(req, json({ ok: true }), link.user, link.purpose, addr);
+  return afterPassword(req, link.user, link.purpose, addr);
 });

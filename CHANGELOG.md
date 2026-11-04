@@ -16,6 +16,12 @@ First public version (0.1.0). What the console can do today:
   read AWS live. The CI watcher follows the same pace.
 - **Cloud map refresh** within 20 s of the last one now says "Refreshed a moment ago" instead of reporting a
   re-discovery that didn't happen (the server answers the current map inside that gap).
+- **Two-step sign-in with an authenticator app**, on by default (`CONSOLE_MFA=required`): every password sign-in also
+  needs a 6-digit code (RFC 6238), set up with a QR code at the first sign-in, setup or invite, with 10 single-use
+  recovery codes. Codes can't be replayed; wrong codes lock the step (5 per 15 minutes, 20 a day per account); the
+  secret is encrypted with `CONSOLE_SECRET_KEY`. Settings → Your account replaces the authenticator or makes new
+  recovery codes (current password required); an admin's password reset link also resets it. SSO and load-balancer
+  sign-ins rely on the identity provider's MFA.
 - **Connect services**: **Connect to** on a service's panel (or a drag from one node to another on the cloud map)
   lets a service reach another service, a database or a cache of its environment. The plan shows both changes first:
   an inbound rule in the other side's security group admitting this service's group on its port, described

@@ -155,7 +155,13 @@ first. License: Apache-2.0 (LICENSE).
   `src/lib/auth.ts` (ALB: `exp` comes from the signed header); roles in `src/lib/rbac.ts` (viewer < developer < operator
   < admin). Dev mode is loopback-only (`src/lib/dev-host.ts`), checked first in `proxy.ts` and again where first
   passwords and tokens are minted. SSO accounts are bound to their first `sub` (`/login?error=sso_mismatch` otherwise);
-  `email_verified` is required by default (`OIDC_REQUIRE_EMAIL_VERIFIED`).
+  `email_verified` is required by default (`OIDC_REQUIRE_EMAIL_VERIFIED`). Two-step sign-in (`CONSOLE_MFA`, default
+  `required`): every password route (login, setup, invite/reset) ends in `afterPassword()` (`src/lib/server/auth/mfa.ts`),
+  which signs in only with MFA off; otherwise it sets a sealed 10-minute challenge cookie (`console_mfa`, path `/api/`,
+  bound to a password-hash fingerprint, carrying the pending secret for enrolment) and the client finishes at
+  `/api/auth/mfa/{verify,enroll,confirm}`. TOTP and recovery codes are pure in `src/lib/totp.ts`; users columns
+  `totp_secret` (sealed), `totp_last_step` (replay guard, compare-and-set), `totp_recovery` (hashes, compare-and-set)
+  from migration 8. Admin reset (`resetUser`) clears them. SSO and ALB sign-ins skip it.
 - Integrations: one file per plugin in `src/lib/plugins/` + a line in `registry.ts`; `emit()` in
   `src/lib/server/events.ts` (5 s timeout, one retry, 60 s dedupe, deliveries kept 14 days); `src/lib/server/notify.ts`
   turns sampler transitions and actions into events; the CI watcher starts from `src/instrumentation.ts`. Outbound URLs

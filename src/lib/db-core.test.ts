@@ -73,14 +73,15 @@ const TABLES = [
 
 for (const [dialect, fresh] of dialects) {
   describe(`db-core on ${dialect}`, () => {
-    test("migrations apply to a fresh database: versions 1–7, every table of §3.2, the critic columns", async () => {
+    test("migrations apply to a fresh database: versions 1–8, every table of §3.2, the critic columns", async () => {
       const { db } = await fresh();
-      assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7]);
-      assert.equal(MIGRATIONS.length, 7);
+      assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7, 8]);
+      assert.equal(MIGRATIONS.length, 8);
       for (const t of TABLES) assert.ok((await columns(db, t)).length > 0, `table ${t}`);
       assert.ok((await columns(db, "audit")).includes("operation_id"));
       assert.ok((await columns(db, "audit")).includes("region"));
       assert.ok((await columns(db, "users")).includes("oidc_sub"));
+      for (const c of ["totp_secret", "totp_enabled_at", "totp_last_step", "totp_recovery"]) assert.ok((await columns(db, "users")).includes(c), c);
       for (const c of ["run_id", "grant_id", "plan_hash"]) assert.ok((await columns(db, "approvals")).includes(c), c);
       for (const c of ["retry_safe", "idempotency_key", "grant_id", "fence", "lease_until"]) assert.ok((await columns(db, "agent_steps")).includes(c), c);
       for (const c of ["tools_hash", "reserved", "resource_key", "policy_hash"]) assert.ok((await columns(db, "agent_runs")).includes(c), c);
@@ -104,11 +105,11 @@ for (const [dialect, fresh] of dialects) {
     test("migrate() again is a no-op, and every statement is idempotent on its own", async () => {
       const { db } = await fresh();
       await migrate(db);
-      assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7]);
+      assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7, 8]);
       // Forget versions 4–7 and run them again over the existing tables and columns.
       await db.run("DELETE FROM schema_migrations WHERE version >= 4");
       await migrate(db);
-      assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7]);
+      assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7, 8]);
     });
 
     test("an existing v3 database upgrades with its rows intact", async () => {
@@ -121,7 +122,7 @@ for (const [dialect, fresh] of dialects) {
       await db.run("INSERT INTO notes (id, rkey, body, author, created_at, updated_at) VALUES ('n1', 'ecs:service/c/s', 'hi', 'a@acme.example', 4, 4)");
       await db.run("INSERT INTO settings (key, value) VALUES ('desired:staging/api', '2')");
       await migrate(db);
-      assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7]);
+      assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7, 8]);
       assert.deepEqual({ ...(await db.get("SELECT email, oidc_sub FROM users WHERE id = 'u1'")) }, { email: "a@acme.example", oidc_sub: null });
       assert.deepEqual({ ...(await db.get("SELECT action, operation_id, region FROM audit WHERE id = 'a1'")) }, { action: "restart", operation_id: null, region: null });
       assert.deepEqual({ ...(await db.get("SELECT status, plan_hash FROM approvals WHERE id = 'p1'")) }, { status: "pending", plan_hash: null });
@@ -256,7 +257,7 @@ for (const [dialect, fresh] of dialects) {
         await migrate(db, MIGRATIONS.slice(0, 3));
         await db.run("ALTER TABLE audit ADD COLUMN operation_id TEXT");
         await migrate(db);
-        assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7]);
+        assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7, 8]);
       });
 
       test("another bundle's copy of this module routes the same transactions (shared state on globalThis)", async () => {
@@ -275,7 +276,7 @@ for (const [dialect, fresh] of dialects) {
       test("openDb: SQLite without DATABASE_URL, migrated", async () => {
         const db = await openDb({ sqlitePath: ":memory:" });
         assert.equal(db.kind, "sqlite");
-        assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7]);
+        assert.deepEqual(await versions(db), [1, 2, 3, 4, 5, 6, 7, 8]);
       });
     }
 
@@ -284,8 +285,8 @@ for (const [dialect, fresh] of dialects) {
         const f = await fresh(false);
         const other = await f.open();
         await within(Promise.all([migrate(f.db), migrate(other), migrate(f.db)]), 20_000);
-        assert.deepEqual(await versions(f.db), [1, 2, 3, 4, 5, 6, 7]);
-        assert.equal(Number((await f.db.get<{ n: number }>("SELECT count(*) AS n FROM schema_migrations"))?.n), 7);
+        assert.deepEqual(await versions(f.db), [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert.equal(Number((await f.db.get<{ n: number }>("SELECT count(*) AS n FROM schema_migrations"))?.n), 8);
       });
 
       test("Postgres: the pool carries the timeouts (F32); migrations run without them", async () => {
