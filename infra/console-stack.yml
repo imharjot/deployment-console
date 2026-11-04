@@ -1,0 +1,453 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Deployment Console on ECS Fargate behind an existing HTTPS Application Load Balancer: one task, its own security group,
+  target group and host-header listener rule, execution and task roles, a log group, and optionally an ingress rule on the
+  database's security group and a GitHub Actions role that deploys new images. Secrets come from SSM Parameter Store
+  (SecureString, standard tier). See docs/deploy.md.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+  com.aws.cloudformation.Context:
+    why: >-
+      One stack per console so a team can create, update and remove it in one place. It reuses the account's cluster,
+      VPC and load balancer instead of creating them; nothing here touches existing services except one additive listener
+      rule (and, when DatabaseSecurityGroupId is set, one additive ingress rule on the database's security group).
+    must:
+      - "Run exactly one task (DesiredCount 0 or 1): locks, notifications and throttles live in the process."
+      - Keep the task role named TaskRoleName and the task family named ServiceName; the console's IAM policy denies
+        passing that role and running that family, so the console can never act on itself.
+      - Images deployed by the GitHub Actions role replace ImageUri outside CloudFormation; pass the image currently
+        running when updating this stack, or the update rolls the console back to ImageUri.
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: Where it runs }
+        Parameters: [ClusterName, ServiceName, VpcId, SubnetIds, AssignPublicIp]
+      - Label: { default: How people reach it }
+        Parameters: [ListenerArn, ListenerRulePriority, LoadBalancerSecurityGroupId, HostName, CertificateArn]
+      - Label: { default: The container }
+        Parameters: [ImageUri, CpuArchitecture, Cpu, Memory, DesiredCount, ParameterPrefix, UseGitHubToken, GitHubOwner, EnvironmentFileArn, SyncMinutes, ActivityBudget, LogRetentionDays]
+      - Label: { default: Permissions }
+        Parameters: [TaskRoleName, TaskPolicyArns, DatabaseSecurityGroupId, DatabasePort]
+      - Label: { default: Deploy from GitHub Actions (optional) }
+        Parameters: [GitHubDeployRepo, GitHubDeployBranch, GitHubOidcProviderArn, EcrRepositoryName]
+
+Parameters:
+  ClusterName:
+    Type: String
+    Description: Existing ECS cluster to run the console in (it may also be one the console shows).
+  ServiceName:
+    Type: String
+    Default: deployment-console
+    Description: ECS service name and task family. The console's IAM policy names this family.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for the task. Private subnets with a NAT gateway, or public subnets with AssignPublicIp ENABLED.
+  AssignPublicIp:
+    Type: String
+    AllowedValues: [ENABLED, DISABLED]
+    Default: DISABLED
+    Description: ENABLED only in public subnets without a NAT gateway; the security group still admits the load balancer only.
+  ListenerArn:
+    Type: String
+    Description: The load balancer's HTTPS listener.
+  ListenerRulePriority:
+    Type: Number
+    MinValue: 1
+    MaxValue: 50000
+    Description: An unused priority on that listener.
+  LoadBalancerSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "The load balancer's security group: the only source allowed to reach the console."
+  HostName:
+    Type: String
+    AllowedPattern: "^[a-z0-9.-]+$"
+    Description: The console's host name, for example console.example.com. Also its CONSOLE_PUBLIC_URL (https).
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate for HostName to add to the listener. Empty when the listener's certificates already cover it.
+  ImageUri:
+    Type: String
+    Description: The console image, tagged with a commit, for example 123456789012.dkr.ecr.eu-west-1.amazonaws.com/deployment-console:abc1234.
+  CpuArchitecture:
+    Type: String
+    AllowedValues: [ARM64, X86_64]
+    Default: ARM64
+  Cpu:
+    Type: String
+    AllowedValues: ["256", "512", "1024"]
+    Default: "512"
+  Memory:
+    Type: String
+    AllowedValues: ["512", "1024", "2048"]
+    Default: "1024"
+  DesiredCount:
+    Type: Number
+    AllowedValues: [0, 1]
+    Default: 1
+    Description: 1 to run, 0 to create everything first (for example, before the database exists).
+  ParameterPrefix:
+    Type: String
+    Default: deployment-console
+    AllowedPattern: "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$"
+    Description: SSM path (no leading slash) holding DATABASE_URL, CONSOLE_SECRET_KEY and, optionally, GITHUB_TOKEN as SecureStrings.
+  UseGitHubToken:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "false"
+    Description: true once /ParameterPrefix/GITHUB_TOKEN exists (the task won't start if a named secret is missing).
+  GitHubOwner:
+    Type: String
+    Default: ""
+    Description: GitHub organisation or user, to match services to repositories by name.
+  EnvironmentFileArn:
+    Type: String
+    Default: ""
+    Description: Optional S3 env file (arn:aws:s3:::bucket/key) with more settings, such as CONSOLE_CONFIG_JSON. Never secrets.
+  SyncMinutes:
+    Type: Number
+    MinValue: 1
+    MaxValue: 60
+    Default: 5
+    Description: CONSOLE_SYNC_MINUTES, the background sync interval while someone uses the console.
+  ActivityBudget:
+    Type: Number
+    MinValue: 0
+    Default: 5000
+    Description: CONSOLE_ACTIVITY_BUDGET, CloudWatch metrics per hour for the cloud map's idle marks ($0.01 per 1,000; 0 = off).
+  LogRetentionDays:
+    Type: Number
+    AllowedValues: [7, 14, 30, 60, 90, 180, 365]
+    Default: 30
+  TaskRoleName:
+    Type: String
+    Default: deployment-console-task
+    Description: The role the console acts as. The console's IAM policy denies passing this role to anything.
+  TaskPolicyArns:
+    Type: CommaDelimitedList
+    Description: Managed policies for the task role (the parts printed by npm run iam:policy -- --out).
+  DatabaseSecurityGroupId:
+    Type: String
+    Default: ""
+    Description: Optional. The database's security group, to admit the console on DatabasePort.
+  DatabasePort:
+    Type: Number
+    Default: 5432
+  GitHubDeployRepo:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    Description: Optional owner/repo allowed to deploy new images from GitHub Actions (OIDC, no keys).
+  GitHubDeployBranch:
+    Type: String
+    Default: master
+  GitHubOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: The account's token.actions.githubusercontent.com OIDC provider (required with GitHubDeployRepo).
+  EcrRepositoryName:
+    Type: String
+    Default: deployment-console
+    Description: The ECR repository the GitHub Actions role pushes to.
+
+Conditions:
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
+  HasDatabaseSg: !Not [!Equals [!Ref DatabaseSecurityGroupId, ""]]
+  HasEnvFile: !Not [!Equals [!Ref EnvironmentFileArn, ""]]
+  WithGitHubToken: !Equals [!Ref UseGitHubToken, "true"]
+  HasGitHubOwner: !Not [!Equals [!Ref GitHubOwner, ""]]
+  HasDeployRepo: !Not [!Equals [!Ref GitHubDeployRepo, ""]]
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: The console's own log; the first-run setup token is printed here. Kept when the stack is deleted (audit trail).
+    Properties:
+      LogGroupName: !Sub /ecs/${ServiceName}
+      RetentionInDays: !Ref LogRetentionDays
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: The console's own group, so database and load balancer rules can name it.
+        must:
+          - Ingress only from the load balancer's security group, on the container port. Never 0.0.0.0/0.
+    Properties:
+      GroupDescription: !Sub ${ServiceName} - reachable from the load balancer only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroupId
+          Description: HTTP from the load balancer
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: AWS APIs, GitHub, the database and integrations
+      Tags:
+        - { Key: Name, Value: !Ref ServiceName }
+        - { Key: console:self, Value: "true" }
+
+  DatabaseIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasDatabaseSg
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Additive rule on the database's existing group; removed with the stack. Other rules on that group are untouched.
+    Properties:
+      GroupId: !Ref DatabaseSecurityGroupId
+      IpProtocol: tcp
+      FromPort: !Ref DatabasePort
+      ToPort: !Ref DatabasePort
+      SourceSecurityGroupId: !Ref SecurityGroup
+      Description: !Sub ${ServiceName} database access
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Used by ECS (not the console) to pull the image, write logs and read the secrets and env file at start.
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: read-console-settings
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameters
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ParameterPrefix}/*
+              - !If
+                - HasEnvFile
+                - Effect: Allow
+                  Action: s3:GetObject
+                  Resource: !Ref EnvironmentFileArn
+                - !Ref AWS::NoValue
+              - !If
+                - HasEnvFile
+                - Effect: Allow
+                  Action: s3:GetBucketLocation
+                  Resource: !Select [0, !Split ["/", !Ref EnvironmentFileArn]]
+                - !Ref AWS::NoValue
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: What the console acts as. Its permissions are the managed policies in TaskPolicyArns.
+        must:
+          - Keep RoleName equal to the role the console's policy denies passing (NeverPassTheConsolesOwnRole).
+    Properties:
+      RoleName: !Ref TaskRoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { aws:SourceAccount: !Ref AWS::AccountId }
+      ManagedPolicyArns: !Ref TaskPolicyArns
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: 3000
+      HealthCheckPath: /api/healthz
+      Matcher: { HttpCode: "200" }
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: "30" }
+
+  ListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Additive host-header rule on the shared HTTPS listener; other hosts keep their own rules.
+    Properties:
+      ListenerArn: !Ref ListenerArn
+      Priority: !Ref ListenerRulePriority
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig: { Values: [!Ref HostName] }
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  ListenerCertificate:
+    Type: AWS::ElasticLoadBalancingV2::ListenerCertificate
+    Condition: HasCertificate
+    Properties:
+      ListenerArn: !Ref ListenerArn
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceName
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+        CpuArchitecture: !Ref CpuArchitecture
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: !Ref ServiceName
+          Image: !Ref ImageUri
+          Essential: true
+          StopTimeout: 30
+          PortMappings:
+            - { ContainerPort: 3000, Protocol: tcp }
+          Environment:
+            - { Name: CONSOLE_SOURCE, Value: aws }
+            - { Name: AWS_REGION, Value: !Ref AWS::Region }
+            - { Name: AUTH_MODE, Value: session }
+            - { Name: CONSOLE_PUBLIC_URL, Value: !Sub "https://${HostName}" }
+            - { Name: CONSOLE_SELF, Value: !Sub "${ClusterName}/${ServiceName}" }
+            - { Name: CONSOLE_SYNC_MINUTES, Value: !Ref SyncMinutes }
+            - { Name: CONSOLE_ACTIVITY_BUDGET, Value: !Ref ActivityBudget }
+            - { Name: NEXT_MANUAL_SIG_HANDLE, Value: "true" }
+            - !If [HasGitHubOwner, { Name: GITHUB_OWNER, Value: !Ref GitHubOwner }, !Ref AWS::NoValue]
+          EnvironmentFiles: !If
+            - HasEnvFile
+            - [{ Type: s3, Value: !Ref EnvironmentFileArn }]
+            - !Ref AWS::NoValue
+          Secrets:
+            - { Name: DATABASE_URL, ValueFrom: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ParameterPrefix}/DATABASE_URL" }
+            - { Name: CONSOLE_SECRET_KEY, ValueFrom: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ParameterPrefix}/CONSOLE_SECRET_KEY" }
+            - !If
+              - WithGitHubToken
+              - { Name: GITHUB_TOKEN, ValueFrom: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ParameterPrefix}/GITHUB_TOKEN" }
+              - !Ref AWS::NoValue
+          HealthCheck:
+            Command: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/healthz >/dev/null || exit 1"]
+            Interval: 15
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref ServiceName
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: ListenerRule
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: One task; a new deployment stops the old task first (0/100) so two consoles never run at once.
+        must:
+          - DesiredCount 0 or 1, never more.
+    Properties:
+      ServiceName: !Ref ServiceName
+      Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      PropagateTags: SERVICE
+      EnableExecuteCommand: false
+      HealthCheckGracePeriodSeconds: 90
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true }
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: !Ref AssignPublicIp
+          Subnets: !Ref SubnetIds
+          SecurityGroups: [!Ref SecurityGroup]
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: 3000
+          TargetGroupArn: !Ref TargetGroup
+      Tags:
+        - { Key: console:self, Value: "true" }
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Condition: HasDeployRepo
+    Metadata:
+      com.aws.cloudformation.Context:
+        why: Lets GitHub Actions on one repo and branch push an image and roll it out, with no AWS keys stored in GitHub.
+        must:
+          - Trust only token.actions.githubusercontent.com with aud sts.amazonaws.com and that exact repo and branch.
+          - Pass only this stack's two roles, and only to ECS tasks.
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Federated: !Ref GitHubOidcProviderArn }
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubDeployRepo}:ref:refs/heads/${GitHubDeployBranch}
+      Policies:
+        - PolicyName: deploy-console
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action: [ecr:BatchCheckLayerAvailability, ecr:BatchGetImage, ecr:CompleteLayerUpload, ecr:InitiateLayerUpload, ecr:PutImage, ecr:UploadLayerPart]
+                Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EcrRepositoryName}
+              - Effect: Allow
+                Action: [ecs:DescribeTaskDefinition, ecs:RegisterTaskDefinition]
+                Resource: "*"
+              - Effect: Allow
+                Action: [ecs:DescribeServices, ecs:UpdateService]
+                Resource: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:service/${ClusterName}/${ServiceName}
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: [!GetAtt ExecutionRole.Arn, !GetAtt TaskRole.Arn]
+                Condition:
+                  StringEquals: { iam:PassedToService: ecs-tasks.amazonaws.com }
+
+Outputs:
+  Url:
+    Value: !Sub https://${HostName}
+  ServiceArn:
+    Value: !Ref Service
+  SecurityGroupId:
+    Value: !Ref SecurityGroup
+  ExecutionRoleArn:
+    Value: !GetAtt ExecutionRole.Arn
+  TaskRoleArn:
+    Value: !GetAtt TaskRole.Arn
+  LogGroup:
+    Value: !Ref LogGroup
+  DeployRoleArn:
+    Condition: HasDeployRepo
+    Value: !GetAtt DeployRole.Arn

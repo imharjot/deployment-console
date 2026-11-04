@@ -45,6 +45,36 @@ The examples use account `123456789012`, region `eu-west-1`, cluster `acme-tools
 | IAM policy | **Read-only** or **full** (or the statements you pick) | Read-only first; add features later. See [Connect AWS](connect-aws.md#step-5-turn-on-more-one-feature-at-a-time). |
 | CPU | **ARM64** (Graviton) or **x86_64**: the image from step 1 runs on both | ARM64, about 20 % cheaper than x86 for the same size; the template asks for it (`cpuArchitecture`, step 6). |
 
+## Shortcut: one CloudFormation stack
+
+Steps 4 to 8 are also one template, [`infra/console-stack.yml`](../infra/console-stack.yml): the two roles, the log
+group, the task definition, the console's own security group (port 3000 from the load balancer only), the target group,
+a host-header rule on your HTTPS listener, the service (one task, circuit breaker on), and optionally an ingress rule on
+your database's security group and a GitHub Actions role. Do steps 1–3 first (image, database, SSM parameters), create
+the managed policies with `npm run iam:policy -- --print full --set … --out ./policy` ([Connect AWS](connect-aws.md)),
+then:
+
+```bash
+aws cloudformation create-stack --stack-name deployment-console --template-body file://infra/console-stack.yml \
+  --capabilities CAPABILITY_NAMED_IAM --parameters \
+  ParameterKey=ClusterName,ParameterValue=acme-tools ParameterKey=VpcId,ParameterValue=vpc-0abc… \
+  ParameterKey=SubnetIds,ParameterValue='subnet-0aaa…\,subnet-0bbb…' \
+  ParameterKey=ListenerArn,ParameterValue=arn:aws:elasticloadbalancing:…:listener/app/acme-alb/… \
+  ParameterKey=ListenerRulePriority,ParameterValue=50 ParameterKey=LoadBalancerSecurityGroupId,ParameterValue=sg-0alb… \
+  ParameterKey=HostName,ParameterValue=console.example.com ParameterKey=CertificateArn,ParameterValue=arn:aws:acm:… \
+  ParameterKey=ImageUri,ParameterValue=123456789012.dkr.ecr.eu-west-1.amazonaws.com/deployment-console:abc1234 \
+  ParameterKey=TaskPolicyArns,ParameterValue='arn:aws:iam::123456789012:policy/deployment-console-1\,arn:aws:iam::123456789012:policy/deployment-console-2'
+```
+
+- `DesiredCount=0` creates everything without starting the task, for example while the database isn't ready yet.
+- Settings that aren't secret and that you want to change without a new image, such as the
+  [config file](configuration.md) as `CONSOLE_CONFIG_JSON`, go in an S3 env file: `EnvironmentFileArn`.
+- **Deploy from GitHub Actions.** Set `GitHubDeployRepo` (`owner/repo`) and `GitHubOidcProviderArn`, then the
+  repository variables listed in [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml). After CI passes on
+  `master` it builds the image on the task's CPU, tags it with the commit and rolls it out. The role trusts only that
+  repository and branch, pushes only to its ECR repository, updates only this service, and passes only this stack's
+  roles. New images replace `ImageUri` outside CloudFormation: when you update the stack, pass the image that is running.
+
 ## Step 1: Build and push the image
 
 ```bash

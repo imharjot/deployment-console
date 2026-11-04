@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Deploy with one CloudFormation stack** (`infra/console-stack.yml`): roles, log group, task definition, the
+  console's own security group, target group, listener rule, service (one task, circuit breaker), and optionally a
+  database ingress rule and a GitHub Actions role. **`.github/workflows/deploy.yml`** deploys the console after CI
+  passes on master (OIDC, no keys; idle until `AWS_DEPLOY_ROLE_ARN` is set). **`CONSOLE_CONFIG_JSON`** carries the
+  config file's content in a variable, so containers change it without a new image.
 - **Connect services**: **Connect to** on a service's panel (or a drag from one node to another on the cloud map)
   lets a service reach another service, a database or a cache of its environment. The plan shows both changes first:
   an inbound rule in the other side's security group admitting this service's group on its port, described
