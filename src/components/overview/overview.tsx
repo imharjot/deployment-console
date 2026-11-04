@@ -8,6 +8,7 @@ import useSWR from "swr";
 import { loadedAt, overviewKey, useEnv, useEnvInfo, useEnvList, useOverview } from "@/lib/client/env";
 import { clientFreshness, effectiveOverview, keptFreshness } from "@/lib/client/format";
 import { useRegions } from "@/lib/client/region";
+import { useSyncNow } from "@/lib/client/sync";
 import { serviceOf, type InventoryView } from "@/lib/inventory/types";
 import type { EnvOverview, ResourceView, State } from "@/lib/types";
 import { FreshnessBanner } from "../freshness-banner";
@@ -151,6 +152,7 @@ export function Overview() {
 
 function EnvOverviewPage({ env, label, region }: { env: string; label?: string; region?: string }) {
   const { data: raw, error, isLoading, mutate, isValidating } = useOverview(env);
+  const { sync, syncing } = useSyncNow();
   // R21: stale data shows UNKNOWN, never the last good state. One re-render when the data turns stale, not a clock.
   const received = loadedAt(overviewKey(env));
   const now = useClockAt((n) => (raw ? effectiveOverview(raw, n, received).next : undefined));
@@ -192,8 +194,16 @@ function EnvOverviewPage({ env, label, region }: { env: string; label?: string; 
             {data && <Summary summary={data.summary} />}
             <span className="flex items-center gap-1 text-xs text-fg-3">
               {raw ? <>checked <TimeAgo at={raw.checkedAt} /></> : null}
-              <Button size="sm" variant="ghost" onClick={() => mutate()} aria-label="Refresh now" title="Refresh now" className="!px-2">
-                <RefreshCw className={cx("size-3.5", isValidating && "animate-spin")} strokeWidth={1.75} />
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void sync()}
+                disabled={syncing}
+                aria-label="Refresh now"
+                title="Refresh now: sync with AWS at once. In the background the console syncs every few minutes while someone is using it."
+                className="!px-2"
+              >
+                <RefreshCw className={cx("size-3.5", (syncing || isValidating) && "animate-spin")} strokeWidth={1.75} />
               </Button>
             </span>
           </div>

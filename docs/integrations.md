@@ -41,6 +41,11 @@ Pick which events each notification integration receives, and from which environ
 | Console actions | anyone changes something through the console — restart, stop/start, switch revision, power, variable reveals and edits, create & scale — with who, why and the result |
 | CI failures | a GitHub Actions run fails on a watched repository |
 
+State changes and CI failures come from the background sync, which runs every `CONSOLE_SYNC_MINUTES` (5) while someone
+uses the console and pauses after 15 minutes with nobody signed in ([Configuration](configuration.md#environment-variables)).
+While it's paused these alerts wait: a CI failure is announced at the next sync, a state change only if it still holds
+then. Console actions are always sent at once.
+
 Delivery is fire-and-forget with a 5 s timeout and one retry. The same state change is sent at most once a minute per
 integration, so a flapping service doesn't flood a channel; every console action is sent. The last deliveries (and failures) are listed on the
 settings page.
