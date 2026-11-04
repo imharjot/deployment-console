@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Fargate:** the task definition template and the stack set `HOSTNAME=0.0.0.0`. Fargate sets `HOSTNAME` to the
+  task's own name, so the server listened only there and the container health check on `127.0.0.1` failed.
 - **Deploy with one CloudFormation stack** (`infra/console-stack.yml`): roles, log group, task definition, the
   console's own security group, target group, listener rule, service (one task, circuit breaker), and optionally a
   database ingress rule and a GitHub Actions role. **`.github/workflows/deploy.yml`** deploys the console after CI
