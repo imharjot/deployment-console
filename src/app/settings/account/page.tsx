@@ -1,5 +1,5 @@
 "use client";
-import { KeyRound, Laptop, Loader2, LogOut, ShieldCheck } from "lucide-react";
+import { KeyRound, Laptop, Loader2, LogOut, ShieldCheck, Smartphone } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 import useSWR from "swr";
 import { Avatar, ROLE_INFO, RoleChip, displayName, signOut, useMe } from "@/components/user-menu";
@@ -8,6 +8,7 @@ import { Button, Chip, Empty, Skeleton, TimeAgo } from "@/components/ui";
 import { postJson } from "@/lib/client/api";
 import { stamp } from "@/lib/client/format";
 import { Field, FormError, passwordHint } from "../../login/auth-card";
+import { MfaEnroll, RecoveryCodes } from "../../login/mfa-step";
 
 interface SessionRow {
   id: string;
@@ -151,6 +152,101 @@ function Sessions() {
   );
 }
 
+type MfaInfo = { required: boolean; enabled: boolean; since: number | null; recoveryLeft: number };
+
+// New recovery codes or a new authenticator. Both start with the current password (re-authentication).
+function TwoStep({ mfa, email }: { mfa: MfaInfo; email: string }) {
+  const toast = useToast();
+  const { mutate } = useMe();
+  const [action, setAction] = useState<"recovery-codes" | "replace" | null>(null);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const [enrolling, setEnrolling] = useState(false);
+
+  const reset = () => {
+    setAction(null);
+    setPassword("");
+    setErr(null);
+    setCodes(null);
+    setEnrolling(false);
+  };
+  const finish = (title: string) => {
+    reset();
+    void mutate();
+    toast.push({ tone: "ok", title });
+  };
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!action || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await postJson<{ recoveryCodes?: string[] }>("/api/me/mfa", { action, password });
+      setPassword("");
+      if (action === "recovery-codes") setCodes(r.recoveryCodes ?? []);
+      else setEnrolling(true);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (codes) return <RecoveryCodes codes={codes} email={email} doneLabel="Done" onDone={() => finish("New recovery codes saved")} />;
+  if (enrolling) return <MfaEnroll next="/settings/account" onRestart={reset} onDone={() => finish("New authenticator set up")} />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2 text-[14px] text-fg-2">
+        <Chip tone={mfa.enabled ? "ok" : "warn"}>{mfa.enabled ? "On" : "Not set up"}</Chip>
+        {mfa.since && (
+          <span>
+            Authenticator added <TimeAgo at={mfa.since} />
+          </span>
+        )}
+        {mfa.enabled && (
+          <span className={mfa.recoveryLeft <= 2 ? "text-warn" : undefined}>
+            · {mfa.recoveryLeft} recovery code{mfa.recoveryLeft === 1 ? "" : "s"} left
+          </span>
+        )}
+      </div>
+      {action ? (
+        <form onSubmit={submit} className="max-w-sm space-y-3.5">
+          <p className="text-[13.5px] leading-relaxed text-fg-3">
+            {action === "replace"
+              ? "Your current authenticator stops working once the new one is confirmed, and your other sessions are signed out."
+              : "Your old recovery codes stop working as soon as the new ones are made."}
+          </p>
+          <Field label="Current password" type="password" autoComplete="current-password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)} />
+          <FormError error={err} />
+          <div className="flex gap-2">
+            <Button type="submit" variant="primary" disabled={busy || !password}>
+              {busy && <Loader2 className="size-4 animate-spin" />} Continue
+            </Button>
+            <Button type="button" variant="ghost" onClick={reset}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        mfa.enabled && (
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setAction("replace")}>
+              <Smartphone className="size-4" /> Set up a new authenticator
+            </Button>
+            <Button onClick={() => setAction("recovery-codes")}>
+              <KeyRound className="size-4" /> New recovery codes
+            </Button>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 // Settings → Your account (the header comes from the settings layout).
 export default function AccountPage() {
   const { data: me, error } = useMe();
@@ -194,6 +290,12 @@ export default function AccountPage() {
               </div>
             )}
           </Card>
+
+          {me.mfa?.required && me.hasPassword && (
+            <Card title="Two-step sign-in" hint="Every password sign-in also asks for a code from your authenticator app.">
+              <TwoStep mfa={me.mfa} email={me.user.email} />
+            </Card>
+          )}
 
           <Card title="Sessions" hint="Browsers and devices signed in to your account.">
             <Sessions />

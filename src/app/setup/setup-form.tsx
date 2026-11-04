@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui";
 import { postJson } from "@/lib/client/api";
 import { AuthCard, Field, FormError, passwordHint } from "../login/auth-card";
+import { MFA_TITLES, MfaEnroll, MfaVerify, type MfaKind } from "../login/mfa-step";
 
 export function SetupForm({ alb, verifiedEmail }: { alb: boolean; verifiedEmail: string | null }) {
   const [token, setToken] = useState("");
@@ -12,6 +13,7 @@ export function SetupForm({ alb, verifiedEmail }: { alb: boolean; verifiedEmail:
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<MfaKind | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const hint = alb ? null : passwordHint(password, confirm);
   const ready = token.trim() && email && (alb || (password && password === confirm && !hint));
@@ -22,13 +24,26 @@ export function SetupForm({ alb, verifiedEmail }: { alb: boolean; verifiedEmail:
     setBusy(true);
     setErr(null);
     try {
-      await postJson("/api/auth/setup", { token: token.trim(), email, name, password: alb ? undefined : password });
+      const r = await postJson<{ mfa?: MfaKind }>("/api/auth/setup", { token: token.trim(), email, name, password: alb ? undefined : password });
+      if (r.mfa) {
+        setStep(r.mfa); // the admin exists; their first session waits for an authenticator
+        setBusy(false);
+        return;
+      }
       window.location.replace("/"); // full load: signed in now
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);
     }
   }
+
+  // The admin already exists here, so "start over" means signing in with the password just set.
+  if (step)
+    return (
+      <AuthCard {...MFA_TITLES[step]}>
+        {step === "verify" ? <MfaVerify next="/" onRestart={() => window.location.replace("/login")} /> : <MfaEnroll next="/" onRestart={() => window.location.replace("/login")} />}
+      </AuthCard>
+    );
 
   return (
     <AuthCard

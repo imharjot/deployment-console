@@ -286,8 +286,9 @@ aws logs filter-log-events --log-group-name /ecs/deployment-console \
   --filter-pattern '"setup token"' --query 'events[].message' --output text
 ```
 
-Open `https://console.example.com/setup`, paste the token and create your admin account. In `alb` mode the setup page
-asks for no password, and the email must be the one the load balancer signed you in with.
+Open `https://console.example.com/setup`, paste the token and create your admin account, then scan the QR code with
+an authenticator app and keep the recovery codes ([two-step sign-in](auth.md#two-step-sign-in) is on by default). In
+`alb` mode the setup page asks for no password, and the email must be the one the load balancer signed you in with.
 
 Alternatively, set `CONSOLE_ADMIN_EMAIL` (and `CONSOLE_ADMIN_PASSWORD`, at least 10 characters) on the task before
 its first start. Without a password the admin is created only if OIDC is configured or `AUTH_MODE=alb`, so that person

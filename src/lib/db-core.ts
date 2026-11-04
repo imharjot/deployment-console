@@ -196,6 +196,15 @@ export const MIGRATIONS: Statement[][] = [
       tz TEXT, next_at BIGINT, last_fired_at BIGINT, enabled INTEGER NOT NULL DEFAULT 1, created_at BIGINT NOT NULL)`,
     `CREATE INDEX IF NOT EXISTS schedules_next ON schedules(next_at)`,
   ],
+  [
+    // 8: two-step sign-in (src/lib/server/auth/mfa.ts). The authenticator secret is sealed with the console's secret key;
+    // totp_last_step is the last 30-second step that signed in (no replay); totp_recovery is a JSON array of
+    // sha256 hashes of the unused recovery codes.
+    addColumn("users", "totp_secret TEXT"),
+    addColumn("users", "totp_enabled_at BIGINT"),
+    addColumn("users", "totp_last_step BIGINT"),
+    addColumn("users", "totp_recovery TEXT"),
+  ],
 ];
 
 export const sqlFor = (s: Statement, kind: Db["kind"]) => (typeof s === "string" ? s : s[kind]);

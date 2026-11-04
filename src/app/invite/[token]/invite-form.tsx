@@ -8,6 +8,7 @@ import { postJson } from "@/lib/client/api";
 import type { Role } from "@/lib/rbac";
 import { TAP } from "../../_components/page-frame";
 import { AuthCard, Field, FormError, passwordHint } from "../../login/auth-card";
+import { MFA_TITLES, MfaEnroll, MfaVerify, type MfaKind } from "../../login/mfa-step";
 
 interface Props {
   token: string;
@@ -20,6 +21,7 @@ export function InviteForm({ token, info, methods }: Props) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<MfaKind | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const hint = passwordHint(password, confirm);
 
@@ -33,6 +35,14 @@ export function InviteForm({ token, info, methods }: Props) {
       </AuthCard>
     );
 
+  // The password is set by now, so "start over" means signing in with it.
+  if (step)
+    return (
+      <AuthCard {...MFA_TITLES[step]}>
+        {step === "verify" ? <MfaVerify next="/" onRestart={() => window.location.replace("/login")} /> : <MfaEnroll next="/" onRestart={() => window.location.replace("/login")} />}
+      </AuthCard>
+    );
+
   const invite = info.purpose === "invite";
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -40,7 +50,13 @@ export function InviteForm({ token, info, methods }: Props) {
     setBusy(true);
     setErr(null);
     try {
-      await postJson(`/api/auth/invite/${encodeURIComponent(token)}`, { name: invite ? name : undefined, password });
+      const r = await postJson<{ mfa?: MfaKind }>(`/api/auth/invite/${encodeURIComponent(token)}`, { name: invite ? name : undefined, password });
+      if (r.mfa) {
+        window.history.replaceState(null, "", "/login"); // the link is spent: keep its token out of history
+        setStep(r.mfa); // the password is set; the session waits for the authenticator step
+        setBusy(false);
+        return;
+      }
       window.location.replace("/"); // full load for the new identity; drops the token URL from history
     } catch (e) {
       setErr((e as Error).message);
