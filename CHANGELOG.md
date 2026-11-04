@@ -9,6 +9,12 @@ All notable changes to this project are documented here. The format follows
 First public version (0.1.0). What the console can do today:
 
 ### Latest additions
+- **Polish from the first real use:** charts keep their y-axis labels in a gutter beside the plot (they sat on the
+  lines and deploy markers) and no longer jump while you hover (the hover time never wraps the title; legend values
+  keep their width). Every password and secret field has a show/hide eye. *Show on the map* from a resource lands on
+  it: the request to centre waits for the map to mount, and the map keeps following the node while its layout fills in
+  until you pan or zoom. Resources' search keeps a usable width, the Logs query bar takes its own row on narrower
+  screens, the map's controls hint shows only where it fits, and segmented choices never wrap mid-word.
 - **Public repository safeguards:** protected `master` requires pull requests, up-to-date CI and resolved reviews;
   force pushes and deletion are blocked. All files have a maintainer code owner, with the branch and review policy
   documented in `CONTRIBUTING.md` and the GitHub ruleset definitions recorded in `.github/rulesets/`.

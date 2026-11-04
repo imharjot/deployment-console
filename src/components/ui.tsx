@@ -1,8 +1,8 @@
 "use client";
 import { clsx } from "clsx";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { ago, agoChangesAt } from "@/lib/client/format";
 import { regionLabel } from "@/lib/client/region";
 import { Portal, popover, spring } from "./motion";
@@ -233,7 +233,7 @@ export function Segmented<T extends string>({ value, options, onChange, id, size
             )}
           >
             {active && <motion.span layoutId={`seg-${id}`} className="absolute inset-0 -z-10 rounded-md border border-line bg-panel shadow-card dark:bg-panel-3" transition={spring} />}
-            <span className="press-content inline-block">{o.label}</span>
+            <span className="press-content inline-block whitespace-nowrap">{o.label}</span>
           </button>
         );
       })}
@@ -359,5 +359,26 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
     >
       {done ? <Check className="size-3.5" /> : <Copy className="size-3.5" />} {done ? "Copied" : label}
     </Button>
+  );
+}
+
+// A password or secret field with a show/hide toggle. Hidden again whenever it's remounted; the toggle never submits.
+export function PasswordInput({ className, ...input }: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
+  const [show, setShow] = useState(false);
+  return (
+    <span className="relative block w-full min-w-0">
+      <input {...input} type={show ? "text" : "password"} className={cx(className, "!pr-10")} />
+      <button
+        type="button"
+        onClick={() => setShow((v) => !v)}
+        disabled={input.disabled}
+        aria-label={show ? "Hide" : "Show"}
+        aria-pressed={show}
+        title={show ? "Hide" : "Show"}
+        className="absolute inset-y-0 right-0 grid w-10 place-items-center rounded-r-lg text-fg-3 transition-colors hover:text-fg disabled:opacity-40"
+      >
+        {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+      </button>
+    </span>
   );
 }
