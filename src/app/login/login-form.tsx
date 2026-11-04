@@ -5,6 +5,7 @@ import { Button } from "@/components/ui";
 import { postJson } from "@/lib/client/api";
 import { TAP } from "../_components/page-frame";
 import { AuthCard, Field, FormError } from "./auth-card";
+import { MFA_TITLES, MfaEnroll, MfaVerify, type MfaKind } from "./mfa-step";
 
 // Stable codes from the SSO callback → words. Unknown codes get the generic line (never echo the raw value).
 const SSO_ERRORS: Record<string, string> = {
@@ -31,6 +32,7 @@ export function LoginForm({ methods, next, error, mode }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<MfaKind | null>(null);
   const [err, setErr] = useState<string | null>(error ? (Object.hasOwn(SSO_ERRORS, error) ? SSO_ERRORS[error] : "Sign-in failed. Try again.") : null);
 
   async function submit(e: FormEvent) {
@@ -39,7 +41,13 @@ export function LoginForm({ methods, next, error, mode }: Props) {
     setBusy(true);
     setErr(null);
     try {
-      await postJson("/api/auth/login", { email, password });
+      const r = await postJson<{ mfa?: MfaKind }>("/api/auth/login", { email, password });
+      if (r.mfa) {
+        setStep(r.mfa); // the password was right; the session waits for the authenticator step
+        setPassword("");
+        setBusy(false);
+        return;
+      }
       window.location.replace(next); // full load: every cache starts fresh for this user
     } catch (e) {
       setErr((e as Error).message);
@@ -55,6 +63,18 @@ export function LoginForm({ methods, next, error, mode }: Props) {
         </a>
       </AuthCard>
     );
+
+  if (step) {
+    const restart = () => {
+      setStep(null);
+      setErr(null);
+    };
+    return (
+      <AuthCard {...MFA_TITLES[step]} footer={step === "verify" ? "Lost your phone and your recovery codes? Ask an admin for a reset link." : undefined}>
+        {step === "verify" ? <MfaVerify next={next} onRestart={restart} /> : <MfaEnroll next={next} onRestart={restart} />}
+      </AuthCard>
+    );
+  }
 
   const none = !methods.password && !methods.sso;
   return (

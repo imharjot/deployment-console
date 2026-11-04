@@ -5,7 +5,7 @@ import { auditOrFail } from "@/lib/server/auth/audit";
 import { markHasUsers } from "@/lib/server/auth/bootstrap";
 import { authMode } from "@/lib/server/auth/config";
 import { ipFail, ipWait, limits, retryText } from "@/lib/server/auth/limits";
-import { signIn } from "@/lib/server/auth/signin";
+import { afterPassword } from "@/lib/server/auth/mfa";
 import { checkSetupToken, clearSetupTokens } from "@/lib/server/auth/tokens";
 import { countUsers, createUser } from "@/lib/server/auth/users";
 import { getDb } from "@/lib/server/db";
@@ -43,5 +43,5 @@ export const POST = handle(async (req) => {
   });
   markHasUsers();
   if (mode.mode === "alb") return json({ ok: true }); // the load balancer already signed them in
-  return signIn(req, json({ ok: true }), user, "setup", addr);
+  return afterPassword(req, user, "setup", addr); // the first admin sets up an authenticator before their first session
 });
