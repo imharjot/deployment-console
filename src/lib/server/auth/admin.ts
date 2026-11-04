@@ -6,6 +6,7 @@ import { HttpError } from "../errors.ts";
 import { getDb, type Db } from "../db.ts";
 import { auditOrFail } from "./audit.ts";
 import { loginMethods } from "./config.ts";
+import { clearMfa } from "./mfa.ts";
 import { deleteUserSessions, forgetCachedSessions } from "./sessions.ts";
 import { dropLinks, issueLink, type LinkPurpose } from "./tokens.ts";
 import { activeAdminIds, createUser, listUsers, userByEmail, userById, type UserRow } from "./users.ts";
@@ -17,6 +18,7 @@ export interface UserListItem {
   role: Role;
   disabled: boolean;
   hasPassword: boolean;
+  mfa: boolean; // an authenticator is set up
   invitePending: boolean; // an unused invite link exists and they never signed in
   createdAt: number;
   lastLoginAt: number | null;
@@ -29,6 +31,7 @@ const item = (r: UserRow, pending: Set<string>): UserListItem => ({
   role: isRole(r.role) ? r.role : "viewer",
   disabled: !!Number(r.disabled),
   hasPassword: !!r.password_hash,
+  mfa: !!r.totp_enabled_at,
   invitePending: pending.has(r.id) && !r.last_login_at,
   createdAt: Number(r.created_at),
   lastLoginAt: r.last_login_at ? Number(r.last_login_at) : null,
@@ -119,8 +122,9 @@ export async function deleteUser(actor: User, id: string, ip: string | undefined
   forgetCachedSessions();
 }
 
-// New one-time link. For a reset, the old password and every session stop working now: whoever holds the link
-// (and only them) sets the next password.
+// New one-time link. For a reset, the old password, the authenticator and every session stop working now: whoever
+// holds the link (and only them) sets the next password and, with two-step sign-in, a new authenticator — the way back
+// for someone who lost their phone and their recovery codes.
 export async function resetUser(actor: User, id: string, ip: string | undefined, origin: string) {
   if (!loginMethods().password) throw new HttpError(400, "Password sign-in is disabled on this console; users sign in with SSO or through the load balancer.");
   const db = await getDb();
@@ -130,9 +134,10 @@ export async function resetUser(actor: User, id: string, ip: string | undefined,
     if (Number(row.disabled)) throw new HttpError(409, "Enable the user before issuing a link.");
     const purpose: LinkPurpose = row.password_hash || row.last_login_at ? "reset" : "invite";
     await tx.run("UPDATE users SET password_hash = NULL WHERE id = ?", [id]);
+    await clearMfa(id, tx);
     await deleteUserSessions(id, undefined, tx);
     const token = await issueLink(id, purpose, tx);
-    await auditOrFail({ action: purpose === "reset" ? "user.reset" : "user.invite", actor: actor.email, target: row.email, ip, params: { reissue: purpose === "invite" } });
+    await auditOrFail({ action: purpose === "reset" ? "user.reset" : "user.invite", actor: actor.email, target: row.email, ip, params: { reissue: purpose === "invite", mfaReset: !!row.totp_enabled_at } });
     return { token, purpose };
   });
   forgetCachedSessions();

@@ -1,11 +1,11 @@
-// Email + password sign-in. One generic error for every failure (no user enumeration), a dummy hash for unknown
+// Email + password sign-in, then the authenticator step (src/lib/server/auth/mfa.ts). One generic error for every failure (no user enumeration), a dummy hash for unknown
 // emails (same timing), and in-memory throttling per email+IP, per IP and per email.
 import { normalizeEmail } from "@/lib/authn";
 import { hashPassword, needsRehash, verifyPassword } from "@/lib/password";
 import { audit } from "@/lib/server/auth/audit";
 import { loginMethods } from "@/lib/server/auth/config";
 import { ipFail, ipWait, limits, retryText } from "@/lib/server/auth/limits";
-import { signIn } from "@/lib/server/auth/signin";
+import { afterPassword } from "@/lib/server/auth/mfa";
 import { userByEmail } from "@/lib/server/auth/users";
 import { getDb } from "@/lib/server/db";
 import { HttpError } from "@/lib/server/errors";
@@ -46,5 +46,5 @@ export const POST = handle(async (req) => {
 
   limits.login.reset(key);
   if (needsRehash(row.password_hash!)) await (await getDb()).run("UPDATE users SET password_hash = ? WHERE id = ?", [await hashPassword(password), row.id]);
-  return signIn(req, json({ ok: true }), row, "password", ip);
+  return afterPassword(req, row, "password", ip);
 });

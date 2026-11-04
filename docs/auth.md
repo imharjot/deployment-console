@@ -179,8 +179,8 @@ In **Settings → Users & roles** an admin can:
 - **change a role**: it applies from the person's next request;
 - **disable** or **enable** a user: disabling ends their sessions, their API tokens stop working, and requests their
   tokens left waiting for approval are rejected;
-- create a **password reset link**: the old password and all sessions stop working immediately (only with password
-  sign-in on, so never in `alb` mode);
+- create a **password reset link**: the old password, the authenticator and all sessions stop working immediately (only
+  with password sign-in on, so never in `alb` mode);
 - **delete** a user, which also rejects their tokens' pending approval requests.
 
 The console never lets you demote, disable or delete the **last active admin**.
@@ -204,6 +204,36 @@ first password there.
   email is locked after 10 failures. Unknown emails and wrong passwords get the same message, and a `429` says when to
   retry (`Retry-After`). The counters are kept in memory, so a restart resets them.
 
+## Two-step sign-in
+
+Every password sign-in also asks for a 6-digit code from an authenticator app (Google Authenticator, Microsoft
+Authenticator, 1Password, Authy, Bitwarden…). It's on by default (`CONSOLE_MFA=required`); SSO and load-balancer
+sign-ins skip it, because your identity provider owns MFA there.
+
+- **Setting it up.** Whoever has no authenticator yet sets one up right after their password is accepted: on first
+  run (`/setup`), when accepting an invite, after a reset link, or at their next sign-in. They scan a QR code (or type
+  the key), confirm with one code, and get **10 recovery codes**, shown once. No session exists until that's done.
+- **Signing in.** Password, then the code. A code works once: one already used (or an older one) is refused even while
+  it's still on the screen. One 30-second step either side of now is accepted, for clock drift.
+- **Recovery codes.** Each one replaces a code once (`xxxxx-xxxxx`, any case, with or without the hyphen). The console
+  says how many are left.
+- **Settings → Your account → Two-step sign-in** shows when the authenticator was added and how many recovery codes are
+  left. **Set up a new authenticator** (new phone) and **New recovery codes** both ask for your current password; a new
+  authenticator signs out your other sessions, and either one makes the old authenticator or codes stop working.
+- **Lost phone and recovery codes?** An admin creates a **password reset link** for you (Settings → Users & roles). It
+  also removes your authenticator: you choose a new password and set up a new authenticator. **Users & roles** shows
+  who has two-step sign-in (*2-step*) and who hasn't set it up yet.
+- **Limits.** 5 wrong codes in 15 minutes, or 20 in a day, lock that account's code step for the rest of the window
+  (whatever the address), plus 50 per address in 15 minutes. Every setup, failure and recovery-code sign-in is in the
+  audit log (`auth.mfa_enroll`, `auth.mfa_failed`, `auth.login` with `mfa: totp | recovery`, `auth.mfa_replace`,
+  `auth.mfa_recovery_codes`).
+- **How it's kept.** The authenticator secret is encrypted with `CONSOLE_SECRET_KEY` (AES-256-GCM); recovery codes are
+  stored only as hashes. Between the password and the code, the browser holds a 10-minute challenge cookie, sealed with
+  the same key, `HttpOnly` and `SameSite=Strict`; a password change or reset voids it.
+- **The only admin lost everything?** Run the console once with `CONSOLE_MFA=off`, sign in with your password, set
+  `CONSOLE_MFA` back and sign in again to set up a new authenticator. Or clear it in the database:
+  `UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL, totp_recovery = NULL WHERE email = '…'`.
+
 ## Reference
 
 | Variable | Default | Meaning |
@@ -214,6 +244,7 @@ first password there.
 | `CONSOLE_TRUSTED_PROXIES` | `1` | proxies in front that append `X-Forwarded-For` (`2` for CloudFront → ALB, `0` for none) — see [Configuration](configuration.md#environment-variables) |
 | `SESSION_TTL_HOURS` | `12` | sliding session length, at most 720; an empty or invalid value means 12 |
 | `AUTH_PASSWORD_LOGIN` | `true` | `false` = SSO only (always off in `alb` mode) |
+| `CONSOLE_MFA` | `required` | `required` = every password sign-in also needs an authenticator code ([Two-step sign-in](#two-step-sign-in)); `off` = password only. Any other value means `required` |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | — | OIDC SSO (the secret is optional for public clients) |
 | `OIDC_SCOPES` | `openid email profile` | scopes requested from the provider |
 | `OIDC_LABEL` | `Sign in with SSO` | text on the sign-in button |

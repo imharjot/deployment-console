@@ -16,9 +16,10 @@ export interface UserRow {
   disabled: number;
   created_at: number;
   last_login_at: number | null;
+  totp_enabled_at: number | null; // two-step sign-in set up (the secret itself is never in COLS)
 }
 
-const COLS = "id, email, name, role, password_hash, disabled, created_at, last_login_at";
+const COLS = "id, email, name, role, password_hash, disabled, created_at, last_login_at, totp_enabled_at";
 
 // An unrecognised role in the DB (hand-edited row) degrades to viewer, never up.
 export const toUser = (r: Pick<UserRow, "id" | "email" | "name" | "role">): User => ({ id: r.id, email: r.email, name: r.name, role: isRole(r.role) ? r.role : "viewer" });

@@ -3,7 +3,7 @@ import "server-only";
 import { RateLimiter } from "../../authn.ts";
 
 const WINDOW = 15 * 60_000;
-type Name = "login" | "loginIp" | "loginEmail" | "links" | "password" | "apiToken" | "apiTokenBad";
+type Name = "login" | "loginIp" | "loginEmail" | "links" | "password" | "apiToken" | "apiTokenBad" | "mfa" | "mfaDay" | "mfaIp";
 const g = globalThis as typeof globalThis & { __consoleLimits?: Partial<Record<Name, RateLimiter>> };
 
 const fresh = (): Record<Name, RateLimiter> => ({
@@ -16,6 +16,10 @@ const fresh = (): Record<Name, RateLimiter> => ({
   password: new RateLimiter(10, WINDOW), // wrong "current password" per user
   apiToken: new RateLimiter(120, 60_000), // requests per API token per minute (a counter here, not a failure count)
   apiTokenBad: new RateLimiter(30, WINDOW), // unknown / revoked / expired API tokens per IP
+  // Wrong authenticator or recovery codes (src/lib/server/auth/mfa.ts): per account, whatever the address, and per address.
+  mfa: new RateLimiter(5, WINDOW),
+  mfaDay: new RateLimiter(20, 24 * 3_600_000),
+  mfaIp: new RateLimiter(50, WINDOW),
 });
 // Existing counters win, so a reload that adds a limiter keeps the ones already counting.
 export const limits = (g.__consoleLimits = { ...fresh(), ...g.__consoleLimits }) as Record<Name, RateLimiter>;

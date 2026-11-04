@@ -1,6 +1,7 @@
 import { principalSummary } from "@/lib/agents/identity";
 import { permsOf } from "@/lib/rbac";
 import { authMode, loginMethods } from "@/lib/server/auth/config";
+import { mfaStatus } from "@/lib/server/auth/mfa";
 import { userById } from "@/lib/server/auth/users";
 import { handle, json, userOf } from "@/lib/server/http";
 import { agentCallerOf } from "@/lib/server/ops/caller";
@@ -23,6 +24,8 @@ export const GET = handle(async (req) => {
     loginMethods: loginMethods(),
     via: req.headers.get("x-console-auth-via"), // session | alb | dev | token | agent
     hasPassword: !!row?.password_hash,
+    // Two-step sign-in, for console sessions (Settings → Your account). Never the secret or the codes.
+    ...(req.headers.get("x-console-auth-via") === "session" ? { mfa: await mfaStatus(user.id) } : {}),
     // API token callers: which token, and its mode (see /docs/automation).
     ...(req.headers.get("x-console-auth-via") === "token"
       ? { token: { id: req.headers.get("x-console-token-id"), name: req.headers.get("x-console-token-name"), mode: req.headers.get("x-console-token-mode") } }

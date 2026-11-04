@@ -22,6 +22,7 @@ interface Item {
   role: Role;
   disabled: boolean;
   hasPassword: boolean;
+  mfa: boolean;
   invitePending: boolean;
   createdAt: number;
   lastLoginAt: number | null;
@@ -84,7 +85,9 @@ function UsersAdmin({ me }: { me: Me }) {
       env: "",
       title: u.hasPassword || u.lastLoginAt ? `Reset ${u.email}'s password?` : `New invite link for ${u.email}?`,
       description: u.hasPassword
-        ? "Their current password and every session stop working now. You get a one-time link to send them."
+        ? u.mfa
+          ? "Their current password, their authenticator and every session stop working now. You get a one-time link to send them; they set a new password and a new authenticator."
+          : "Their current password and every session stop working now. You get a one-time link to send them."
         : "Any earlier link stops working. You get a new one-time link to send them.",
       danger: u.hasPassword,
       expected: "yes",
@@ -152,6 +155,7 @@ function UsersAdmin({ me }: { me: Me }) {
         <div className="flex flex-wrap justify-end gap-1 @min-2xl:justify-start">
           {u.disabled ? <Chip tone="bad">Disabled</Chip> : u.invitePending ? <Chip tone="accent">Invite pending</Chip> : <Chip tone="ok">Active</Chip>}
           {!u.disabled && !u.hasPassword && !u.invitePending && <Chip tone="muted">{me.loginMethods.sso || me.authMode === "alb" ? "SSO" : "no password"}</Chip>}
+          {!u.disabled && u.hasPassword && me.mfa?.required && (u.mfa ? <Chip tone="ok">2-step</Chip> : <Chip tone="warn">no 2-step yet</Chip>)}
         </div>
       ),
     },
