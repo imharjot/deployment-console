@@ -345,3 +345,15 @@ test("aggregate: no runs yet (restart, nothing persisted): off providers stay di
   assert.deepEqual(aggregate({ id: "vpc", label: "VPC" }, [], { ...o, off: "not implemented yet" }), { id: "vpc", label: "VPC", count: 0, at: 0, state: "disabled", error: "not implemented yet" });
   assert.equal(aggregate({ id: "lambda", label: "Lambda" }, [], o).state, "skipped");
 });
+
+test("after a restart, a restored run is refreshing: stale and incomplete, but not a failing source", () => {
+  const restored: RunOutcome = { id: "ecs", region: "us-east-1", state: "error", stale: true, refreshing: true };
+  const c = completeness([restored, { id: "rds", region: "us-east-1", state: "error" }], { resources: [], generatedAt: 5000, lastCompleteAt: 1000 });
+  assert.equal(c.providers.error, 1, "only the real failure counts");
+  assert.deepEqual(c.staleProviders, ["ecs@us-east-1"]);
+  assert.equal(c.lastCompleteAt, 1000, "not complete while it refreshes");
+  const o = { home: "us-east-1", regions: ["us-east-1"] };
+  const status = (refreshing?: boolean): RegionStatus => ({ region: "us-east-1", state: "error", count: 4, at: 1, error: "from 12:39 UTC — refreshing", ...(refreshing ? { refreshing } : {}) });
+  assert.equal(aggregate({ id: "ecs", label: "ECS" }, [{ region: "us-east-1", status: status(true) }], o).refreshing, true);
+  assert.equal(aggregate({ id: "ecs", label: "ECS" }, [{ region: "us-east-1", status: status() }], o).refreshing, undefined, "a real error stays an error");
+});

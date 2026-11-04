@@ -1,11 +1,16 @@
 # Deploys the console itself to ECS after CI passes on master (infra/console-stack.yml creates the service and the
-# GitHub role this assumes). Does nothing until the repository variable AWS_DEPLOY_ROLE_ARN is set, so forks and
-# copies of this repository never try to deploy anywhere.
+# GitHub role this assumes). Does nothing until the repository variable DEPLOY_ENABLED is "true", so forks and copies
+# of this repository never try to deploy anywhere.
 #
-# Repository variables (Settings → Secrets and variables → Actions → Variables; none of them are secret):
+# A public repository's Actions logs are public: anything that names your AWS account is a secret here, so GitHub masks
+# it, and the account id is masked wherever it appears (image URIs, ARNs).
+#
+# Repository secrets (Settings → Secrets and variables → Actions → Secrets):
 #   AWS_DEPLOY_ROLE_ARN   the stack's DeployRoleArn output
-#   AWS_REGION            e.g. eu-west-1
 #   ECS_CLUSTER           the stack's ClusterName
+# Repository variables (not secret):
+#   DEPLOY_ENABLED        "true" to deploy
+#   AWS_REGION            e.g. eu-west-1
 #   ECS_SERVICE           the stack's ServiceName (default deployment-console; also the task family and container)
 #   ECR_REPOSITORY        default deployment-console
 #   CPU_ARCHITECTURE      ARM64 (default) or X86_64, as in the stack
@@ -30,21 +35,33 @@ concurrency:
 
 jobs:
   deploy:
-    if: vars.AWS_DEPLOY_ROLE_ARN != '' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    # Only this repository's own pushes to master (never a fork's pull request, whose CI also completes) or a manual run.
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ${{ (vars.CPU_ARCHITECTURE || 'ARM64') == 'ARM64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     # No `environment:` here: it would change the OIDC subject to repo:…:environment:… and the stack's role trusts the branch.
     env:
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       ECS_SERVICE: ${{ vars.ECS_SERVICE || 'deployment-console' }}
       ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'deployment-console' }}
+      ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
     steps:
+      - name: Keep the AWS account out of the public log
+        env:
+          ROLE: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          [ -n "$ROLE" ] || { echo "::error::set the AWS_DEPLOY_ROLE_ARN secret"; exit 1; }
+          echo "::add-mask::$(cut -d: -f5 <<<"$ROLE")"
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.SHA }} # exactly the commit CI passed
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - id: ecr
@@ -74,9 +91,9 @@ jobs:
         env:
           TASKDEF: ${{ steps.taskdef.outputs.arn }}
         run: |
-          aws ecs update-service --cluster "${{ vars.ECS_CLUSTER }}" --service "$ECS_SERVICE" --task-definition "$TASKDEF" --query service.serviceName --output text
-          aws ecs wait services-stable --cluster "${{ vars.ECS_CLUSTER }}" --services "$ECS_SERVICE"
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$TASKDEF" --query service.serviceName --output text
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
           # The circuit breaker rolls a failed rollout back; services-stable is then satisfied by the old revision.
-          running=$(aws ecs describe-services --cluster "${{ vars.ECS_CLUSTER }}" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)
+          running=$(aws ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" --query 'services[0].taskDefinition' --output text)
           if [ "$running" != "$TASKDEF" ]; then echo "::error::the new revision didn't stay up; ECS rolled back to $running"; exit 1; fi
           echo "deployed $TASKDEF"
