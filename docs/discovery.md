@@ -76,7 +76,7 @@ Every ECS service in the cluster, with its deployments, tasks, events and task d
 | Logs | the main container's `awslogs` group and stream prefix — shared log groups are fine |
 | Commit | a git sha anywhere in the image tag (`staging-1a2b3c4`, `v2-<sha>`, a bare sha). Moving tags like `latest` show "unknown". |
 | Repository | tag `console:repo=owner/name`, config, or a name match under `GITHUB_OWNER` (see [GitHub & CI](github.md)) |
-| Health probe (optional) | tag `console:healthcheck=https://…` — must answer HTTP 200 within 3 s (redirects aren't followed); checked at most every 10 s while someone is looking and every 30 s in the background. Two failures in a row mark the service DEGRADED, or DOWN if no task reports healthy |
+| Health probe (optional) | tag `console:healthcheck=https://…` — must answer HTTP 200 within 3 s (redirects aren't followed); checked at most every 10 s while someone is looking and with each background sync. Two failures in a row mark the service DEGRADED, or DOWN if no task reports healthy |
 | Migration paths (rollback warning) | tag `console:migrations=prisma/migrations/,db/migrate/`; default `prisma/migrations/`, `migrations/`, `db/migrate/`, `alembic/versions/`, `src/migrations/` |
 | Infra vs app | tag `console:role=infra|app`; images that aren't in ECR (redis, caddy, nginx from Docker Hub…) default to infra — no repo, CI or releases |
 | Hidden | tag `console:hidden=true` |
@@ -135,7 +135,7 @@ arrow shows requests per minute.
 
 | Data | Refreshed |
 |---|---|
-| Services, tasks, deployments | every 10 s on an open overview (the panel's events every 5 s), and every 30 s in the background |
+| Services, tasks, deployments | every 10 s on an open overview (the panel's events every 5 s); in the background every `CONSOLE_SYNC_MINUTES` (5) while someone uses the console, every 30 s while a change is being verified, paused otherwise ([Configuration](configuration.md#environment-variables)). **Refresh now** on the overview syncs at once |
 | Hosts, databases, caches, target health | 5–15 s |
 | Discovery (clusters, attribution, connections) | every 60 s, or **Re-scan now** in Settings |
 | Metrics | 60 s |

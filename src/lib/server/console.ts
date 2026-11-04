@@ -6,6 +6,7 @@ import "server-only";
 import { actionSpecs, checkAction, checkPower, parseActionBody, powerSpecs, type ActionContext, type RevisionFact } from "../actions.ts";
 import { CONSOLE_WRITES } from "../capability-rules.ts";
 import { LIMITS } from "../config.ts";
+import { nextSyncDelay, syncIntervalMs } from "../sync-rules.ts";
 import { periodFor } from "../metric-specs.ts";
 import { parseImageRef, placement } from "../discover.ts";
 import type { Freshness } from "../freshness.ts";
@@ -32,6 +33,7 @@ import { catalog, consoleConfig, envInfo, inRegion, listEnvs, metaOf, servicesAt
 import { HttpError, errText } from "./errors.ts";
 import { mutate, onMutation, type MutationActor, type MutationEvent } from "./mutations.ts";
 import { markVerified } from "./operations.ts";
+import { lastActiveAt, onWake } from "./presence.ts";
 import { probe } from "./probes.ts";
 import { cloudFor, getCi, type Cloud, type LbConfig, type MetricSpec, type TargetHealthDetail } from "./sources.ts";
 
@@ -550,6 +552,10 @@ interface SamplerState {
   lastTickMs?: number;
   prunedAt?: number;
   timer?: ReturnType<typeof setTimeout>;
+  nextAt?: number; // when the next background sync is due; undefined = paused until someone uses the console
+  pending?: number; // changes still waiting to be verified after the last tick
+  current?: Promise<void>; // the tick in progress, for syncNow() to join
+  tickNow?: () => Promise<void>;
 }
 interface Shared {
   latest: Map<string, EnvOverview>;
@@ -896,51 +902,88 @@ export const worstState = (o: EnvOverview): State =>
 
 // ---------- the background sampler ----------
 
+// The live views' own freshness yardstick (an overview read can be up to ~30 s old when served). The background pace is
+// set by src/lib/sync-rules.ts instead: every CONSOLE_SYNC_MINUTES while someone uses the console, paused otherwise.
 export const SAMPLER_INTERVAL_MS = 30_000;
+const syncMs = () => syncIntervalMs(process.env);
 const SAMPLER_CONCURRENCY = 4;
 const STATE_HISTORY_DAYS = 14;
 
 // How fresh the sampler's view of an env is (R21): /api/envs and /api/issues mark it stale (worst UNKNOWN) when the
-// sampler hasn't read it for samplerStaleIntervals intervals.
+// sampler hasn't read it for samplerStaleIntervals sync intervals — including while it's paused because nobody is using
+// the console: that view is honestly "not synced since …" until the next request wakes it.
 export function samplerStatus(envId: string, now = Date.now()): { sampledAt?: number; stale: boolean; reason?: string } {
   // A sampler started by an older copy of this module (before a restart) leaves only its overviews: their checkedAt.
   const sampledAt = sampled.get(envId) ?? latest.get(envId)?.checkedAt;
   const startedAt = shared.sampler?.startedAt ?? ((globalThis as { __consoleSampler?: unknown }).__consoleSampler ? sampledAt : undefined);
-  const s = samplerStaleness({ sampledAt, startedAt, now, intervalMs: SAMPLER_INTERVAL_MS, intervals: LIMITS.samplerStaleIntervals });
+  const s = samplerStaleness({ sampledAt, startedAt, now, intervalMs: syncMs(), intervals: LIMITS.samplerStaleIntervals });
   return { ...(sampledAt !== undefined ? { sampledAt } : {}), ...s };
 }
 
-export function samplerHealth(): { startedAt?: number; lastTickAt?: number; lastTickMs?: number; running: boolean } {
+export function samplerHealth(): { startedAt?: number; lastTickAt?: number; lastTickMs?: number; running: boolean; nextAt?: number; intervalMs: number; pending: number } {
   const s = shared.sampler;
-  return s ? { startedAt: s.startedAt, lastTickAt: s.lastTickAt, lastTickMs: s.lastTickMs, running: s.running } : { running: false };
+  const base = { intervalMs: syncMs(), pending: s?.pending ?? 0 };
+  return s ? { ...base, startedAt: s.startedAt, lastTickAt: s.lastTickAt, lastTickMs: s.lastTickMs, running: s.running, nextAt: s.nextAt } : { ...base, running: false };
 }
 
-// Background sampler: record states every 30 s so uptime reflects reality, not who had the page open. Light mode keeps
-// it to describes and probes (no CloudWatch metrics, no GitHub). One tick at a time (re-armed when it ends), four
-// environments at a time; failures are logged, never swallowed.
+// Background sampler: records states so uptime, alerts and "AWS accepted → verified" don't depend on who has a page
+// open. Its pace follows src/lib/sync-rules.ts: every CONSOLE_SYNC_MINUTES while someone uses the console, every 30 s
+// while a change waits to be verified, paused otherwise (the proxy's markActive() wakes it). Light mode keeps it to
+// describes and probes (no CloudWatch metrics, no GitHub). One tick at a time, four environments at a time; failures
+// are logged, never swallowed. Paused time is "not observed" in uptime, never counted as down.
 export function startSampler() {
   const g = globalThis as { __consoleSampler?: unknown };
   if (shared.sampler || g.__consoleSampler) return; // one per process (an older copy of this module used __consoleSampler)
   const st: SamplerState = { startedAt: Date.now(), running: false };
   shared.sampler = st;
   g.__consoleSampler = st;
-  const tick = async () => {
-    if (st.running) return;
+  const arm = (delay: number | null) => {
+    if (st.timer) clearTimeout(st.timer);
+    st.timer = undefined;
+    st.nextAt = delay === null ? undefined : Date.now() + delay;
+    if (delay === null) return;
+    st.timer = setTimeout(() => void tick(), delay);
+    st.timer.unref?.();
+  };
+  const tick = (): Promise<void> => {
+    if (st.current) return st.current; // one at a time: a wake or "Refresh now" joins the sync in progress
     st.running = true;
     const t0 = Date.now();
-    try {
-      await sampleOnce(st);
-    } catch (e) {
-      log(50, "sampler: tick failed", { err: errText(e) });
-    } finally {
-      st.running = false;
-      st.lastTickAt = Date.now();
-      st.lastTickMs = st.lastTickAt - t0;
-      st.timer = setTimeout(() => void tick(), SAMPLER_INTERVAL_MS);
-      st.timer.unref?.();
-    }
+    st.current = (async () => {
+      try {
+        await sampleOnce(st);
+      } catch (e) {
+        log(50, "sampler: tick failed", { err: errText(e) });
+      } finally {
+        st.running = false;
+        st.current = undefined;
+        st.lastTickAt = Date.now();
+        st.lastTickMs = st.lastTickAt - t0;
+        arm(nextSyncDelay({ lastActiveAt: lastActiveAt(), pending: st.pending ?? 0, intervalMs: syncMs(), now: Date.now() }));
+      }
+    })();
+    return st.current;
   };
+  // Someone came back, or made a change: sync now (or shortly), unless one is running or due sooner anyway.
+  onWake((delay) => {
+    if (st.current) return;
+    if (st.nextAt !== undefined && st.nextAt <= Date.now() + delay) return;
+    arm(delay);
+  });
+  st.tickNow = tick;
+  // Following another console's switch of the AWS connection is a database read, not AWS: it keeps its 30-second pace
+  // even while the sync is paused (docs/configuration.md), so a change planned against the old account is still refused.
+  setInterval(() => void import("./connection.ts").then((c) => c.syncConnection()).catch(() => {}), SAMPLER_INTERVAL_MS).unref?.();
   void tick();
+}
+
+// "Refresh now": drop the cached AWS reads and run a full background sync, waiting for it (a sync already running is
+// joined, not repeated). The route rate-limits it.
+export async function syncNow(): Promise<{ syncedAt: number }> {
+  for (const prefix of ["svc:", "hosts:", "dbs:", "caches:", "tgh:", "lb:", "revs:", "events:", "discovery:", "runs:"]) invalidate(prefix);
+  const st = shared.sampler;
+  if (st?.tickNow) await st.tickNow();
+  return { syncedAt: st?.lastTickAt ?? Date.now() };
 }
 
 async function sampleOnce(st: SamplerState) {
@@ -971,7 +1014,10 @@ async function sampleOnce(st: SamplerState) {
   } catch (e) {
     log(40, "sampler: host reservations not reconciled", { err: errText(e) });
   }
-  await verifyOperations(envs).catch((e) => log(40, "sampler: operation verification failed", { err: errText(e) }));
+  st.pending = await verifyOperations(envs).catch((e) => {
+    log(40, "sampler: operation verification failed", { err: errText(e) });
+    return st.pending ?? 0;
+  });
   if (!st.prunedAt || Date.now() - st.prunedAt > 3600_000) {
     st.prunedAt = Date.now();
     await getDb()
@@ -1009,7 +1055,7 @@ async function sampleEnv(env: EnvInfo) {
 
 // The spans during which the sampler observed an env, persisted so a restart can tell observed time from downtime.
 function observed(envId: string, t: number) {
-  const next = extendSpans(spans.get(envId) ?? [], t, LIMITS.samplerStaleIntervals * SAMPLER_INTERVAL_MS);
+  const next = extendSpans(spans.get(envId) ?? [], t, LIMITS.samplerStaleIntervals * syncMs());
   spans.set(envId, next);
   void getDb()
     .then((db) => db.run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", [`observed:${envId}`, JSON.stringify(next)]))
@@ -1052,24 +1098,29 @@ async function restoreHistory(env: EnvInfo) {
 
 // "AWS accepted" → verified (REVIEW): ECS operations of the last hour whose service is steady on the new state are
 // marked verified; ones that failed a rollout or didn't settle within 15 minutes, failed.
-async function verifyOperations(envs: EnvInfo[]) {
+// Answers how many are still waiting, so the sampler keeps its 30-second pace until they settle.
+async function verifyOperations(envs: EnvInfo[]): Promise<number> {
   const now = Date.now();
   const rows = await (await getDb()).all<OpRow>(
     `SELECT id, action, actor, env, region, targets, params, state, verify, error, created_at FROM operations WHERE state = 'succeeded' AND verify IS NULL AND created_at > ? AND ${VERIFIED_ACTION_SQL} ORDER BY created_at LIMIT 100`,
     // Not before the current AWS account (or home region) took over: an earlier one's same-named services aren't these.
     [Math.max(now - 3600_000, connectionState().scope?.since ?? 0)],
   );
+  let waiting = 0;
   for (const r of rows) {
     if (!VERIFIED_ACTION.test(r.action)) continue;
     const target = ecsServicesOf(parseJson<{ keys?: unknown }>(r.targets)?.keys)[0];
     const env = target && envs.find((e) => e.region === target.region && e.cluster === target.cluster);
-    if (!target || !env) continue;
+    if (!target || !env) continue; // nothing this console can check: never holds the 30-second pace
+    waiting++;
     const list = await settle(servicesRaw(env));
     const svc = list.ok ? list.value.value.find((s) => s.name === target.service) : null;
     const v = verifyOutcome({ action: r.action, createdAt: Number(r.created_at), params: parseJson<Record<string, unknown>>(r.params) }, svc, now);
     if (v.result === "verified") await markVerified(r.id, true);
     else if (v.result === "failed") await markVerified(r.id, false, v.detail);
+    if (v.result === "verified" || v.result === "failed") waiting--;
   }
+  return waiting;
 }
 
 // Hosts launched for a cluster that never joined it (R23; b-provisioning marks the reservation failed): issues for

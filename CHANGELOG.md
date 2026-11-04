@@ -14,6 +14,13 @@ First public version (0.1.0). What the console can do today:
   database ingress rule and a GitHub Actions role. **`.github/workflows/deploy.yml`** deploys the console after CI
   passes on master (OIDC, no keys; idle until `AWS_DEPLOY_ROLE_ARN` is set). **`CONSOLE_CONFIG_JSON`** carries the
   config file's content in a variable, so containers change it without a new image.
+- **Background sync follows who's using the console**: every `CONSOLE_SYNC_MINUTES` (default 5) while someone is signed
+  in and active, paused after 15 minutes with nobody, and at once on the first request after that. A change being
+  verified still gets its 30-second checks until it settles. **Refresh now** on the overview drops cached AWS reads and
+  syncs at once (`POST /api/sync`, once per 15 s); `GET /api/sync` shows the last and next sync. Pages you have open still
+  read AWS live. The CI watcher follows the same pace.
+- **Cloud map refresh** within 20 s of the last one now says "Refreshed a moment ago" instead of reporting a
+  re-discovery that didn't happen (the server answers the current map inside that gap).
 - **Two-step sign-in with an authenticator app**, on by default (`CONSOLE_MFA=required`): every password sign-in also
   needs a 6-digit code (RFC 6238), set up with a QR code at the first sign-in, setup or invite, with 10 single-use
   recovery codes. Codes can't be replayed; wrong codes lock the step (5 per 15 minutes, 20 a day per account); the

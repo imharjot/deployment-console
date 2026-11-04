@@ -16,6 +16,7 @@ import { API_TOKENS_OFF, apiTokensEnabled, bearerToken, isAgentBearer, tokenRout
 import { devHostProblem } from "@/lib/dev-host";
 import { authConfig, authMode, publicOrigin, secureRequest } from "@/lib/server/auth/config";
 import { resolveAgentTokenIdentity, resolveIdentity, resolveTokenIdentity } from "@/lib/server/auth/resolve";
+import { markActive } from "@/lib/server/presence";
 
 // Reachable without a session. Every /api/auth route checks what it needs itself (login, logout, setup, invite, SSO).
 const PUBLIC_PAGE = /^\/(login|setup|invite\/[^/]+)\/?$/;
@@ -160,6 +161,7 @@ export async function proxy(req: NextRequest) {
   // Already signed in: the sign-in pages have nothing to do.
   if (read && (path === "/login" || path === "/setup")) return redirect(req, safeNext(req.nextUrl.searchParams.get("next")));
 
+  markActive(!read); // a person is using the console: the background sync keeps its pace (src/lib/sync-rules.ts)
   headers.set("x-console-user-id", id.user.id);
   headers.set("x-console-user-email", id.user.email);
   headers.set("x-console-user-role", id.user.role);

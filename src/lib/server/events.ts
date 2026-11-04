@@ -12,6 +12,8 @@ import { getDb } from "./db.ts";
 import { knownRepos, listEnvs } from "./discovery.ts";
 import { connectionState } from "./connection-state.ts";
 import { errText } from "./errors.ts";
+import { lastActiveAt } from "./presence.ts";
+import { isActive, syncIntervalMs } from "../sync-rules.ts";
 import { configOf, pruneDeliveries, readAll, recordDelivery } from "./plugins/store.ts";
 
 // ---------- deep links ----------
@@ -162,7 +164,13 @@ export function startCiWatcher() {
   const started = Date.now();
   // A repo seen for the first time starts at the watcher's start or the last switch of the AWS connection, whichever is
   // later: a new account's (or the demo's) earlier failures are never announced.
+  // Paced like the AWS sync (src/lib/sync-rules.ts): every CONSOLE_SYNC_MINUTES while someone uses the console, not at all
+  // otherwise. Failures that happen meanwhile are announced at the next check (the high-water marks are persisted).
+  let lastCheck = 0;
   const tick = () => {
+    const now = Date.now();
+    if (lastCheck && (!isActive(lastActiveAt(), now) || now - lastCheck < syncIntervalMs(process.env) - 1_000)) return;
+    lastCheck = now;
     checkCi(Math.max(started, connectionState().switchedAt ?? 0)).catch((e) => console.error(JSON.stringify({ level: 40, msg: "ci watcher failed", err: errText(e) })));
   };
   w.__consoleCiWatcher = setInterval(tick, 60_000);

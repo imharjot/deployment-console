@@ -28,7 +28,7 @@ input.
 
 | Operation | Risk | Role | What it does |
 |---|---|---|---|
-| `envs.list` | read | viewer | Every discovered environment: id, label, protected, region, cluster, branch, worst state and per-state counts, and when the sampler last read it (`stale` when not sampled for 90 s: worst state unknown). |
+| `envs.list` | read | viewer | Every discovered environment: id, label, protected, region, cluster, branch, worst state and per-state counts, and when the sampler last read it (`stale` when not synced for three background sync intervals, 15 minutes by default, or while the sync is paused: worst state unknown). |
 | `envs.status` | read | viewer | One environment's services, hosts, databases, caches and load balancer: state, reasons, running/desired tasks, revision, image tag and sha, rollout in progress, what can be done now. Problems first. |
 | `issues.list` | read | viewer | Everything down, degraded or unreadable across all environments, worst first, with reasons and since when; also stale environments and EC2 hosts that never joined their cluster. |
 
